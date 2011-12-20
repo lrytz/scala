@@ -212,4 +212,239 @@ trait Unapplies extends ast.TreeDSL
       ))
     }
   }
+
+  /**
+   * Creates a Loc location class for a case class definition.
+   *
+   * class CLoc[T, P <: Loc[T, _, _]](v: C, f: C => Option[P]) extends Loc[T, C, P](v, f) { self =>
+   *   override def copy(v: C) = new CLoc[T, P](v, f)
+   * }
+   *
+   */
+  def addLocationClass(cdef: ClassDef): ClassDef = {
+    import gen.scalaDot
+
+    val locName = newTypeName("Loc")
+    val selfName = newTermName("self")
+
+    val selfSym = ValDef (
+      Modifiers(SYNTHETIC),
+      selfName,
+      TypeTree(),
+      EmptyTree
+    )
+
+    val tName = newTypeName("T")
+    val pName = newTypeName("P")
+
+    val _1Name = newTypeName("_$1")
+    val _2Name = newTypeName("_$2")
+
+    def unbounded = TypeBoundsTree(scalaDot(nme.Nothing.toTypeName), scalaDot(nme.Any.toTypeName))
+
+    def existentialQual(t: Tree) =
+      ExistentialTypeTree(t, List(
+        TypeDef(Modifiers(DEFERRED | SYNTHETIC), _1Name, Nil, unbounded),
+        TypeDef(Modifiers(DEFERRED | SYNTHETIC), _2Name, Nil, unbounded)))
+
+    val tparams = List(
+      TypeDef(
+        Modifiers(PARAM),
+        tName,
+        Nil,
+        unbounded),
+      TypeDef(
+        Modifiers(PARAM),
+        pName,
+        Nil,
+        TypeBoundsTree( // P >: Nothing <: Loc[T, _, _]
+          scalaDot(nme.Nothing.toTypeName),
+          existentialQual(AppliedTypeTree(
+            scalaDot(locName),
+            List(Ident(tName), Ident(_1Name), Ident(_2Name)))))))
+
+    val vName = newTermName("v")
+    val fName = newTermName("f")
+
+    val optionName = newTypeName("Option")
+
+    val fType = AppliedTypeTree(
+      scalaDot(nme.Function1.toTypeName),
+      List(
+        Ident(cdef.name.toTypeName),
+        AppliedTypeTree(scalaDot(optionName), List(Ident(pName)))))
+
+    val vparamss = List(
+      ValDef(
+        Modifiers(SYNTHETIC | PARAMACCESSOR | PRIVATE | LOCAL),
+        vName,
+        Ident(cdef.name),
+        EmptyTree) ::
+      ValDef(
+        Modifiers(SYNTHETIC | PARAMACCESSOR | PRIVATE | LOCAL),
+        fName,
+        fType,
+        EmptyTree) ::
+      Nil
+    )
+
+    val parents = List(
+      AppliedTypeTree(scalaDot(locName), List(Ident(tName), Ident(cdef.name), Ident(pName))),
+      gen.scalaScalaObjectConstr)
+
+    val superArgss = List(Ident(vName) :: Ident(fName) :: Nil)
+
+    val classLocName = newTypeName(cdef.name + "Loc")
+
+    // def copy(v: C) = new CLoc[P, T](v, f)
+    val copyDef = DefDef(
+      Modifiers(OVERRIDE),
+      newTermName("copy"),
+      Nil,
+      List(ValDef(
+        Modifiers(PARAM),
+        vName,
+        Ident(cdef.name),
+        EmptyTree) :: Nil),
+      TypeTree(),
+      Apply(
+        Select(
+          New(AppliedTypeTree(
+            Ident(classLocName),
+            List(Ident(tName), Ident(pName)))),
+          nme.CONSTRUCTOR),
+        List(Ident(vName), Ident(fName))))
+
+    ClassDef(
+      Modifiers(cdef.mods.flags & AccessFlags | SYNTHETIC, cdef.mods.privateWithin),
+      classLocName,
+      tparams,
+      // parents, selfSym, constrMods, vparamss, superArgss, body, superPos
+      Template(parents, selfSym, NoMods, vparamss, superArgss, List(copyDef), cdef.impl.pos.focus)
+    )
+  }
+
+
+  /**
+   * For every parameter of the case class, creates a method which returns
+   * the location of that parameter.
+   *
+   * This method is called during the type completer of the Loc class, which allows
+   * looking at the symbol / type of the ClassDef.
+   *
+   * If the field is another case class with @zip:
+   *   def fld: FldTpeLoc[T, CLoc[T, P]] = new FldTpeLoc[T, CLoc[T, P]](v.fld, (fld: FldTpe) => {
+   *     Some(self.copy(v.copy(fld = fld)))
+   *   })
+   *
+   * otherwise:
+   *   def fld: Loc[T, FldTpe, CLoc[T, P]] = new Loc[T, FldTpe, CLoc[T, P]](v.fld, (fld: FldTpe) => {
+   *     Some(self.copy(v.copy(fld = fld)))
+   *   })
+
+   *
+   */
+  def addLocationGetters(cdef: ClassDef): List[DefDef] = {
+
+    val locName = newTypeName("Loc")
+    val selfName = newTermName("self")
+
+    val tName = newTypeName("T")
+    val pName = newTypeName("P")
+
+    val vName = newTermName("v")
+
+    val classLocName = newTypeName(cdef.name + "Loc")
+
+    val c = cdef.symbol.primaryConstructor
+    val ps = c.paramss.flatten
+
+    ps map (p => {
+      val name = p.name
+      val paramType = p.tpe
+      val paramTypeTree = TypeTree(paramType)
+
+      val args = List(
+        Select(Ident(vName), name),
+        Function(
+          List(ValDef(
+            Modifiers(PARAM),
+            name,
+            paramTypeTree,
+            EmptyTree)),
+          Apply(
+            Ident(nme.Some),
+            List(Apply(
+              Select(Ident(selfName), newTermName("copy")),
+              List(Apply(
+                Select(Ident(vName), nme.copy),
+                List(AssignOrNamedArg(Ident(name), Ident(name))))))))))
+
+      if (paramType.typeSymbol.hasAnnotation(ZipAttr)) {
+        val paramLocClass = paramType.typeSymbol.owner.info.member(newTypeName(paramType.typeSymbol.name + "Loc"))
+        val resType = AppliedTypeTree(
+          gen.mkAttributedRef(paramLocClass), // @TODO: use same prefix as paramType (see namesDefaults for how to do it)
+          List(Ident(tName), AppliedTypeTree(Ident(classLocName), List(Ident(tName), Ident(pName)))))
+        DefDef(
+          NoMods,
+          name,
+          Nil,
+          Nil,
+          resType.duplicate,
+          Apply(
+            Select(
+              New(resType),
+              nme.CONSTRUCTOR),
+            args))
+      } else {
+        val resType = AppliedTypeTree(
+          Ident(locName),
+          List(Ident(tName), paramTypeTree, AppliedTypeTree(Ident(classLocName), List(Ident(tName), Ident(pName)))))
+
+        DefDef(
+          NoMods,
+          name,
+          Nil,
+          Nil,
+          resType.duplicate,
+          Apply(
+            Select(
+              New(resType),
+              nme.CONSTRUCTOR),
+            args))
+      }
+    })
+  }
+
+  /**
+   * Adds a methods "loc" to case classes which returns
+   * the location.
+   *
+   *   def loc = new CLoc[C, Nothing](this, v => None)
+   */
+  def addLocMethod(cdef: ClassDef): DefDef = {
+    val classLocName = newTypeName(cdef.name + "Loc")
+
+    DefDef(
+      NoMods,
+      newTermName("loc"),
+      Nil,
+      Nil,
+      TypeTree(),
+      Apply(
+        Select(
+          New(AppliedTypeTree(
+            Ident(classLocName),
+            List(Ident(cdef.name), Ident(nme.Nothing.toTypeName)))),
+          nme.CONSTRUCTOR),
+        List(
+          This(nme.EMPTY.toTypeName),
+          Function(
+            List(ValDef(
+              Modifiers(PARAM),
+              newTermName("v"),
+              TypeTree(),
+              EmptyTree)),
+            Ident(newTermName("None"))))))
+  }
 }

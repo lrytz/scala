@@ -50,6 +50,9 @@ trait Namers { self: Analyzer =>
   // is stored in this map.
   private[typechecker] val caseClassOfModuleClass = new HashMap[Symbol, ClassDef]
 
+  // @TODO: doc
+  private[typechecker] val classDefOfLocClass = new HashMap[Symbol, ClassDef]
+
   // Default getters of constructors are added to the companion object in the
   // typeCompleter of the constructor (methodSig). To compute the signature,
   // we need the ClassDef. To create and enter the symbols into the companion
@@ -60,6 +63,7 @@ trait Namers { self: Analyzer =>
 
   def resetNamer() {
     caseClassOfModuleClass.clear
+    classDefOfLocClass.clear
     classAndNamerOfModule.clear
   }
 
@@ -367,6 +371,12 @@ trait Namers { self: Analyzer =>
               val m = ensureCompanionObject(tree, companionModuleDef(tree))
               classAndNamerOfModule(m) = (tree, null)
             }
+
+            if (mods.annotations.exists(isAnnotation(_, "zip"))) {
+              val s = enterSyntheticSym(addLocationClass(tree))
+              classDefOfLocClass(s) = tree
+            }
+
           case tree @ ModuleDef(mods, name, _) =>
             tree.symbol = enterModuleSymbol(tree)
             sym.moduleClass setInfo namerOf(sym).moduleClassTypeCompleter(tree)
@@ -471,17 +481,18 @@ trait Namers { self: Analyzer =>
     def enterAccessorMethod(tree: Tree, name: Name, flags: Long, mods: Modifiers): TermSymbol =
       enterNewMethod(tree, name, flags, mods, tree.pos.focus)
 
-    private def addBeanGetterSetter(vd: ValDef, getter: Symbol) {
-      def isAnn(ann: Tree, demand: String) = ann match {
+    def isAnnotation(ann: Tree, requiredName: String) = ann match {
         case Apply(Select(New(Ident(name)), _), _) =>
-          name.toString == demand
+        name.toString == requiredName
         case Apply(Select(New(Select(pre, name)), _), _) =>
-          name.toString == demand
+        name.toString == requiredName
         case _ => false
       }
+
+    private def addBeanGetterSetter(vd: ValDef, getter: Symbol) {
       val ValDef(mods, name, tpt, _) = vd
-      val hasBP = mods.annotations.exists(isAnn(_, "BeanProperty"))
-      val hasBoolBP = mods.annotations.exists(isAnn(_, "BooleanBeanProperty"))
+      val hasBP = mods.annotations.exists(isAnnotation(_, "BeanProperty"))
+      val hasBoolBP = mods.annotations.exists(isAnnotation(_, "BooleanBeanProperty"))
       if ((hasBP || hasBoolBP) && !forMSIL) {
         if (!name(0).isLetter)
           context.error(vd.pos, "`BeanProperty' annotation can be applied "+
@@ -741,8 +752,19 @@ trait Namers { self: Analyzer =>
                     !parents.exists(p => hasCopy(p.typeSymbol.info.decls)) &&
                     !parents.flatMap(_.baseClasses).distinct.exists(bc => hasCopy(bc.info.decls)))
               addCopyMethod(cdef, templateNamer)
+
+            if (cdef.mods.annotations.exists(isAnnotation(_, "zip")))
+              templateNamer.enterSyntheticSym(addLocMethod(cdef))
+
           case None =>
         }
+      }
+
+      Namers.this.classDefOfLocClass get clazz match {
+        case Some(cdef) =>
+          addLocationGetters(cdef) foreach (templateNamer.enterSyntheticSym(_))
+          classDefOfLocClass -= clazz
+        case None =>
       }
 
       // if default getters (for constructor defaults) need to be added to that module, here's the namer
