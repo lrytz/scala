@@ -1423,7 +1423,7 @@ trait Types extends api.Types { self: SymbolTable =>
     // parents forall (p => p.isNullable && !p.typeSymbol.isAbstractType);
 
     override def safeToString: String =
-      parents.mkString(" with ") +
+      parents.mkString("(", " with ", ")") +
       (if (settings.debug.value || parents.isEmpty || (decls.elems ne null))
         decls.mkString("{", "; ", "}") else "")
   }
@@ -2966,7 +2966,7 @@ A type's typeSymbol should never be inspected directly.
    *  where `tpe1` is the result of extrapolating `tpe` wrt to `tparams`. Extrapolating means
    *  that type variables in `tparams` occurring in covariant positions are replaced by upper bounds,
    *  (minus any SingletonClass markers),
-   *  type variables in `tparams` occurring in contravariant positions are replaced by upper bounds,
+   *  type variables in `tparams` occurring in contravariant positions are replaced by lower bounds,
    *  provided the resulting type is legal wrt to stability, and does not contain any
    *  type variable in `tparams`.
    *  The abstraction drops all type parameters that are not directly or indirectly
@@ -3560,7 +3560,7 @@ A type's typeSymbol should never be inspected directly.
                     pre.typeSymbol.name.toTermName).setInfo(pre)  // what symbol should really be used?
                 gen.mkAttributedQualifier(pre, termSym)
               } else
-                giveup()
+                tree
 
             case tree => tree
           }
@@ -3793,8 +3793,15 @@ A type's typeSymbol should never be inspected directly.
           else
             None
 
-        override def transform(tree: Tree) =
-          tree match {
+        override def transform(tree: Tree) = {
+          termMapsTo(tree.symbol) match {
+            case Some(tosym) => tree.symbol = tosym
+            case None => ()
+          }
+          super.transform(tree)
+        }
+// @LUC TODO: I have no idea what this code is supposed to achieve...
+/*          tree match {
             case tree@Ident(_) =>
               termMapsTo(tree.symbol) match {
                 case Some(tosym) =>
@@ -3810,6 +3817,7 @@ A type's typeSymbol should never be inspected directly.
               }
             case tree => super.transform(tree)
           }
+*/
       }
       trans.transform(tree)
     }
@@ -5602,6 +5610,7 @@ A type's typeSymbol should never be inspected directly.
         }
       existentialAbstraction(tparams, lubType)
     }
+    annotsInferMode {
     if (printLubs) {
       println(indent + "lub of " + ts + " at depth "+depth)//debug
       indent = indent + "  "
@@ -5613,6 +5622,7 @@ A type's typeSymbol should never be inspected directly.
       println(indent + "lub of " + ts + " is " + res)//debug
     }
     if (ts forall (_.isNotNull)) res.notNull else res
+    }
   }
 
   val GlbFailure = new Throwable
@@ -5748,6 +5758,8 @@ A type's typeSymbol should never be inspected directly.
           else NothingClass.tpe
       }
     }
+
+    annotsInferMode {
     // if (settings.debug.value) { println(indent + "glb of " + ts + " at depth "+depth); indent = indent + "  " } //DEBUG
 
     val res = glb0(ts)
@@ -5755,6 +5767,7 @@ A type's typeSymbol should never be inspected directly.
     // if (settings.debug.value) { indent = indent.substring(0, indent.length() - 2); log(indent + "glb of " + ts + " is " + res) }//DEBUG
 
     if (ts exists (_.isNotNull)) res.notNull else res
+    }
   }
 
   /** The most deeply nested owner that contains all the symbols
@@ -5863,7 +5876,7 @@ A type's typeSymbol should never be inspected directly.
   /** Make symbol `sym` a member of scope `tp.decls`
    *  where `thistp` is the narrowed owner type of the scope.
    */
-  def addMember(thistp: Type, tp: Type, sym: Symbol) {
+  def addMember(thistp: Type, tp: Type, sym: Symbol): Unit = annotsInferMode {
     assert(sym != NoSymbol)
     // debuglog("add member " + sym+":"+sym.info+" to "+thistp) //DEBUG
     if (!(thistp specializes sym)) {

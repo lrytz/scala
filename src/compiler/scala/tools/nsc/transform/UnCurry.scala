@@ -236,6 +236,13 @@ abstract class UnCurry extends InfoTransform
      *      def isDefinedAt(x: T): boolean = true
      */
     def transformFunction(fun: Function): Tree = {
+      fun.tpe match {
+        case RefinedType(List(funTp), decls) =>
+          fun.tpe = funTp
+        case _ =>
+          ()
+      }
+
       val fun1 = deEta(fun)
       def owner = fun.symbol.owner
       def targs = fun.tpe.typeArgs

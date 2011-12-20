@@ -17,6 +17,26 @@ trait AnnotationCheckers {
    *  Typically these are registered by compiler plugins
    *  with the addAnnotationChecker method. */
   abstract class AnnotationChecker {
+    /**
+     * If this field is overridden to be true, the type checker will
+     * never issue a type error when `annotationsConform` returns false.
+     * However, this AnnotationChecker is still used for threading annotations
+     * through the type system, namely in LUB, GLB and classBound.
+     */
+    val inferenceOnly = false
+    
+    /**
+     * Local infer mode: enable this `inferOnly` AnnotationChecker for `op`  
+     */
+    def localInferMode[T](op: => T): T = {
+      _inferMode += 1
+      val res = op
+      _inferMode -= 1
+      res
+    }
+    private var _inferMode: Int = 0
+    def inferMode = _inferMode
+
     /** Check the annotations on two types conform. */
     def annotationsConform(tpe1: Type, tpe2: Type): Boolean
 
@@ -47,10 +67,26 @@ trait AnnotationCheckers {
      *  before. If the implementing class cannot do the adaptiong, it
      *  should return the tree unchanged.*/
     def adaptAnnotations(tree: Tree, mode: Int, pt: Type): Tree = tree
+    
+    /**
+     * bla blabla bla
+     */
+    def packedTypeAdaptAnnotations(tree: Tree, owner: Symbol): Tree = tree
   }
 
   /** The list of annotation checkers that have been registered */
   private var annotationCheckers: List[AnnotationChecker] = Nil
+
+  /**
+   * Global infer mode: enable all `inferOnly` AnnotationCheckers for `op`.
+   */
+  def annotsInferMode[T](op: => T): T = {
+    inferMode += 1
+    val res = op
+    inferMode -= 1
+    res
+  }
+  private var inferMode: Int = 0
 
   /** Register an annotation checker.  Typically these
    *  are added by compiler plugins. */
@@ -70,9 +106,9 @@ trait AnnotationCheckers {
     /* Finish quickly if there are no annotations */
     if (tp1.annotations.isEmpty && tp2.annotations.isEmpty)
       true
-    else
-     annotationCheckers.forall(
-       _.annotationsConform(tp1,tp2))
+    else annotationCheckers.forall(c => {
+      inferMode == 0 && c.inferMode == 0 && c.inferenceOnly || c.annotationsConform(tp1, tp2)
+    })
   }
 
   /** Refine the computed least upper bound of a list of types.
@@ -116,5 +152,10 @@ trait AnnotationCheckers {
   def adaptAnnotations(tree: Tree, mode: Int, pt: Type): Tree = {
     annotationCheckers.foldLeft(tree)((tree, checker) =>
       checker.adaptAnnotations(tree, mode, pt))
+  }
+  
+  def packedTypeAdaptAnnotations(tree: Tree, owner: Symbol): Tree = {
+    annotationCheckers.foldLeft(tree)((tree, checker) =>
+      checker.packedTypeAdaptAnnotations(tree, owner))
   }
 }

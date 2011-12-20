@@ -581,7 +581,8 @@ trait Trees /*extends reflect.generic.Trees*/ { self: Universe =>
     * TypeTree's. */
   case class TypeTree() extends TypTree {
     private var orig: Tree = null
-    private[scala] var wasEmpty: Boolean = false
+     private var _wasEmpty = false
+     def wasEmpty: Boolean = _wasEmpty
 
     override def symbol = if (tpe == null) null else tpe.typeSymbol
     override def isEmpty = (tpe eq null) || tpe == NoType
@@ -598,7 +599,7 @@ trait Trees /*extends reflect.generic.Trees*/ { self: Universe =>
     }
 
     override def defineType(tp: Type): this.type = {
-      wasEmpty = isEmpty
+      _wasEmpty = isEmpty
       setType(tp)
     }
   }

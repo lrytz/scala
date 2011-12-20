@@ -213,7 +213,7 @@ class IMain(initialSettings: Settings, protected val out: JPrintWriter) extends 
   import memberHandlers._
 
   def atPickler[T](op: => T): T = atPhase(currentRun.picklerPhase)(op)
-  def afterTyper[T](op: => T): T = atPhase(currentRun.typerPhase.next)(op)
+  def afterTyper[T](op: => T): T = atPhase(currentRun.picklerPhase)(op)
 
   /** Temporarily be quiet */
   def beQuietDuring[T](body: => T): T = {
@@ -763,7 +763,7 @@ class IMain(initialSettings: Settings, protected val out: JPrintWriter) extends 
     def compile(source: String): Boolean = compileAndSaveRun("<console>", source)
     def lineAfterTyper[T](op: => T): T = {
       assert(lastRun != null, "Internal error: trying to use atPhase, but Run is null." + this)
-      atPhase(lastRun.typerPhase.next)(op)
+      atPhase(lastRun.picklerPhase)(op)
     }
 
     /** The innermost object inside the wrapper, found by
