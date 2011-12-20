@@ -189,7 +189,7 @@ trait NamesDefaults { self: Analyzer =>
         if (pre == NoType) {
           None
         } else {
-          val module = companionModuleOf(baseFun.symbol.owner, context)
+          val module = companionSymbolOf(baseFun.symbol.owner, context)
           if (module == NoSymbol) None
           else {
             val ref = atPos(pos.focus)(gen.mkAttributedRef(pre, module))
@@ -217,22 +217,22 @@ trait NamesDefaults { self: Analyzer =>
 
         case Select(New(tp @ Select(qual, _)), _) if isConstr =>
           // in `new q.C()', q is always stable
-          assert(treeInfo.isPureExpr(qual), qual)
+          assert(treeInfo.isExprSafeToInline(qual), qual)
           // 'moduleQual' fixes #2057
           blockWithoutQualifier(moduleQual(tp.pos, tp.tpe))
         case Select(TypeApply(New(tp @ Select(qual, _)), _), _) if isConstr =>
-          assert(treeInfo.isPureExpr(qual), qual)
+          assert(treeInfo.isExprSafeToInline(qual), qual)
           blockWithoutQualifier(moduleQual(tp.pos, tp.tpe))
 
         // super constructor calls
         case Select(sp @ Super(_, _), _) if isConstr =>
           // 'moduleQual' fixes #3207. selection of the companion module of the
-          // superclass needs to have the same prefix as the the superclass.
+          // superclass needs to have the same prefix as the superclass.
           blockWithoutQualifier(moduleQual(baseFun.pos, sp.symbol.tpe.parents.head))
 
         // self constructor calls (in secondary constructors)
         case Select(tp, name) if isConstr =>
-          assert(treeInfo.isPureExpr(tp), tp)
+          assert(treeInfo.isExprSafeToInline(tp), tp)
           blockWithoutQualifier(moduleQual(tp.pos, tp.tpe))
 
         // other method calls
@@ -241,7 +241,7 @@ trait NamesDefaults { self: Analyzer =>
           blockWithoutQualifier(None)
 
         case Select(qual, name) =>
-          if (treeInfo.isPureExpr(qual))
+          if (treeInfo.isExprSafeToInline(qual))
             blockWithoutQualifier(Some(qual.duplicate))
           else
             blockWithQualifier(qual, name)
@@ -414,7 +414,7 @@ trait NamesDefaults { self: Analyzer =>
     if (i > 0) {
       val defGetterName = nme.defaultGetterName(param.owner.name, i)
       if (param.owner.isConstructor) {
-        val mod = companionModuleOf(param.owner.owner, context)
+        val mod = companionSymbolOf(param.owner.owner, context)
         mod.info.member(defGetterName)
       }
       else {

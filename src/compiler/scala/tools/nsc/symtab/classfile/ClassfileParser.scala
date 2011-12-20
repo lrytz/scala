@@ -54,6 +54,8 @@ abstract class ClassfileParser {
   }
 
   def parse(file: AbstractFile, root: Symbol) = try {
+    debuglog("[class] >> " + root.fullName)
+
     def handleMissing(e: MissingRequirementError) = {
       if (settings.debug.value) e.printStackTrace
       throw new IOException("Missing dependency '" + e.req + "', required by " + in.file)
@@ -82,7 +84,6 @@ abstract class ClassfileParser {
         println("Skipping class: " + root + ": " + root.getClass)
     }
 */
-    debuglog("parsing " + file.name)
     this.in = new AbstractFileReader(file)
     if (root.isModule) {
       this.clazz = root.companionClass
@@ -569,10 +570,7 @@ abstract class ClassfileParser {
              (sflags & INTERFACE) == 0L))
           {
             //Console.println("adding constructor to " + clazz);//DEBUG
-            instanceDefs.enter(
-              clazz.newConstructor(NoPosition)
-              .setFlag(clazz.flags & ConstrFlags)
-              .setInfo(MethodType(List(), clazz.tpe)))
+            instanceDefs enter clazz.newClassConstructor(NoPosition)
           }
         ()
       } :: loaders.pendingLoadActions
@@ -624,7 +622,7 @@ abstract class ClassfileParser {
         // need to give singleton type
         sym setInfo info.narrow
         if (!sym.superClass.isSealed)
-          sym.superClass setFlag (SEALED | ABSTRACT)
+          sym.superClass setFlag SEALED
 
         sym.superClass addChild sym
       }
@@ -871,7 +869,7 @@ abstract class ClassfileParser {
           in.skip(attrLen)
         case tpnme.DeprecatedATTR =>
           val arg = Literal(Constant("see corresponding Javadoc for more information."))
-          sym addAnnotation AnnotationInfo(definitions.DeprecatedAttr.tpe, List(arg, Literal(Constant(""))), Nil)
+          sym.addAnnotation(definitions.DeprecatedAttr, arg, Literal(Constant("")))
           in.skip(attrLen)
         case tpnme.ConstantValueATTR =>
           val c = pool.getConstant(in.nextChar)
@@ -892,7 +890,7 @@ abstract class ClassfileParser {
           this.hasMeta = true
          // Attribute on methods of java annotation classes when that method has a default
         case tpnme.AnnotationDefaultATTR =>
-          sym.addAnnotation(AnnotationInfo(definitions.AnnotationDefaultAttr.tpe, List(), List()))
+          sym.addAnnotation(definitions.AnnotationDefaultAttr)
           in.skip(attrLen)
         // Java annotations on classes / methods / fields with RetentionPolicy.RUNTIME
         case tpnme.RuntimeAnnotationATTR =>
@@ -907,8 +905,9 @@ abstract class ClassfileParser {
                 case None =>
                   throw new RuntimeException("Scala class file does not contain Scala annotation")
               }
-            debuglog("" + sym + "; annotations = " + sym.rawAnnotations)
-          } else
+            debuglog("[class] << " + sym.fullName + sym.annotationsString)
+          }
+          else
             in.skip(attrLen)
 
         // TODO 1: parse runtime visible annotations on parameters
@@ -1036,9 +1035,7 @@ abstract class ClassfileParser {
       val nClasses = in.nextChar
       for (n <- 0 until nClasses) {
         val cls = pool.getClassSymbol(in.nextChar.toInt)
-        sym.addAnnotation(AnnotationInfo(definitions.ThrowsClass.tpe,
-                                         Literal(Constant(cls.tpe)) :: Nil,
-                                         Nil))
+        sym.addAnnotation(definitions.ThrowsClass, Literal(Constant(cls.tpe)))
       }
     }
 
@@ -1230,9 +1227,7 @@ abstract class ClassfileParser {
 
   class LazyAliasType(alias: Symbol) extends LazyType {
     override def complete(sym: Symbol) {
-      alias.initialize
-      val tparams1 = cloneSymbols(alias.typeParams)
-      sym.setInfo(typeFun(tparams1, alias.tpe.substSym(alias.typeParams, tparams1)))
+      sym setInfo createFromClonedSymbols(alias.initialize.typeParams, alias.tpe)(typeFun)
     }
   }
 
@@ -1262,7 +1257,7 @@ abstract class ClassfileParser {
   protected def getScope(flags: Int): Scope =
     if (isStatic(flags)) staticDefs else instanceDefs
 
-   private def setPrivateWithin(sym: Symbol, jflags: Int) {
+  private def setPrivateWithin(sym: Symbol, jflags: Int) {
     if ((jflags & (JAVA_ACC_PRIVATE | JAVA_ACC_PROTECTED | JAVA_ACC_PUBLIC)) == 0)
       // See ticket #1687 for an example of when topLevelClass is NoSymbol: it
       // apparently occurs when processing v45.3 bytecode.

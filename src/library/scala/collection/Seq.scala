@@ -6,8 +6,6 @@
 **                          |/                                          **
 \*                                                                      */
 
-
-
 package scala.collection
 
 import generic._
@@ -27,17 +25,16 @@ trait Seq[+A] extends PartialFunction[Int, A]
 }
 
 /** $factoryInfo
- *  The current default implementation of a $Coll is a `Vector`.
+ *  The current default implementation of a $Coll is a `List`.
  *  @define coll sequence
  *  @define Coll Seq
  */
 object Seq extends SeqFactory[Seq] {
-
-  private[collection] val hashSeed = "Seq".hashCode
-
   /** $genericCanBuildFromInfo */
   implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, Seq[A]] = ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
 
   def newBuilder[A]: Builder[A, Seq[A]] = immutable.Seq.newBuilder[A]
 }
 
+/** Explicit instantiation of the `Seq` trait to reduce class file size in subclasses. */
+private[scala] abstract class AbstractSeq[+A] extends AbstractIterable[A] with Seq[A]

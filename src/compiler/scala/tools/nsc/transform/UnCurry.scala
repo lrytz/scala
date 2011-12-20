@@ -80,6 +80,12 @@ abstract class UnCurry extends InfoTransform
     private val newMembers = mutable.ArrayBuffer[Tree]()
     private val repeatedParams = mutable.Map[Symbol, List[ValDef]]()
 
+    @inline private def withInPattern[T](value: Boolean)(body: => T): T = {
+      inPattern = value
+      try body
+      finally inPattern = !value
+    }
+
     private lazy val serialVersionUIDAnnotation =
       AnnotationInfo(SerialVersionUIDAttr.tpe, List(Literal(Constant(0))), List())
 
@@ -195,7 +201,7 @@ abstract class UnCurry extends InfoTransform
 
     /** Undo eta expansion for parameterless and nullary methods */
     def deEta(fun: Function): Tree = fun match {
-      case Function(List(), Apply(expr, List())) if treeInfo.isPureExpr(expr) =>
+      case Function(List(), Apply(expr, List())) if treeInfo.isExprSafeToInline(expr) =>
         if (expr hasSymbolWhich (_.isLazy))
           fun
         else
@@ -210,7 +216,7 @@ abstract class UnCurry extends InfoTransform
 
     /*  Transform a function node (x_1,...,x_n) => body of type FunctionN[T_1, .., T_N, R] to
      *
-     *    class $anon() extends Object() with FunctionN[T_1, .., T_N, R] with ScalaObject {
+     *    class $anon() extends AbstractFunctionN[T_1, .., T_N, R] with Serializable {
      *      def apply(x_1: T_1, ..., x_N: T_n): R = body
      *    }
      *    new $anon()
@@ -219,10 +225,14 @@ abstract class UnCurry extends InfoTransform
      *    body = expr match { case P_i if G_i => E_i }_i=1..n
      *  to:
      *
-     *    class $anon() extends Object() with PartialFunction[T, R] with ScalaObject {
+     *    class $anon() extends AbstractPartialFunction[T, R] with Serializable {
      *      def apply(x: T): R = (expr: @unchecked) match {
-     *        { case P_i if G_i => E_i }_i=1..n
-     *      def isDefinedAt(x: T): boolean = (x: @unchecked) match {
+     *        case P_1 if G_1 => E_1
+     *        ...
+     *        case P_n if G_n => true
+     *        case _ => this.missingCase(x)
+     *      }
+     *      def isDefinedAtCurrent(x: T): boolean = (x: @unchecked) match {
      *        case P_1 if G_1 => true
      *        ...
      *        case P_n if G_n => true
@@ -231,9 +241,10 @@ abstract class UnCurry extends InfoTransform
      *    }
      *    new $anon()
      *
-     *  However, if one of the patterns P_i if G_i is a default pattern, generate instead
+     *  However, if one of the patterns P_i if G_i is a default pattern,
+     *  drop the last default clause in tghe definition of `apply` and generate for `isDefinedAtCurrent` instead
      *
-     *      def isDefinedAt(x: T): boolean = true
+     *      def isDefinedAtCurrent(x: T): boolean = true
      */
     def transformFunction(fun: Function): Tree = {
       fun.tpe match {
@@ -254,6 +265,7 @@ abstract class UnCurry extends InfoTransform
         val anonClass = owner newAnonymousFunctionClass fun.pos setFlag (FINAL | SYNTHETIC | inConstructorFlag)
         def parents =
           if (isFunctionType(fun.tpe)) List(abstractFunctionForFunctionType(fun.tpe), SerializableClass.tpe)
+          else if (isPartial) List(appliedType(AbstractPartialFunctionClass.typeConstructor, targs), SerializableClass.tpe)
           else List(ObjectClass.tpe, fun.tpe, SerializableClass.tpe)
 
         anonClass setInfo ClassInfoType(parents, new Scope, anonClass)
@@ -264,29 +276,69 @@ abstract class UnCurry extends InfoTransform
 
         fun.vparams foreach (_.symbol.owner = applyMethod)
         new ChangeOwnerTraverser(fun.symbol, applyMethod) traverse fun.body
+
+        def missingCaseCall(scrutinee: Tree): Tree = Apply(Select(This(anonClass), nme.missingCase), List(scrutinee))
+
         def applyMethodDef() = {
-          val body = if (isPartial) gen.mkUncheckedMatch(fun.body) else fun.body
+          val body =
+            if (isPartial) gen.mkUncheckedMatch(gen.withDefaultCase(fun.body, missingCaseCall))
+            else fun.body
           DefDef(Modifiers(FINAL), nme.apply, Nil, List(fun.vparams), TypeTree(restpe), body) setSymbol applyMethod
         }
         def isDefinedAtMethodDef() = {
-          val m = anonClass.newMethod(fun.pos, nme.isDefinedAt) setFlag FINAL
+          val isDefinedAtName = {
+            if (anonClass.info.member(nme._isDefinedAt) != NoSymbol) nme._isDefinedAt
+            else nme.isDefinedAt
+          }
+          val m = anonClass.newMethod(fun.pos, isDefinedAtName) setFlag FINAL
           m setInfo MethodType(m newSyntheticValueParams formals, BooleanClass.tpe)
           anonClass.info.decls enter m
-
-          val Match(selector, cases) = fun.body
           val vparam = fun.vparams.head.symbol
           val idparam = m.paramss.head.head
           val substParam = new TreeSymSubstituter(List(vparam), List(idparam))
           def substTree[T <: Tree](t: T): T = substParam(resetLocalAttrs(t))
 
-          def transformCase(cdef: CaseDef): CaseDef =
-            substTree(CaseDef(cdef.pat.duplicate, cdef.guard.duplicate, Literal(Constant(true))))
-          def defaultCase = CaseDef(Ident(nme.WILDCARD), EmptyTree, Literal(Constant(false)))
+          DefDef(m, (fun.body: @unchecked) match {
+            case Match(selector, cases) =>
+              def transformCase(cdef: CaseDef): CaseDef =
+                substTree(CaseDef(cdef.pat.duplicate, cdef.guard.duplicate, Literal(Constant(true))))
+              def defaultCase = CaseDef(Ident(nme.WILDCARD), EmptyTree, Literal(Constant(false)))
 
-          DefDef(m, gen.mkUncheckedMatch(
-            if (cases exists treeInfo.isDefaultCase) Literal(Constant(true))
-            else Match(substTree(selector.duplicate), (cases map transformCase) :+ defaultCase)
-          ))
+              gen.mkUncheckedMatch(
+                if (cases exists treeInfo.isDefaultCase) Literal(Constant(true))
+                else Match(substTree(selector.duplicate), (cases map transformCase) :+ defaultCase)
+              )
+            // TODO: check tgt.tpe.typeSymbol isNonBottomSubclass MatchingStrategyClass
+            case Apply(Apply(TypeApply(Select(tgt, nme.runOrElse), targs), args_scrut), args_pm) if opt.virtPatmat =>
+              object noOne extends Transformer {
+                override val treeCopy = newStrictTreeCopier // must duplicate everything
+                val one = tgt.tpe member "caseResult".toTermName
+                override def transform(tree: Tree): Tree = tree match {
+                  case Apply(fun, List(a)) if fun.symbol == one =>
+                    // blow one's argument away since all we want to know is whether the match succeeds or not
+                    // (the alternative, making `one` CBN, would entail moving away from Option)
+                    val zero = // must use subtyping (no need for equality thanks to covariance), as otherwise we miss types like `Any with Int`
+                      if (UnitClass.tpe <:< a.tpe)         Literal(Constant())
+                      else if (BooleanClass.tpe <:< a.tpe) Literal(Constant(false))
+                      else if (FloatClass.tpe <:< a.tpe)   Literal(Constant(0.0f))
+                      else if (DoubleClass.tpe <:< a.tpe)  Literal(Constant(0.0d))
+                      else if (ByteClass.tpe <:< a.tpe)    Literal(Constant(0.toByte))
+                      else if (ShortClass.tpe <:< a.tpe)   Literal(Constant(0.toShort))
+                      else if (IntClass.tpe <:< a.tpe)     Literal(Constant(0))
+                      else if (LongClass.tpe <:< a.tpe)    Literal(Constant(0L))
+                      else if (CharClass.tpe <:< a.tpe)    Literal(Constant(0.toChar))
+                      else {
+                        val tpA = a.tpe.normalize
+                        if (NullClass.tpe <:< tpA) NULL
+                        else gen.mkCast(NULL, tpA)         // must cast, at least when a.tpe <:< NothingClass.tpe
+                      }
+                    Apply(fun.duplicate, List(zero))
+                  case _ =>
+                    super.transform(tree)
+                }
+              }
+              substTree(Apply(Apply(TypeApply(Select(tgt.duplicate, tgt.tpe.member("isSuccess".toTermName)), targs map (_.duplicate)), args_scrut map (_.duplicate)), args_pm map (noOne.transform)))
+          })
         }
 
         val members =
@@ -329,7 +381,9 @@ abstract class UnCurry extends InfoTransform
           assert(toArraySym != NoSymbol)
           def getManifest(tp: Type): Tree = {
             val manifestOpt = localTyper.findManifest(tp, false)
-            if (!manifestOpt.tree.isEmpty) manifestOpt.tree
+            // Don't want bottom types getting any further than this (SI-4024)
+            if (tp.typeSymbol.isBottomClass) getManifest(AnyClass.tpe)
+            else if (!manifestOpt.tree.isEmpty) manifestOpt.tree
             else if (tp.bounds.hi ne tp) getManifest(tp.bounds.hi)
             else localTyper.getManifestTree(tree.pos, tp, false)
           }
@@ -484,7 +538,7 @@ abstract class UnCurry extends InfoTransform
 
         case Apply(Select(Function(vparams, body), nme.apply), args) =>
 //        if (List.forall2(vparams, args)((vparam, arg) => treeInfo.isAffineIn(body) ||
-//                                        treeInfo.isPureExpr(arg))) =>
+//                                        treeInfo.isExprSafeToInline(arg))) =>
           // perform beta-reduction; this helps keep view applications small
           println("beta-reduce2: "+tree)
           withNeedLift(true) {
@@ -492,9 +546,7 @@ abstract class UnCurry extends InfoTransform
           }
 */
         case UnApply(fn, args) =>
-          inPattern = false
-          val fn1 = transform(fn)
-          inPattern = true
+          val fn1 = withInPattern(false)(transform(fn))
           val args1 = transformTrees(fn.symbol.name match {
             case nme.unapply    => args
             case nme.unapplySeq => transformArgs(tree.pos, fn.symbol, args, analyzer.unapplyTypeListFromReturnTypeSeq(fn.tpe))
@@ -522,9 +574,7 @@ abstract class UnCurry extends InfoTransform
           else super.transform(tree)
 
         case CaseDef(pat, guard, body) =>
-          inPattern = true
-          val pat1 = transform(pat)
-          inPattern = false
+          val pat1 = withInPattern(true)(transform(pat))
           treeCopy.CaseDef(tree, pat1, transform(guard), transform(body))
 
         case fun @ Function(_, _) =>

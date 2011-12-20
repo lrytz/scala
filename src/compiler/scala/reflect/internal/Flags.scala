@@ -96,6 +96,7 @@ class ModifierFlags {
   final val INTERFACE     = 0x00000080    // symbol is an interface (i.e. a trait which defines only abstract methods)
   final val MUTABLE       = 0x00001000    // symbol is a mutable variable.
   final val PARAM         = 0x00002000    // symbol is a (value or type) parameter to a method
+  final val MACRO         = 0x00008000    // symbol is a macro definition
 
   final val COVARIANT     = 0x00010000    // symbol is a covariant type variable
   final val BYNAMEPARAM   = 0x00010000    // parameter is by name
@@ -203,28 +204,61 @@ class Flags extends ModifierFlags {
 
   // ------- masks -----------------------------------------------------------------------
 
-  /** These flags can be set when class or module symbol is first created. */
+  /** These flags can be set when class or module symbol is first created.
+   *  They are the only flags to survive a call to resetFlags().
+   */
   final val TopLevelCreationFlags: Long =
     MODULE | PACKAGE | FINAL | JAVA
 
-  /** These modifiers can be set explicitly in source programs. */
+  /** These modifiers can be set explicitly in source programs.  This is
+   *  used only as the basis for the default flag mask (which ones to display
+   *  when printing a normal message.)
+   */
   final val ExplicitFlags: Long =
     PRIVATE | PROTECTED | ABSTRACT | FINAL | SEALED |
     OVERRIDE | CASE | IMPLICIT | ABSOVERRIDE | LAZY
 
   /** These modifiers appear in TreePrinter output. */
   final val PrintableFlags: Long =
-    ExplicitFlags | LOCAL | SYNTHETIC | STABLE | CASEACCESSOR |
+    ExplicitFlags | LOCAL | SYNTHETIC | STABLE | CASEACCESSOR | MACRO |
     ACCESSOR | SUPERACCESSOR | PARAMACCESSOR | BRIDGE | STATIC | VBRIDGE | SPECIALIZED
 
   /** The two bridge flags */
-  final val BRIDGES = BRIDGE | VBRIDGE
+  final val BridgeFlags = BRIDGE | VBRIDGE
 
+  /** When a symbol for a field is created, only these flags survive
+   *  from Modifiers.  Others which may be applied at creation time are:
+   *  PRIVATE, LOCAL.
+   */
   final val FieldFlags: Long =
     MUTABLE | CASEACCESSOR | PARAMACCESSOR | STATIC | FINAL | PRESUPER | LAZY
 
-  final val VarianceFlags       = COVARIANT | CONTRAVARIANT
-  final val ConstrFlags: Long   = JAVA
+  /** Masks for getters and setters, where the flags are derived from those
+   *  on the field's modifiers.  Both getters and setters get the ACCESSOR flag.
+   *  Getters of immutable values also get STABLE.
+   */
+  final val GetterFlags = ~(PRESUPER | MUTABLE)
+  final val SetterFlags = ~(PRESUPER | MUTABLE | STABLE | CASEACCESSOR)
+
+  /** When a symbol for a default getter is created, it inherits these
+   *  flags from the method with the default.  Other flags applied at creation
+   *  time are SYNTHETIC, DEFAULTPARAM, and possibly OVERRIDE.
+   */
+  final val DefaultGetterFlags: Long =
+    PRIVATE | PROTECTED | FINAL
+
+  /** When a symbol for a method parameter is created, only these flags survive
+   *  from Modifiers.  Others which may be applied at creation time are:
+   *  SYNTHETIC.
+   */
+  final val ValueParameterFlags: Long = BYNAMEPARAM | IMPLICIT | DEFAULTPARAM
+  final val BeanPropertyFlags         = DEFERRED | OVERRIDE | STATIC
+  final val VarianceFlags             = COVARIANT | CONTRAVARIANT
+
+  /** These appear to be flags which should be transferred from owner symbol
+   *  to a newly created constructor symbol.
+   */
+  final val ConstrFlags: Long         = JAVA
 
   /** Module flags inherited by their module-class */
   final val ModuleToClassFlags: Long = AccessFlags | MODULE | PACKAGE | CASE | SYNTHETIC | JAVA | FINAL
@@ -318,7 +352,7 @@ class Flags extends ModifierFlags {
     case             MUTABLE => "<mutable>"                           // (1L << 12)
     case               PARAM => "<param>"                             // (1L << 13)
     case             PACKAGE => "<package>"                           // (1L << 14)
-    case             0x8000L => ""                                    // (1L << 15)
+    case               MACRO => "macro"                               // (1L << 15)
     case         BYNAMEPARAM => "<bynameparam/captured/covariant>"    // (1L << 16)
     case       CONTRAVARIANT => "<contravariant/inconstructor/label>" // (1L << 17)
     case         ABSOVERRIDE => "absoverride"                         // (1L << 18)
@@ -424,6 +458,7 @@ class Flags extends ModifierFlags {
     case Modifier.interface => INTERFACE
     case Modifier.mutable => MUTABLE
     case Modifier.parameter => PARAM
+    case Modifier.`macro` => MACRO
     case Modifier.covariant => COVARIANT
     case Modifier.contravariant => CONTRAVARIANT
     case Modifier.preSuper => PRESUPER
@@ -437,6 +472,15 @@ class Flags extends ModifierFlags {
     case Modifier.paramAccessor => PARAMACCESSOR
     case Modifier.bynameParameter => BYNAMEPARAM
   }
+
+  def flagsOfModifiers(mods: List[Modifier.Value]): Long =
+    (mods :\ 0L) { (mod, curr) => curr | flagOfModifier(mod) }
+
+  def modifierOfFlag(flag: Long): Option[Modifier.Value] =
+    Modifier.values find { mod => flagOfModifier(mod) == flag }
+
+  def modifiersOfFlags(flags: Long): List[Modifier.Value] =
+    pickledListOrder map (mask => modifierOfFlag(flags & mask)) flatMap { mod => mod }
 }
 
 object Flags extends Flags { }

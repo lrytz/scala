@@ -55,7 +55,7 @@ abstract class SourceFile {
  */
 object NoSourceFile extends SourceFile {
   def content                   = Array()
-  def file                      = null    // TODO: push NPE-defense out another level or two
+  def file                      = NoFile
   def isLineBreak(idx: Int)     = false
   def isSelfContained           = true
   def length                    = -1
@@ -64,13 +64,15 @@ object NoSourceFile extends SourceFile {
   override def toString = "NoSourceFile"
 }
 
+object NoFile extends VirtualFile("<no file>", "<no file>")
+
 object ScriptSourceFile {
   /** Length of the script header from the given content, if there is one.
    *  The header begins with "#!" or "::#!" and ends with a line starting
    *  with "!#" or "::!#".
    */
   def headerLength(cs: Array[Char]): Int = {
-    val headerPattern = Pattern.compile("""^(::)?!#.*(\r|\n|\r\n)""", Pattern.MULTILINE)
+    val headerPattern = Pattern.compile("""((?m)^(::)?!#.*|^.*/env .*)(\r|\n|\r\n)""")
     val headerStarts  = List("#!", "::#!")
 
     if (headerStarts exists (cs startsWith _)) {

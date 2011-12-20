@@ -421,7 +421,7 @@ abstract class Erasure extends AddInterfaces
    */
 
   /** The modifier typer which retypes with erased types. */
-  class Eraser(context: Context) extends Typer(context) {
+  class Eraser(_context: Context) extends Typer(_context) {
     private def safeToRemoveUnbox(cls: Symbol): Boolean =
       (cls == definitions.NullClass) || isBoxedValueClass(cls)
 
@@ -433,7 +433,7 @@ abstract class Erasure extends AddInterfaces
       case _ =>
         typedPos(tree.pos)(tree.tpe.typeSymbol match {
           case UnitClass  =>
-            if (treeInfo isPureExpr tree) REF(BoxedUnit_UNIT)
+            if (treeInfo isExprSafeToInline tree) REF(BoxedUnit_UNIT)
             else BLOCK(tree, REF(BoxedUnit_UNIT))
           case NothingClass => tree // a non-terminating expression doesn't need boxing
           case x          =>
@@ -472,11 +472,12 @@ abstract class Erasure extends AddInterfaces
       case _ =>
         typedPos(tree.pos)(pt.typeSymbol match {
           case UnitClass  =>
-            if (treeInfo isPureExpr tree) UNIT
+            if (treeInfo isExprSafeToInline tree) UNIT
             else BLOCK(tree, UNIT)
           case x          =>
             assert(x != ArrayClass)
-            Apply(unboxMethod(pt.typeSymbol), tree) setType pt
+            // don't `setType pt` the Apply tree, as the Apply's fun won't be typechecked if the Apply tree already has a type
+            Apply(unboxMethod(pt.typeSymbol), tree)
         })
     }
 
@@ -489,7 +490,7 @@ abstract class Erasure extends AddInterfaces
         log("Attempted to cast to Unit: " + tree)
         tree.duplicate setType pt
       }
-      else tree AS_ATTR pt
+      else gen.mkAttributedCast(tree, pt)
     }
 
     private def isUnboxedValueMember(sym: Symbol) =
@@ -754,7 +755,7 @@ abstract class Erasure extends AddInterfaces
       while (opc.hasNext) {
         val member = opc.overriding
         val other = opc.overridden
-        //Console.println("bridge? " + member + ":" + member.tpe + member.locationString + " to " + other + ":" + other.tpe + other.locationString)//DEBUG
+        //println("bridge? " + member + ":" + member.tpe + member.locationString + " to " + other + ":" + other.tpe + other.locationString)//DEBUG
         if (atPhase(currentRun.explicitouterPhase)(!member.isDeferred)) {
           val otpe = erasure(owner, other.tpe)
           val bridgeNeeded = atPhase(phase.next) (
@@ -789,8 +790,19 @@ abstract class Erasure extends AddInterfaces
                       member.tpe match {
                         case MethodType(List(), ConstantType(c)) => Literal(c)
                         case _ =>
-                          (((Select(This(owner), member): Tree) /: bridge.paramss)
+                          val bridgingCall = (((Select(This(owner), member): Tree) /: bridge.paramss)
                              ((fun, vparams) => Apply(fun, vparams map Ident)))
+                          // type checking ensures we can safely call `other`, but unless `member.tpe <:< other.tpe`, calling `member` is not guaranteed to succeed
+                          // in general, there's nothing we can do about this, except for an unapply: when this subtype test fails, return None without calling `member`
+                          if (  member.isSynthetic // TODO: should we do this for user-defined unapplies as well?
+                             && ((member.name == nme.unapply) || (member.name == nme.unapplySeq))
+                             // && (bridge.paramss.nonEmpty && bridge.paramss.head.nonEmpty && bridge.paramss.head.tail.isEmpty) // does the first argument list has exactly one argument -- for user-defined unapplies we can't be sure
+                             && !(atPhase(phase.next)(member.tpe <:< other.tpe))) { // no static guarantees (TODO: is the subtype test ever true?)
+                            import CODE._
+                            val typeTest = gen.mkIsInstanceOf(REF(bridge.paramss.head.head), member.tpe.params.head.tpe, any = true, wrapInApply = true) // any = true since we're before erasure (?), wrapInapply is true since we're after uncurry
+                            // println("unapp type test: "+ typeTest)
+                            IF (typeTest) THEN bridgingCall ELSE REF(NoneModule)
+                          } else bridgingCall
                       });
                   debuglog("generating bridge from " + other + "(" + Flags.flagsToString(bridge.flags)  + ")" + ":" + otpe + other.locationString + " to " + member + ":" + erasure(owner, member.tpe) + member.locationString + " =\n " + bridgeDef);
                   bridgeDef
@@ -990,7 +1002,7 @@ abstract class Erasure extends AddInterfaces
             if (isAccessible(qualSym) && !qualSym.isPackageClass && !qualSym.isPackageObjectClass) {
               // insert cast to prevent illegal access error (see #4283)
               // util.trace("insert erasure cast ") (*/
-              treeCopy.Select(tree, qual AS_ATTR qual.tpe.widen, name) //)
+              treeCopy.Select(tree, gen.mkAttributedCast(qual, qual.tpe.widen), name) //)
             } else tree
           } else tree
 
