@@ -22,7 +22,10 @@ trait NameManglers {
 
     val MODULE_SUFFIX_STRING = NameTransformer.MODULE_SUFFIX_STRING
     val NAME_JOIN_STRING     = NameTransformer.NAME_JOIN_STRING
-
+    
+    val MODULE_SUFFIX_NAME: TermName = MODULE_SUFFIX_STRING
+    val NAME_JOIN_NAME: TermName     = NAME_JOIN_STRING
+    
     def flattenedName(segments: Name*): NameType = compactedString(segments mkString NAME_JOIN_STRING)
 
     /**
@@ -72,16 +75,17 @@ trait NameManglers {
     val LOCALDUMMY_PREFIX             = "<local "   // owner of local blocks
     val PROTECTED_PREFIX              = "protected$"
     val PROTECTED_SET_PREFIX          = PROTECTED_PREFIX + "set"
-    val SELECTOR_DUMMY                = "<unapply-selector>"
     val SETTER_SUFFIX                 = encode("_=")
     val SINGLETON_SUFFIX              = ".type"
+    val SPECIALIZED_SUFFIX_STRING     = "$sp"
     val SUPER_PREFIX_STRING           = "super$"
     val TRAIT_SETTER_SEPARATOR_STRING = "$_setter_$"
+    
+    val SPECIALIZED_SUFFIX_NAME: TermName = SPECIALIZED_SUFFIX_STRING
 
     def isConstructorName(name: Name)       = name == CONSTRUCTOR || name == MIXIN_CONSTRUCTOR
     def isExceptionResultName(name: Name)   = name startsWith EXCEPTION_RESULT_PREFIX
-    /** !!! Foo$class$1 is an implClassName, I think.  */
-    def isImplClassName(name: Name)         = name endsWith IMPL_CLASS_SUFFIX
+    def isImplClassName(name: Name)         = stripAnonNumberSuffix(name) endsWith IMPL_CLASS_SUFFIX
     def isLocalDummyName(name: Name)        = name startsWith LOCALDUMMY_PREFIX
     def isLocalName(name: Name)             = name endsWith LOCAL_SUFFIX_STRING
     def isLoopHeaderLabel(name: Name)       = (name startsWith WHILE_PREFIX) || (name startsWith DO_WHILE_PREFIX)
@@ -90,7 +94,7 @@ trait NameManglers {
     def isSetterName(name: Name)            = name endsWith SETTER_SUFFIX
     def isTraitSetterName(name: Name)       = isSetterName(name) && (name containsName TRAIT_SETTER_SEPARATOR_STRING)
     def isSingletonName(name: Name)         = name endsWith SINGLETON_SUFFIX
-    def isModuleName(name: Name)            = name endsWith MODULE_SUFFIX_STRING
+    def isModuleName(name: Name)            = name endsWith MODULE_SUFFIX_NAME
 
     def isOpAssignmentName(name: Name) = name match {
       case raw.NE | raw.LE | raw.GE | EMPTY => false
@@ -114,6 +118,12 @@ trait NameManglers {
         name.subName(i, name.length)
       } else name
     }
+    
+    def unspecializedName(name: Name): Name = (
+      if (name endsWith SPECIALIZED_SUFFIX_NAME)
+        name.subName(0, name.lastIndexOf('m') - 1)
+      else name
+    )
 
     /** Return the original name and the types on which this name
      *  is specialized. For example,
@@ -125,8 +135,8 @@ trait NameManglers {
      *  and another one belonging to the enclosing class, on Double.
      */
     def splitSpecializedName(name: Name): (Name, String, String) =
-      if (name.endsWith("$sp")) {
-        val name1 = name stripEnd "$sp"
+      if (name endsWith SPECIALIZED_SUFFIX_NAME) {
+        val name1 = name stripEnd SPECIALIZED_SUFFIX_NAME
         val idxC  = name1 lastIndexOf 'c'
         val idxM  = name1 lastIndexOf 'm'
 
@@ -140,6 +150,8 @@ trait NameManglers {
     def getterToLocal(name: TermName): TermName  = name.toTermName append LOCAL_SUFFIX_STRING
     def getterToSetter(name: TermName): TermName = name.toTermName append SETTER_SUFFIX
     def localToGetter(name: TermName): TermName  = name stripEnd LOCAL_SUFFIX_STRING toTermName
+    
+    def dropLocalSuffix(name: Name): Name  = if (name endsWith ' ') name dropRight 1 else name
 
     def setterToGetter(name: TermName): TermName = {
       val p = name.pos(TRAIT_SETTER_SEPARATOR_STRING)
@@ -157,6 +169,26 @@ trait NameManglers {
       val p = name.pos(DEFAULT_GETTER_STRING)
       if (p < name.length) name.subName(0, p)
       else name
+    }
+
+    /** !!! I'm putting this logic in place because I can witness
+     *  trait impls get lifted and acquiring names like 'Foo$class$1'
+     *  while clearly still being what they were. It's only being used on
+     *  isImplClassName. However, it's anyone's guess how much more
+     *  widely this logic actually ought to be applied. Anything which
+     *  tests for how a name ends is a candidate for breaking down once
+     *  something is lifted from a method.
+     *
+     *  TODO: resolve this significant problem.
+     */
+    def stripAnonNumberSuffix(name: Name): Name = {
+      val str = "" + name
+      if (str == "" || !str.endChar.isDigit) name
+      else {
+        val idx = name.lastPos('$')
+        if (idx < 0 || str.substring(idx + 1).exists(c => !c.isDigit)) name
+        else name.subName(0, idx)
+      }
     }
 
     def stripModuleSuffix(name: Name): Name = (

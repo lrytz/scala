@@ -24,7 +24,7 @@ abstract class GenICode extends SubComponent  {
   import icodes._
   import icodes.opcodes._
   import definitions.{
-    ArrayClass, ObjectClass, ThrowableClass, StringClass, StringModule, NothingClass, NullClass, AnyRefClass,
+    ArrayClass, ObjectClass, ThrowableClass, StringClass, StringModule, AnyRefClass,
     Object_equals, Object_isInstanceOf, Object_asInstanceOf, ScalaRunTimeModule,
     BoxedNumberClass, BoxedCharacterClass,
     getMember
@@ -121,7 +121,10 @@ abstract class GenICode extends SubComponent  {
             case Block(_, Return(_)) => ()
             case Return(_) => ()
             case EmptyTree =>
-              globalError("Concrete method has no definition: " + tree)
+              globalError("Concrete method has no definition: " + tree + (
+                if (settings.debug.value) "(found: " + m.symbol.owner.info.decls.toList.mkString(", ") + ")"
+                else "")
+              )
             case _ => if (ctx1.bb.isEmpty)
               ctx1.bb.closeWith(RETURN(m.returnType), rhs.pos)
             else
@@ -920,12 +923,13 @@ abstract class GenICode extends SubComponent  {
           }
 
         case ApplyDynamic(qual, args) =>
-          assert(!forMSIL)
-          ctx.clazz.bootstrapClass = Some("scala.runtime.DynamicDispatch")
-          val ctx1 = genLoad(qual, ctx, ObjectReference)
-          genLoadArguments(args, tree.symbol.info.paramTypes, ctx1)
-          ctx1.bb.emit(CALL_METHOD(tree.symbol, InvokeDynamic), tree.pos)
-          ctx1
+          assert(!forMSIL, tree)
+          // TODO - this is where we'd catch dynamic applies for invokedynamic.
+          sys.error("No invokedynamic support yet.")
+          // val ctx1 = genLoad(qual, ctx, ObjectReference)
+          // genLoadArguments(args, tree.symbol.info.paramTypes, ctx1)
+          // ctx1.bb.emit(CALL_METHOD(tree.symbol, InvokeDynamic), tree.pos)
+          // ctx1
 
         case This(qual) =>
           assert(tree.symbol == ctx.clazz.symbol || tree.symbol.isModuleClass,
@@ -1074,6 +1078,7 @@ abstract class GenICode extends SubComponent  {
             }
 
             caseCtx = genLoad(body, tmpCtx, generatedType)
+            // close the block unless it's already been closed by the body, which closes the block if it ends in a jump (which is emitted to have alternatives share their body)
             caseCtx.bb.closeWith(JUMP(afterCtx.bb) setPos caze.pos)
           }
           ctx1.bb.emitOnly(

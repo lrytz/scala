@@ -135,8 +135,15 @@ abstract class Inliners extends SubComponent {
             warn(i.pos, "Could not inline required method %s because %s.".format(msym.originalName.decode, reason))
         }
 
-        if (shouldLoadImplFor(concreteMethod, receiver))
+        if (shouldLoadImplFor(concreteMethod, receiver)) {
+          // Until r22824 this line was:
+          //   icodes.icode(concreteMethod.enclClass, true)
+          //
+          // Changing it to the below was the proximate cause for SI-3882:
+          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
+          //   error: Illegal index: 0 overlaps List((variable par1,LONG))
           icodes.load(concreteMethod.enclClass)
+        }
 
         def isAvailable = icodes available concreteMethod.enclClass
         def isCandidate = (
@@ -241,10 +248,9 @@ abstract class Inliners extends SubComponent {
     }
 
     private def isMonadicMethod(sym: Symbol) = {
-      val (origName, _, _) = nme.splitSpecializedName(sym.name)
-      origName match {
+      nme.unspecializedName(sym.name) match {
         case nme.foreach | nme.filter | nme.withFilter | nme.map | nme.flatMap => true
-        case _ => false
+        case _                                                                 => false
       }
     }
 

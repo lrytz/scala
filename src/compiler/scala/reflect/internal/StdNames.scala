@@ -183,10 +183,12 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val MODULE_INSTANCE_FIELD: NameType = NameTransformer.MODULE_INSTANCE_NAME  // "MODULE$"
     val OUTER: NameType                 = "$outer"
     val OUTER_LOCAL: NameType           = "$outer " // note the space
+    val OUTER_SYNTH: NameType           = "<outer>" // emitted by virtual pattern matcher, replaced by outer accessor in explicitouter
     val SELF: NameType                  = "$this"
     val SPECIALIZED_INSTANCE: NameType  = "specInstance$"
     val STAR: NameType                  = "*"
     val THIS: NameType                  = "_$this"
+    val SELECTOR_DUMMY: NameType        = "<unapply-selector>"
 
     final val Nil: NameType             = "Nil"
     final val Predef: NameType          = "Predef"
@@ -198,6 +200,7 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val TYPE_ : NameType           = "TYPE"
     val add_ : NameType            = "add"
     val anyValClass: NameType      = "anyValClass"
+    val append: NameType           = "append"
     val apply: NameType            = "apply"
     val arrayValue: NameType       = "arrayValue"
     val arraycopy: NameType        = "arraycopy"
@@ -226,6 +229,7 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val find_ : NameType           = "find"
     val flatMap: NameType          = "flatMap"
     val foreach: NameType          = "foreach"
+    val formatted: NameType        = "formatted"
     val genericArrayOps: NameType  = "genericArrayOps"
     val get: NameType              = "get"
     val hasNext: NameType          = "hasNext"
@@ -237,6 +241,7 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val applyDynamic: NameType     = "applyDynamic"
     val isArray: NameType          = "isArray"
     val isDefinedAt: NameType      = "isDefinedAt"
+    val _isDefinedAt: NameType     = "_isDefinedAt"
     val isEmpty: NameType          = "isEmpty"
     val isInstanceOf_ : NameType   = "isInstanceOf"
     val java: NameType             = "java"
@@ -244,8 +249,10 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val length: NameType           = "length"
     val lengthCompare: NameType    = "lengthCompare"
     val lift_ : NameType           = "lift"
+    val macro_ : NameType          = "macro"
     val main: NameType             = "main"
     val map: NameType              = "map"
+    val missingCase: NameType      = "missingCase"
     val ne: NameType               = "ne"
     val newArray: NameType         = "newArray"
     val next: NameType             = "next"
@@ -258,6 +265,7 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val productIterator: NameType  = "productIterator"
     val productPrefix: NameType    = "productPrefix"
     val readResolve: NameType      = "readResolve"
+    val runOrElse: NameType        = "runOrElse"
     val sameElements: NameType     = "sameElements"
     val scala_ : NameType          = "scala"
     val self: NameType             = "self"
@@ -359,23 +367,15 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
           mkName(simple, div == '.') :: segments(rest, assumeTerm)
       }
     }
-    private def bitmapName(n: Int, suffix: String): TermName =
-      newTermName(BITMAP_PREFIX + suffix + n)
 
-    /** The name of bitmaps for initialized (public or protected) lazy vals. */
-    def bitmapName(n: Int): TermName = bitmapName(n, "")
+    def newBitmapName(bitmapPrefix: Name, n: Int) = bitmapPrefix append ("" + n)
 
-    /** The name of bitmaps for initialized transient lazy vals. */
-    def bitmapNameForTransient(n: Int): TermName = bitmapName(n, "trans$")
-
-    /** The name of bitmaps for initialized private lazy vals. */
-    def bitmapNameForPrivate(n: Int): TermName = bitmapName(n, "priv$")
-
-    /** The name of bitmaps for checkinit values */
-    def bitmapNameForCheckinit(n: Int): TermName = bitmapName(n, "init$")
-
-    /** The name of bitmaps for checkinit values that have transient flag*/
-    def bitmapNameForCheckinitTransient(n: Int): TermName = bitmapName(n, "inittrans$")
+    val BITMAP_PREFIX: String                = "bitmap$"
+    val BITMAP_NORMAL: NameType              = BITMAP_PREFIX + ""           // initialization bitmap for public/protected lazy vals
+    val BITMAP_TRANSIENT: NameType           = BITMAP_PREFIX + "trans$"     // initialization bitmap for transient lazy vals
+    val BITMAP_PRIVATE: NameType             = BITMAP_PREFIX + "priv$"      // initialization bitmap for private lazy vals
+    val BITMAP_CHECKINIT: NameType           = BITMAP_PREFIX + "init$"      // initialization bitmap for checkinit values
+    val BITMAP_CHECKINIT_TRANSIENT: NameType = BITMAP_PREFIX + "inittrans$" // initialization bitmap for transient checkinit values
 
     /** The expanded name of `name` relative to this class `base` with given `separator`
      */
@@ -389,7 +389,6 @@ trait StdNames extends /*reflect.generic.StdNames with*/ NameManglers { self: Sy
     val ROOTPKG: TermName       = "_root_"
 
     /** Base strings from which synthetic names are derived. */
-    val BITMAP_PREFIX               = "bitmap$"
     val CHECK_IF_REFUTABLE_STRING   = "check$ifrefutable$"
     val DEFAULT_GETTER_STRING       = "$default$"
     val DO_WHILE_PREFIX             = "doWhile$"

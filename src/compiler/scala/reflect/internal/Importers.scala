@@ -161,7 +161,7 @@ trait Importers { self: SymbolTable =>
       case from.RefinedType(parents, decls) =>
         RefinedType(parents map importType, importScope(decls), importSymbol(tpe.typeSymbol))
       case from.ExistentialType(tparams, restpe) =>
-        ExistentialType(tparams map importSymbol, importType(restpe))
+        newExistentialType(tparams map importSymbol, importType(restpe))
       case from.OverloadedType(pre, alts) =>
         OverloadedType(importType(pre), alts map importSymbol)
       case from.AntiPolyType(pre, targs) =>
@@ -231,6 +231,8 @@ trait Importers { self: SymbolTable =>
           new PackageDef(importRefTree(pid), stats map importTree)
         case from.ModuleDef(mods, name, impl) =>
           new ModuleDef(importModifiers(mods), importName(name).toTermName, importTemplate(impl))
+        case from.emptyValDef =>
+          emptyValDef
         case from.ValDef(mods, name, tpt, rhs) =>
           new ValDef(importModifiers(mods), importName(name).toTermName, importTree(tpt), importTree(rhs))
         case from.DefDef(mods, name, tparams, vparamss, tpt, rhs) =>

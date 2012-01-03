@@ -3,24 +3,7 @@ import org.scalacheck.Prop._
 
 import scala.tools.nsc.doc
 import scala.tools.nsc.doc.html.page.Index
-import java.net.URLClassLoader
-
-object XMLUtil {
-  import scala.xml._
-
-  def stripGroup(seq: Node): Node = {
-    seq match {
-      case group: Group => {
-        <div class="group">{ group.nodes.map(stripGroup _) }</div>
-      }
-      case e: Elem => {
-        val child = e.child.map(stripGroup _)
-        Elem(e.prefix, e.label, e.attributes, e.scope, child : _*)
-      }
-      case _ => seq
-    }
-  }
-}
+import java.net.{URLClassLoader, URLDecoder}
 
 object Test extends Properties("Index") {
 
@@ -29,11 +12,11 @@ object Test extends Properties("Index") {
     // this test previously relied on the assumption that the current thread's classloader is an url classloader and contains all the classpaths
     // does partest actually guarantee this? to quote Leonard Nimoy: The answer, of course, is no.
     // this test _will_ fail again some time in the future.
-    val paths = Thread.currentThread.getContextClassLoader.asInstanceOf[URLClassLoader].getURLs.map(_.getPath)
-    val morepaths = Thread.currentThread.getContextClassLoader.getParent.asInstanceOf[URLClassLoader].getURLs.map(_.getPath)
+    val paths = Thread.currentThread.getContextClassLoader.asInstanceOf[URLClassLoader].getURLs.map(u => URLDecoder.decode(u.getPath))
+    val morepaths = Thread.currentThread.getContextClassLoader.getParent.asInstanceOf[URLClassLoader].getURLs.map(u => URLDecoder.decode(u.getPath))
     (paths ++ morepaths).mkString(java.io.File.pathSeparator)
   }
-
+  
   val docFactory = {
     val settings = new doc.Settings({Console.err.println(_)})
 
@@ -44,9 +27,9 @@ object Test extends Properties("Index") {
 
     new doc.DocFactory(reporter, settings)
   }
-
+  
   val indexModelFactory = doc.model.IndexModelFactory
-
+  
   def createIndex(path: String): Option[Index] = {
 
     val maybeUniverse = {
@@ -88,10 +71,10 @@ object Test extends Properties("Index") {
       case None => false
     }
   }
-  property("body contants a script element") = {
+  property("browser contants a script element") = {
     createIndex("src/compiler/scala/tools/nsc/doc/html/page/Index.scala") match {
       case Some(index) =>
-        (XMLUtil.stripGroup(index.body) \\ "script").size == 1
+        (index.browser \ "script").size == 1
 
       case None => false
     }

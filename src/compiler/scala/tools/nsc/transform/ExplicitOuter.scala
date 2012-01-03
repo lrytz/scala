@@ -346,16 +346,20 @@ abstract class ExplicitOuter extends InfoTransform
      *  @pre mixinClass is an inner class
      */
     def mixinOuterAccessorDef(mixinClass: Symbol): Tree = {
-      val outerAcc = outerAccessor(mixinClass) overridingSymbol currentClass
-      assert(outerAcc != NoSymbol)
-      val path =
-        if (mixinClass.owner.isTerm) THIS(mixinClass.owner.enclClass)
-        else gen.mkAttributedQualifier(currentClass.thisType baseType mixinClass prefix)
-
+      val outerAcc    = outerAccessor(mixinClass) overridingSymbol currentClass
+      def mixinPrefix = currentClass.thisType baseType mixinClass prefix;
+      assert(outerAcc != NoSymbol, "No outer accessor for inner mixin " + mixinClass + " in " + currentClass)
+      // I added the mixinPrefix.typeArgs.nonEmpty condition to address the
+      // crash in SI-4970.  I feel quite sure this can be improved.
+      val path = (
+        if (mixinClass.owner.isTerm) gen.mkAttributedThis(mixinClass.owner.enclClass)
+        else if (mixinPrefix.typeArgs.nonEmpty) gen.mkAttributedThis(mixinPrefix.typeSymbol)
+        else gen.mkAttributedQualifier(mixinPrefix)
+      )
       localTyper typed {
         (DEF(outerAcc) withPos currentClass.pos) === {
           // Need to cast for nested outer refs in presence of self-types. See ticket #3274.
-          transformer.transform(path) AS_ANY outerAcc.info.resultType
+          gen.mkCast(transformer.transform(path), outerAcc.info.resultType)
         }
       }
     }
@@ -407,7 +411,9 @@ abstract class ExplicitOuter extends InfoTransform
           if (unchecked)
             nselector = nselector1
 
-          (!unchecked, isSwitchAnnotation(tpt.tpe))
+          // Don't require a tableswitch if there are 1-2 casedefs
+          // since the matcher intentionally emits an if-then-else.
+          (!unchecked, isSwitchAnnotation(tpt.tpe) && ncases.size > 2)
         case _  =>
           (true, false)
       }
@@ -507,6 +513,29 @@ abstract class ExplicitOuter extends InfoTransform
           matchTranslation(mch)
 
         case _ =>
+          if (opt.virtPatmat) { // this turned out to be expensive, hence the hacky `if` and `return`
+            tree match {
+              // for patmatvirtualiser
+              // base.<outer>.eq(o) --> base.$outer().eq(o) if there's an accessor, else the whole tree becomes TRUE
+              // TODO remove the synthetic `<outer>` method from outerFor??
+              case Apply(eqsel@Select(eqapp@Apply(sel@Select(base, outerAcc), Nil), eq), args)  if outerAcc == nme.OUTER_SYNTH =>
+                val outerFor = sel.symbol.owner.toInterface // TODO: toInterface necessary?
+                val acc = outerAccessor(outerFor)
+                if(acc == NoSymbol) {
+                  // println("WARNING: no outer for "+ outerFor)
+                  return transform(TRUE) // urgh... drop condition if there's no accessor
+                } else {
+                  // println("(base, acc)= "+(base, acc))
+                  val outerSelect = localTyper typed Apply(Select(base, acc), Nil)
+                  // achieves the same as: localTyper typed atPos(tree.pos)(outerPath(base, base.tpe.typeSymbol, outerFor.outerClass))
+                  // println("(b, tpsym, outerForI, outerFor, outerClass)= "+ (base, base.tpe.typeSymbol, outerFor, sel.symbol.owner, outerFor.outerClass))
+                  // println("outerSelect = "+ outerSelect)
+                  return transform(treeCopy.Apply(tree, treeCopy.Select(eqsel, outerSelect, eq), args))
+                }
+              case _ =>
+            }
+          }
+
           if (settings.Xmigration28.value) tree match {
             case TypeApply(fn @ Select(qual, _), args) if fn.symbol == Object_isInstanceOf || fn.symbol == Any_isInstanceOf =>
               if (isArraySeqTest(qual.tpe, args.head.tpe))

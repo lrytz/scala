@@ -68,7 +68,7 @@ trait TreeDSL {
       /** Note - calling ANY_== in the matcher caused primitives to get boxed
        *  for the comparison, whereas looking up nme.EQ does not.  See #3570 for
        *  an example of how target.tpe can be non-null, yet it claims not to have
-       *  a mmeber called nme.EQ.  Not sure if that should happen, but we can be
+       *  a member called nme.EQ.  Not sure if that should happen, but we can be
        *  robust by dragging in Any regardless.
        */
       def MEMBER_== (other: Tree)   = {
@@ -114,10 +114,7 @@ trait TreeDSL {
        *
        *  See ticket #2168 for one illustration of AS vs. AS_ANY.
        */
-      def AS(tpe: Type)       = TypeApply(Select(target, Any_asInstanceOf), List(TypeTree(tpe)))
-      def AS_ANY(tpe: Type)   = gen.mkAsInstanceOf(target, tpe)
-      def AS_ATTR(tpe: Type)  = gen.mkAttributedCast(target, tpe)
-
+      def AS(tpe: Type)       = gen.mkAsInstanceOf(target, tpe, any = true, wrapInApply = false)
       def IS(tpe: Type)       = gen.mkIsInstanceOf(target, tpe, true)
       def IS_OBJ(tpe: Type)   = gen.mkIsInstanceOf(target, tpe, false)
 

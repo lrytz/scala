@@ -54,6 +54,8 @@ abstract class ClassfileParser {
   }
 
   def parse(file: AbstractFile, root: Symbol) = try {
+    debuglog("[class] >> " + root.fullName)
+
     def handleMissing(e: MissingRequirementError) = {
       if (settings.debug.value) e.printStackTrace
       throw new IOException("Missing dependency '" + e.req + "', required by " + in.file)
@@ -82,7 +84,6 @@ abstract class ClassfileParser {
         println("Skipping class: " + root + ": " + root.getClass)
     }
 */
-    debuglog("parsing " + file.name)
     this.in = new AbstractFileReader(file)
     if (root.isModule) {
       this.clazz = root.companionClass
@@ -364,6 +365,13 @@ abstract class ClassfileParser {
         case arr: Type     => Constant(arr)
       }
     }
+    
+    private def getSubArray(bytes: Array[Byte]): Array[Byte] = {
+      val decodedLength = ByteCodecs.decode(bytes)
+      val arr           = new Array[Byte](decodedLength)
+      System.arraycopy(bytes, 0, arr, 0, decodedLength)
+      arr
+    }
 
     def getBytes(index: Int): Array[Byte] = {
       if (index <= 0 || len <= index) errorBadIndex(index)
@@ -371,11 +379,10 @@ abstract class ClassfileParser {
       if (value eq null) {
         val start = starts(index)
         if (in.buf(start).toInt != CONSTANT_UTF8) errorBadTag(start)
-        val len = in.getChar(start + 1)
+        val len   = in.getChar(start + 1)
         val bytes = new Array[Byte](len)
-        Array.copy(in.buf, start + 3, bytes, 0, len)
-        val decodedLength = ByteCodecs.decode(bytes)
-        value = bytes.take(decodedLength)
+        System.arraycopy(in.buf, start + 3, bytes, 0, len)
+        value = getSubArray(bytes)
         values(index) = value
       }
       value
@@ -393,9 +400,7 @@ abstract class ClassfileParser {
           val len = in.getChar(start + 1)
           bytesBuffer ++= in.buf.view(start + 3, start + 3 + len)
         }
-        val bytes = bytesBuffer.toArray
-        val decodedLength = ByteCodecs.decode(bytes)
-        value = bytes.take(decodedLength)
+        value = getSubArray(bytesBuffer.toArray)
         values(indices.head) = value
       }
       value
@@ -569,10 +574,7 @@ abstract class ClassfileParser {
              (sflags & INTERFACE) == 0L))
           {
             //Console.println("adding constructor to " + clazz);//DEBUG
-            instanceDefs.enter(
-              clazz.newConstructor(NoPosition)
-              .setFlag(clazz.flags & ConstrFlags)
-              .setInfo(MethodType(List(), clazz.tpe)))
+            instanceDefs enter clazz.newClassConstructor(NoPosition)
           }
         ()
       } :: loaders.pendingLoadActions
@@ -624,7 +626,7 @@ abstract class ClassfileParser {
         // need to give singleton type
         sym setInfo info.narrow
         if (!sym.superClass.isSealed)
-          sym.superClass setFlag (SEALED | ABSTRACT)
+          sym.superClass setFlag SEALED
 
         sym.superClass addChild sym
       }
@@ -684,8 +686,6 @@ abstract class ClassfileParser {
       while (!isDelimiter(sig(index))) { index += 1 }
       sig.subName(start, index)
     }
-    def existentialType(tparams: List[Symbol], tp: Type): Type =
-      if (tparams.isEmpty) tp else ExistentialType(tparams, tp)
     def sig2type(tparams: immutable.Map[Name,Symbol], skiptvs: Boolean): Type = {
       val tag = sig(index); index += 1
       tag match {
@@ -731,14 +731,14 @@ abstract class ClassfileParser {
                 }
                 accept('>')
                 assert(xs.length > 0)
-                existentialType(existentials.toList, typeRef(pre, classSym, xs.toList))
+                newExistentialType(existentials.toList, typeRef(pre, classSym, xs.toList))
               } else if (classSym.isMonomorphicType) {
                 tp
               } else {
                 // raw type - existentially quantify all type parameters
                 val eparams = typeParamsToExistentials(classSym, classSym.unsafeTypeParams)
                 val t = typeRef(pre, classSym, eparams.map(_.tpe))
-                val res = existentialType(eparams, t)
+                val res = newExistentialType(eparams, t)
                 if (settings.debug.value && settings.verbose.value)
                   println("raw type " + classSym + " -> " + res)
                 res
@@ -907,8 +907,9 @@ abstract class ClassfileParser {
                 case None =>
                   throw new RuntimeException("Scala class file does not contain Scala annotation")
               }
-            debuglog("" + sym + "; annotations = " + sym.rawAnnotations)
-          } else
+            debuglog("[class] << " + sym.fullName + sym.annotationsString)
+          }
+          else
             in.skip(attrLen)
 
         // TODO 1: parse runtime visible annotations on parameters
@@ -971,7 +972,7 @@ abstract class ClassfileParser {
       Some(ScalaSigBytes(pool getBytes in.nextChar))
     }
 
-    def parseScalaLongSigBytes: Option[ScalaSigBytes] = try {
+    def parseScalaLongSigBytes: Option[ScalaSigBytes] = {
       val tag = in.nextByte.toChar
       assert(tag == ARRAY_TAG)
       val stringCount = in.nextChar
@@ -982,11 +983,6 @@ abstract class ClassfileParser {
           in.nextChar.toInt
         }
       Some(ScalaSigBytes(pool.getBytes(entries.toList)))
-    }
-    catch {
-      case e: Throwable =>
-        e.printStackTrace
-        throw e
     }
 
     /** Parse and return a single annotation.  If it is malformed,
@@ -1228,9 +1224,7 @@ abstract class ClassfileParser {
 
   class LazyAliasType(alias: Symbol) extends LazyType {
     override def complete(sym: Symbol) {
-      alias.initialize
-      val tparams1 = cloneSymbols(alias.typeParams)
-      sym.setInfo(typeFun(tparams1, alias.tpe.substSym(alias.typeParams, tparams1)))
+      sym setInfo createFromClonedSymbols(alias.initialize.typeParams, alias.tpe)(typeFun)
     }
   }
 
@@ -1260,7 +1254,7 @@ abstract class ClassfileParser {
   protected def getScope(flags: Int): Scope =
     if (isStatic(flags)) staticDefs else instanceDefs
 
-   private def setPrivateWithin(sym: Symbol, jflags: Int) {
+  private def setPrivateWithin(sym: Symbol, jflags: Int) {
     if ((jflags & (JAVA_ACC_PRIVATE | JAVA_ACC_PROTECTED | JAVA_ACC_PUBLIC)) == 0)
       // See ticket #1687 for an example of when topLevelClass is NoSymbol: it
       // apparently occurs when processing v45.3 bytecode.

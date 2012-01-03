@@ -50,14 +50,13 @@ trait SyntheticMethods extends ast.TreeDSL {
     /** To avoid unchecked warnings on polymorphic classes.
      */
     def clazzTypeToTest(clazz: Symbol) = clazz.tpe.normalize match {
-      case TypeRef(_, sym, args) if args.nonEmpty => ExistentialType(sym.typeParams, clazz.tpe)
+      case TypeRef(_, sym, args) if args.nonEmpty => newExistentialType(sym.typeParams, clazz.tpe)
       case tp                                     => tp
     }
 
-    def makeMethodPublic(method: Symbol): Symbol = {
-      method.privateWithin = NoSymbol
-      method resetFlag AccessFlags
-    }
+    def makeMethodPublic(method: Symbol): Symbol = (
+      method setPrivateWithin NoSymbol resetFlag AccessFlags
+    )
 
     def methodArg(method: Symbol, idx: Int): Tree = Ident(method.paramss.head(idx))
 
@@ -283,7 +282,7 @@ trait SyntheticMethods extends ast.TreeDSL {
     def equalsClassMethod: Tree = createMethod(nme.equals_, List(AnyClass.tpe), BooleanClass.tpe) { m =>
       val arg0      = methodArg(m, 0)
       val thatTest  = gen.mkIsInstanceOf(arg0, clazzTypeToTest(clazz), true, false)
-      val thatCast  = arg0 AS_ATTR clazz.tpe
+      val thatCast  = gen.mkCast(arg0, clazz.tpe)
 
       def argsBody: Tree = {
         val otherName = context.unit.freshTermName(clazz.name + "$")

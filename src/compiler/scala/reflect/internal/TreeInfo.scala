@@ -17,7 +17,7 @@ abstract class TreeInfo {
   val global: SymbolTable
 
   import global._
-  import definitions.{ isVarArgsList, ThrowableClass }
+  import definitions.{ isVarArgsList, isCastSymbol, ThrowableClass }
 
   /* Does not seem to be used. Not sure what it does anyway.
   def isOwnerDefinition(tree: Tree): Boolean = tree match {
@@ -60,18 +60,20 @@ abstract class TreeInfo {
        | DefDef(_, _, _, _, _, _) =>
       true
     case ValDef(mods, _, _, rhs) =>
-      !mods.isMutable && isPureExpr(rhs)
+      !mods.isMutable && isExprSafeToInline(rhs)
     case _ =>
       false
   }
 
-  /** Is tree a stable and pure expression?
-   *  !!! Clarification on what is meant by "pure" here would be appreciated.
-   *  This implementation allows both modules and lazy vals, which are pure in
-   *  the sense that they always return the same result, but which are also
-   *  side effecting.  So for now, "pure" != "not side effecting".
+  /** Is tree an expression which can be inlined without affecting program semantics?
+   *
+   *  Note that this is not called "isExprSafeToInline" since purity (lack of side-effects)
+   *  is not the litmus test.  References to modules and lazy vals are side-effecting,
+   *  both because side-effecting code may be executed and because the first reference
+   *  takes a different code path than all to follow; but they are safe to inline
+   *  because the expression result from evaluating them is always the same.
    */
-  def isPureExpr(tree: Tree): Boolean = tree match {
+  def isExprSafeToInline(tree: Tree): Boolean = tree match {
     case EmptyTree
        | This(_)
        | Super(_, _)
@@ -84,25 +86,36 @@ abstract class TreeInfo {
     case Select(Literal(const), name) =>
       const.isAnyVal && (const.tpe.member(name) != NoSymbol)
     case Select(qual, _) =>
-      tree.symbol.isStable && isPureExpr(qual)
+      tree.symbol.isStable && isExprSafeToInline(qual)
     case TypeApply(fn, _) =>
-      isPureExpr(fn)
+      isExprSafeToInline(fn)
     case Apply(fn, List()) =>
       /* Note: After uncurry, field accesses are represented as Apply(getter, Nil),
        * so an Apply can also be pure.
        * However, before typing, applications of nullary functional values are also
        * Apply(function, Nil) trees. To prevent them from being treated as pure,
        * we check that the callee is a method. */
-      fn.symbol.isMethod && !fn.symbol.isLazy && isPureExpr(fn)
+      fn.symbol.isMethod && !fn.symbol.isLazy && isExprSafeToInline(fn)
     case Typed(expr, _) =>
-      isPureExpr(expr)
+      isExprSafeToInline(expr)
     case Block(stats, expr) =>
-      (stats forall isPureDef) && isPureExpr(expr)
+      (stats forall isPureDef) && isExprSafeToInline(expr)
     case _ =>
       false
   }
 
-  def zipMethodParamsAndArgs(params: List[Symbol], args: List[Tree]): List[(Symbol, Tree)] = {
+  @deprecated("Use isExprSafeToInline instead", "2.10.0")
+  def isPureExpr(tree: Tree) = isExprSafeToInline(tree)
+
+  def zipMethodParamsAndArgs(params: List[Symbol], args: List[Tree]): List[(Symbol, Tree)] =
+    mapMethodParamsAndArgs(params, args)((param, arg) => ((param, arg)))
+
+  def mapMethodParamsAndArgs[R](params: List[Symbol], args: List[Tree])(f: (Symbol, Tree) => R): List[R] = {
+    val b = List.newBuilder[R]
+    foreachMethodParamAndArg(params, args)((param, arg) => b += f(param, arg))
+    b.result
+  }
+  def foreachMethodParamAndArg(params: List[Symbol], args: List[Tree])(f: (Symbol, Tree) => Unit): Boolean = {
     val plen   = params.length
     val alen   = args.length
     def fail() = {
@@ -111,27 +124,29 @@ abstract class TreeInfo {
         "  params = " + params + "\n" +
         "    args = " + args + "\n"
       )
-      params zip args
+      false
     }
 
-    if (plen == alen) params zip args
-    else if (params.isEmpty) fail
+    if (plen == alen) foreach2(params, args)(f)
+    else if (params.isEmpty) return fail
     else if (isVarArgsList(params)) {
       val plenInit = plen - 1
       if (alen == plenInit) {
         if (alen == 0) Nil        // avoid calling mismatched zip
-        else params.init zip args
+        else foreach2(params.init, args)(f)
       }
-      else if (alen < plenInit) fail
+      else if (alen < plenInit) return fail
       else {
-        val front = params.init zip (args take plenInit)
-        val back  = args drop plenInit map (a => (params.last, a))
-        front ++ back
+        foreach2(params.init, args take plenInit)(f)
+        val remainingArgs = args drop plenInit
+        foreach2(List.fill(remainingArgs.size)(params.last), remainingArgs)(f)
       }
     }
-    else fail
-  }
+    else return fail
 
+    true
+  }
+  
   /**
    * Selects the correct parameter list when there are nested applications.
    * Given Apply(fn, args), args might correspond to any of fn.symbol's parameter
@@ -139,22 +154,28 @@ abstract class TreeInfo {
    * applies: for instance Apply(fn @ Apply(Apply(_, _), _), args) implies args
    * correspond to the third parameter list.
    *
+   * The argument fn is the function part of the apply node being considered.
+   *
    * Also accounts for varargs.
    */
+  private def applyMethodParameters(fn: Tree): List[Symbol] = {
+    val depth  = applyDepth(fn)
+    // There could be applies which go beyond the parameter list(s),
+    // being applied to the result of the method call.
+    // !!! Note that this still doesn't seem correct, although it should
+    // be closer than what it replaced.
+    if (depth < fn.symbol.paramss.size) fn.symbol.paramss(depth)
+    else if (fn.symbol.paramss.isEmpty) Nil
+    else fn.symbol.paramss.last
+  }
+
   def zipMethodParamsAndArgs(t: Tree): List[(Symbol, Tree)] = t match {
-    case Apply(fn, args) =>
-      val depth  = applyDepth(fn)
-      // There could be applies which go beyond the parameter list(s),
-      // being applied to the result of the method call.
-      // !!! Note that this still doesn't seem correct, although it should
-      // be closer than what it replaced.
-      val params = (
-        if (depth < fn.symbol.paramss.size) fn.symbol.paramss(depth)
-        else if (fn.symbol.paramss.isEmpty) Nil
-        else fn.symbol.paramss.last
-      )
-      zipMethodParamsAndArgs(params, args)
-    case _  => Nil
+    case Apply(fn, args) => zipMethodParamsAndArgs(applyMethodParameters(fn), args)
+    case _               => Nil
+  }
+  def foreachMethodParamAndArg(t: Tree)(f: (Symbol, Tree) => Unit): Unit = t match {
+    case Apply(fn, args) => foreachMethodParamAndArg(applyMethodParameters(fn), args)(f)
+    case _               => 
   }
 
   /** Is symbol potentially a getter of a variable?
@@ -296,6 +317,24 @@ abstract class TreeInfo {
   def isWildcardStarArg(tree: Tree): Boolean = tree match {
     case Typed(_, Ident(tpnme.WILDCARD_STAR)) => true
     case _                                  => false
+  }
+
+  /** If this tree represents a type application (after unwrapping
+   *  any applies) the first type argument.  Otherwise, EmptyTree.
+   */
+  def firstTypeArg(tree: Tree): Tree = tree match {
+    case Apply(fn, _)            => firstTypeArg(fn)
+    case TypeApply(_, targ :: _) => targ
+    case _                       => EmptyTree
+  }
+
+  /** If this tree has type parameters, those.  Otherwise Nil.
+   */
+  def typeParameters(tree: Tree): List[TypeDef] = tree match {
+    case DefDef(_, _, tparams, _, _, _) => tparams
+    case ClassDef(_, _, tparams, _)     => tparams
+    case TypeDef(_, _, tparams, _)      => tparams
+    case _                              => Nil
   }
 
   /** Does this argument list end with an argument of the form <expr> : _* ? */

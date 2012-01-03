@@ -72,14 +72,18 @@ trait Definitions extends reflect.api.StandardDefinitions {
       clazz
     }
 
-    def isNumericSubClass(sub: Symbol, sup: Symbol) = {
-      val cmp = for (w1 <- numericWeight get sub ; w2 <- numericWeight get sup) yield w2 % w1
-      cmp exists (_ == 0)
-    }
+    def isNumericSubClass(sub: Symbol, sup: Symbol) = (
+         (numericWeight contains sub)
+      && (numericWeight contains sup)
+      && (numericWeight(sup) % numericWeight(sub) == 0)
+    )
 
     /** Is symbol a numeric value class? */
     def isNumericValueClass(sym: Symbol): Boolean =
       numericWeight contains sym
+
+    def isGetClass(sym: Symbol) =
+      (sym.name == nme.getClass_) && (sym.paramss.isEmpty || sym.paramss.head.isEmpty)
 
     private[Definitions] def fullNameStrings: List[String] = nme.ScalaValueNames map ("scala." + _)
     private[Definitions] lazy val fullValueName: Set[Name] = {
@@ -168,10 +172,26 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val AnyValCompanionClass = getClass("scala.AnyValCompanion") setFlag (SEALED | ABSTRACT | TRAIT)
 
     // bottom types
-    lazy val NullClass            = newClass(ScalaPackageClass, tpnme.Null, anyrefparam) setFlag (ABSTRACT | TRAIT | FINAL)
-    lazy val NothingClass         = newClass(ScalaPackageClass, tpnme.Nothing, anyparam) setFlag (ABSTRACT | TRAIT | FINAL)
     lazy val RuntimeNothingClass  = getClass(ClassfileConstants.SCALA_NOTHING)
     lazy val RuntimeNullClass     = getClass(ClassfileConstants.SCALA_NULL)
+
+    sealed abstract class BottomClassSymbol(name: TypeName, parent: Symbol) extends ClassSymbol(ScalaPackageClass, NoPosition, name) {
+      locally {
+        this setFlag ABSTRACT | TRAIT | FINAL
+        this setInfo ClassInfoType(List(parent.tpe), new Scope, this)
+        owner.info.decls enter this
+      }
+      final override def isBottomClass = true
+    }
+    final object NothingClass extends BottomClassSymbol(tpnme.Nothing, AnyClass) {
+      override def isSubClass(that: Symbol) = true
+    }
+    final object NullClass extends BottomClassSymbol(tpnme.Null, AnyRefClass) {
+      override def isSubClass(that: Symbol) = (
+           (that eq AnyClass)
+        || (that ne NothingClass) && (that isSubClass ObjectClass)
+      )
+    }
 
     // exceptions and other throwables
     lazy val ClassCastExceptionClass        = getClass("java.lang.ClassCastException")
@@ -186,6 +206,7 @@ trait Definitions extends reflect.api.StandardDefinitions {
     // fundamental reference classes
     lazy val ScalaObjectClass           = getMember(ScalaPackageClass, tpnme.ScalaObject)
     lazy val PartialFunctionClass       = getClass("scala.PartialFunction")
+    lazy val AbstractPartialFunctionClass = getClass("scala.runtime.AbstractPartialFunction")
     lazy val SymbolClass                = getClass("scala.Symbol")
     lazy val StringClass                = getClass(sn.String)
     lazy val StringModule               = StringClass.linkedClassOfClass
@@ -211,6 +232,16 @@ trait Definitions extends reflect.api.StandardDefinitions {
       def Predef_identity = getMember(PredefModule, nme.identity)
       def Predef_conforms = getMember(PredefModule, nme.conforms)
       def Predef_wrapRefArray = getMember(PredefModule, nme.wrapRefArray)
+      
+    /** Is `sym` a member of Predef with the given name?
+     *  Note: DON't replace this by sym == Predef_conforms/etc, as Predef_conforms is a `def`
+     *  which does a member lookup (it can't be a lazy val because we might reload Predef
+     *  during resident compilations).
+     */
+    def isPredefMemberNamed(sym: Symbol, name: Name) = (
+      (sym.name == name) && (sym.owner == PredefModule.moduleClass)
+    )
+
     lazy val ConsoleModule: Symbol = getModule("scala.Console")
     lazy val ScalaRunTimeModule: Symbol = getModule("scala.runtime.ScalaRunTime")
     lazy val SymbolModule: Symbol = getModule("scala.Symbol")
@@ -222,10 +253,6 @@ trait Definitions extends reflect.api.StandardDefinitions {
       def arrayCloneMethod = getMember(ScalaRunTimeModule, "array_clone")
       def ensureAccessibleMethod = getMember(ScalaRunTimeModule, "ensureAccessible")
       def scalaRuntimeSameElements = getMember(ScalaRunTimeModule, nme.sameElements)
-    lazy val ReflectRuntimeMirror = getModule("scala.reflect.runtime.Mirror")
-      def freeValueMethod = getMember(ReflectRuntimeMirror, "freeValue")
-    lazy val ReflectPackage = getPackageObject("scala.reflect")
-      def Reflect_mirror = getMember(ReflectPackage, "mirror")
 
     // classes with special meanings
     lazy val StringAddClass   = getClass("scala.runtime.StringAdd")
@@ -247,6 +274,9 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val SerializableClass     = getClass("scala.Serializable")
     lazy val JavaSerializableClass = getClass(sn.JavaSerializable)
     lazy val ComparableClass       = getClass("java.lang.Comparable")
+    lazy val JavaCloneableClass    = getClass("java.lang.Cloneable")
+    lazy val RemoteInterfaceClass  = getClass("java.rmi.Remote")
+    lazy val RemoteExceptionClass  = getClass("java.rmi.RemoteException")
 
     lazy val RepeatedParamClass = newCovariantPolyClass(
       ScalaPackageClass,
@@ -264,7 +294,9 @@ trait Definitions extends reflect.api.StandardDefinitions {
     def isScalaRepeatedParamType(tp: Type) = tp.typeSymbol == RepeatedParamClass
     def isJavaRepeatedParamType(tp: Type)  = tp.typeSymbol == JavaRepeatedParamClass
     def isRepeatedParamType(tp: Type)      = isScalaRepeatedParamType(tp) || isJavaRepeatedParamType(tp)
+    def isCastSymbol(sym: Symbol)          = sym == Any_asInstanceOf || sym == Object_asInstanceOf
 
+    def isJavaVarArgsMethod(m: Symbol)       = m.isMethod && isJavaVarArgs(m.info.params)
     def isJavaVarArgs(params: List[Symbol])  = params.nonEmpty && isJavaRepeatedParamType(params.last.tpe)
     def isScalaVarArgs(params: List[Symbol]) = params.nonEmpty && isScalaRepeatedParamType(params.last.tpe)
     def isVarArgsList(params: List[Symbol])  = params.nonEmpty && isRepeatedParamType(params.last.tpe)
@@ -329,6 +361,13 @@ trait Definitions extends reflect.api.StandardDefinitions {
       def methodCache_add   = getMember(MethodCacheClass, nme.add_)
 
     // scala.reflect
+    lazy val ReflectApiUniverse = getClass("scala.reflect.api.Universe")
+    lazy val ReflectRuntimeMirror = getModule("scala.reflect.runtime.Mirror")
+      def freeValueMethod = getMember(ReflectRuntimeMirror, "freeValue")
+    lazy val ReflectPackage = getPackageObject("scala.reflect")
+      def Reflect_mirror = getMember(ReflectPackage, "mirror")
+
+
     lazy val PartialManifestClass  = getClass("scala.reflect.ClassManifest")
     lazy val PartialManifestModule = getModule("scala.reflect.ClassManifest")
     lazy val FullManifestClass     = getClass("scala.reflect.Manifest")
@@ -342,17 +381,35 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val ScalaSignatureAnnotation = getClass("scala.reflect.ScalaSignature")
     lazy val ScalaLongSignatureAnnotation = getClass("scala.reflect.ScalaLongSignature")
 
-    // invoke dynamic support
-    lazy val LinkageModule = getModule("java.dyn.Linkage")
-      lazy val Linkage_invalidateCallerClass = getMember(LinkageModule, "invalidateCallerClass")
-    lazy val DynamicDispatchClass = getModule("scala.runtime.DynamicDispatch")
-      lazy val DynamicDispatch_DontSetTarget = getMember(DynamicDispatchClass, "DontSetTarget")
-
     // Option classes
     lazy val OptionClass: Symbol = getClass("scala.Option")
     lazy val SomeClass: Symbol   = getClass("scala.Some")
     lazy val NoneModule: Symbol  = getModule("scala.None")
     lazy val SomeModule: Symbol  = getModule("scala.Some")
+
+    /** Note: don't use this manifest/type function for anything important,
+     *  as it is incomplete.  Would love to have things like existential types
+     *  working, but very unfortunately the manifests just stuff the relevant
+     *  information into the toString method.
+     */
+    def manifestToType(m: OptManifest[_]): Type = m match {
+      case x: AnyValManifest[_] =>
+        getClassIfDefined("scala." + x).tpe
+      case m: ClassManifest[_] =>
+        val name = m.erasure.getName
+        if (name endsWith nme.MODULE_SUFFIX_STRING)
+          getModuleIfDefined(name stripSuffix nme.MODULE_SUFFIX_STRING).tpe
+        else {
+          val sym  = getClassIfDefined(name)
+          val args = m.typeArguments
+
+          if (sym eq NoSymbol) NoType
+          else if (args.isEmpty) sym.tpe
+          else appliedType(sym.typeConstructor, args map manifestToType)
+        }
+      case _ =>
+        NoType
+    }
 
     // The given symbol represents either String.+ or StringAdd.+
     def isStringAddition(sym: Symbol) = sym == String_+ || sym == StringAdd_+
@@ -602,8 +659,8 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val uncheckedStableClass       = getClass("scala.annotation.unchecked.uncheckedStable")
     lazy val uncheckedVarianceClass     = getClass("scala.annotation.unchecked.uncheckedVariance")
 
-    lazy val BeanPropertyAttr           = getClass(sn.BeanProperty)
-    lazy val BooleanBeanPropertyAttr    = getClass(sn.BooleanBeanProperty)
+    lazy val BeanPropertyAttr           = getClass("scala.beans.BeanProperty")
+    lazy val BooleanBeanPropertyAttr    = getClass("scala.beans.BooleanBeanProperty")
     lazy val CloneableAttr              = getClass("scala.cloneable")
     lazy val DeprecatedAttr             = getClass("scala.deprecated")
     lazy val DeprecatedNameAttr         = getClass("scala.deprecatedName")
@@ -625,13 +682,13 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val GetterTargetClass          = getMetaAnnotation("getter")
     lazy val ParamTargetClass           = getMetaAnnotation("param")
     lazy val SetterTargetClass          = getMetaAnnotation("setter")
+    // TODO: module, moduleClass? package, packageObject?
 
     private def getMetaAnnotation(name: String) = getClass("scala.annotation.meta." + name)
     def isMetaAnnotation(sym: Symbol): Boolean = metaAnnotations(sym) || (
       // Trying to allow for deprecated locations
       sym.isAliasType && isMetaAnnotation(sym.info.typeSymbol)
     )
-
     lazy val metaAnnotations = Set(
       FieldTargetClass, ParamTargetClass,
       GetterTargetClass, SetterTargetClass,
@@ -641,7 +698,7 @@ trait Definitions extends reflect.api.StandardDefinitions {
     lazy val AnnotationDefaultAttr: Symbol = {
       val attr = newClass(RuntimePackageClass, tpnme.AnnotationDefaultATTR, List(AnnotationClass.typeConstructor))
       // This attribute needs a constructor so that modifiers in parsed Java code make sense
-      attr.info.decls enter (attr newConstructor NoPosition setInfo MethodType(Nil, attr.tpe))
+      attr.info.decls enter attr.newClassConstructor(NoPosition)
       attr
     }
 
@@ -660,10 +717,14 @@ trait Definitions extends reflect.api.StandardDefinitions {
       result
     }
 
+    def getClassIfDefined(fullname: String): Symbol =
+      getClassIfDefined(newTypeName(fullname))
     def getClassIfDefined(fullname: Name): Symbol =
       try getClass(fullname.toTypeName)
       catch { case _: MissingRequirementError => NoSymbol }
 
+    def getModuleIfDefined(fullname: String): Symbol =
+      getModuleIfDefined(newTermName(fullname))
     def getModuleIfDefined(fullname: Name): Symbol =
       try getModule(fullname.toTermName)
       catch { case _: MissingRequirementError => NoSymbol }
@@ -780,12 +841,12 @@ trait Definitions extends reflect.api.StandardDefinitions {
     /** Is symbol a boxed value class, e.g. java.lang.Integer? */
     def isBoxedValueClass(sym: Symbol) = boxedValueClassesSet(sym)
 
-    /** If symbol is a value class, return the value class, with the exception
-     *  that BoxedUnit remains BoxedUnit.  If not a value class, NoSymbol.
+    /** If symbol is a value class (boxed or not), return the unboxed
+     *  value class.  Otherwise, NoSymbol.
      */
     def unboxedValueClass(sym: Symbol): Symbol =
       if (isValueClass(sym)) sym
-      else if (sym == BoxedUnitClass) sym
+      else if (sym == BoxedUnitClass) UnitClass
       else boxedClass.map(_.swap).getOrElse(sym, NoSymbol)
 
     /** Is type's symbol a numeric value class? */

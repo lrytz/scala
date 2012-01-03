@@ -47,6 +47,18 @@ abstract class TreeGen extends reflect.internal.TreeGen {
     case _                      => tree
   }
 
+  def withDefaultCase(matchExpr: Tree, defaultAction: Tree/*scrutinee*/ => Tree): Tree = matchExpr match {
+    case Match(scrutinee, cases) =>
+      if (cases exists treeInfo.isDefaultCase) matchExpr
+      else {
+        val defaultCase = CaseDef(Ident(nme.WILDCARD), EmptyTree, defaultAction(scrutinee))
+        Match(scrutinee, cases :+ defaultCase)
+      }
+    case _ =>
+      matchExpr
+    // [Martin] Adriaan: please fill in virtpatmat transformation here
+  }
+
   def mkCached(cvar: Symbol, expr: Tree): Tree = {
     val cvarRef = mkUnattributedRef(cvar)
     Block(
@@ -206,7 +218,7 @@ abstract class TreeGen extends reflect.internal.TreeGen {
    */
   def evalOnce(expr: Tree, owner: Symbol, unit: CompilationUnit)(within: (() => Tree) => Tree): Tree = {
     var used = false
-    if (treeInfo.isPureExpr(expr)) {
+    if (treeInfo.isExprSafeToInline(expr)) {
       within(() => if (used) expr.duplicate else { used = true; expr })
     }
     else {
@@ -223,7 +235,7 @@ abstract class TreeGen extends reflect.internal.TreeGen {
     val used = new Array[Boolean](exprs.length)
     var i = 0
     for (expr <- exprs) {
-      if (treeInfo.isPureExpr(expr)) {
+      if (treeInfo.isExprSafeToInline(expr)) {
         exprs1 += {
           val idx = i
           () => if (used(idx)) expr.duplicate else { used(idx) = true; expr }
