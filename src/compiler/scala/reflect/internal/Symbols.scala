@@ -612,7 +612,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       this != NoSymbol && (!owner.isPackageClass || { rawInfo.load(this); rawInfo != NoType })
 
     final def isInitialized: Boolean =
-      validTo != NoPeriod
+      validTo != NoPeriod && rawInfo.isComplete
 
     final def isStableClass: Boolean = {
       def hasNoAbstractTypeMember(clazz: Symbol): Boolean =
@@ -859,10 +859,31 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      */
     def info: Type = try {
       var cnt = 0
-      while (validTo == NoPeriod) {
+
+      // travel back in `infos` to find the TypeHistory for the current period.
+      // this can have a completed type, while the first element in this.infos
+      // might have a lazy type, e.g.
+      //    TypeHistory(later-phase, LazyType(..), TypeHistory(typer-phase, tp))
+      // if we want to get the type atPhase(typer-phase), then we don't need to
+      // complete the LazyType(..)
+      var currentInfos = {
+        var infos = this.infos
+        val curPid = phaseId(currentPeriod)
+        if (validTo != NoPeriod) {
+          // skip any infos that concern later phases
+          while (curPid < phaseId(infos.validFrom) && infos.prev != null)
+            infos = infos.prev
+        }
+        infos
+      }
+
+      while (!currentInfos.info.isComplete) {
+        // If there's a LazyType, it has to be the first entry in the TypeHistory
+        assert(currentInfos eq infos, this.name)
+
         //if (settings.debug.value) System.out.println("completing " + this);//DEBUG
-        assert(infos ne null, this.name)
-        assert(infos.prev eq null, this.name)
+        // assert(infos ne null, this.name)
+        // assert(infos.prev eq null, this.name)
         val tp = infos.info
         //if (settings.debug.value) System.out.println("completing " + this.rawname + tp.getClass());//debug
 
@@ -885,6 +906,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
           unlock()
           phase = current
         }
+        currentInfos = infos
         cnt += 1
         // allow for two completions:
         //   one: sourceCompleter to LazyType, two: LazyType to completed type
@@ -902,7 +924,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       assert(info ne null)
       infos = TypeHistory(currentPeriod, info, null)
       unlock()
-      validTo = if (info.isComplete) currentPeriod else NoPeriod
+      validTo = currentPeriod
     }
 
     /** Set initial info. */
@@ -914,8 +936,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     final def updateInfo(info: Type): Symbol = {
       assert(phaseId(infos.validFrom) <= phase.id)
       if (phaseId(infos.validFrom) == phase.id) infos = infos.prev
+      if (infos != null && !infos.info.isComplete) infos = infos.prev
       infos = TypeHistory(currentPeriod, info, infos)
-      validTo = if (info.isComplete) currentPeriod else NoPeriod
+      validTo = currentPeriod
       this
     }
 
@@ -933,7 +956,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         while (curPid < phaseId(infos.validFrom) && infos.prev != null)
           infos = infos.prev
 
-        if (validTo < curPeriod) {
+        // apply infoTransformers on non-lazy types
+        if (validTo < curPeriod && infos.info.isComplete) {
           // adapt any infos that come from previous runs
           val current = phase
           try {
@@ -1062,7 +1086,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def typeParams: List[Symbol] =
       if (isMonomorphicType) Nil
       else {
-        if (validTo == NoPeriod)
+        if (!infos.info.isComplete)
           atPhase(phaseOf(infos.validFrom))(rawInfo load this)
 
         rawInfo.typeParams
