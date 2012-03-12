@@ -54,7 +54,7 @@ trait ParallelMatching extends ast.TreeDSL
     }
     def createLabelDef(namePrefix: String, body: Tree, params: List[Symbol] = Nil, restpe: Type = matchResultType) = {
       val labelName = cunit.freshTermName(namePrefix)
-      val labelSym  = owner.newLabel(owner.pos, labelName)
+      val labelSym  = owner.newLabel(labelName, owner.pos)
       val labelInfo = MethodType(params, restpe)
 
       LabelDef(labelSym setInfo labelInfo, params, body setType restpe)
@@ -745,7 +745,7 @@ trait ParallelMatching extends ast.TreeDSL
           (others.head :: _column.tail, make(_tvars, _rows))
 
         def mix() = {
-          val newScrut = new Scrutinee(specialVar(_pv.sym, _pv.checked))
+          val newScrut = new Scrutinee(new PatternVar(_pv.sym, EmptyTree, _pv.checked))
           PatternMatch(newScrut, _ncol) mkRule _nrep
         }
       }

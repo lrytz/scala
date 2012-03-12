@@ -53,6 +53,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
 
   def isAsync = !settings.Yreplsync.value
   lazy val power = new Power(intp, new StdReplVals(this))
+  lazy val NoType = intp.global.NoType
 
   // TODO
   // object opt extends AestheticSettings
@@ -109,7 +110,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
   class ILoopInterpreter extends IMain(settings, out) {
     outer =>
 
-    private class ThreadStoppingLineManager extends Line.Manager(parentClassLoader) {
+    private class ThreadStoppingLineManager(classLoader: ClassLoader) extends Line.Manager(classLoader) {
       override def onRunaway(line: Line[_]): Unit = {
         val template = """
           |// She's gone rogue, captain! Have to take her out!
@@ -125,8 +126,8 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
     override lazy val formatting = new Formatting {
       def prompt = ILoop.this.prompt
     }
-    override protected def createLineManager(): Line.Manager =
-      new ThreadStoppingLineManager
+    override protected def createLineManager(classLoader: ClassLoader): Line.Manager =
+      new ThreadStoppingLineManager(classLoader)
 
     override protected def parentClassLoader =
       settings.explicitParentLoader.getOrElse( classOf[ILoop].getClassLoader )
@@ -323,7 +324,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
   private def implicitsCommand(line: String): Result = {
     val intp = ILoop.this.intp
     import intp._
-    import global.Symbol
+    import global.{ Symbol, afterTyper }
 
     def p(x: Any) = intp.reporter.printMessage("" + x)
 
@@ -347,7 +348,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
 
         // This groups the members by where the symbol is defined
         val byOwner = syms groupBy (_.owner)
-        val sortedOwners = byOwner.toList sortBy { case (owner, _) => intp.afterTyper(source.info.baseClasses indexOf owner) }
+        val sortedOwners = byOwner.toList sortBy { case (owner, _) => afterTyper(source.info.baseClasses indexOf owner) }
 
         sortedOwners foreach {
           case (owner, members) =>
@@ -381,7 +382,7 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
   private def findToolsJar() = {
     val jdkPath = Directory(jdkHome)
     val jar     = jdkPath / "lib" / "tools.jar" toFile;
-    
+
     if (jar isFile)
       Some(jar)
     else if (jdkPath.isDirectory)
@@ -436,9 +437,10 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
   // Still todo: modules.
   private def typeCommand(line: String): Result = {
     if (line.trim == "") ":type <expression>"
-    else intp.typeOfExpression(line, false) match {
-      case Some(tp) => intp.afterTyper(tp.toString)
-      case _        => "" // the error message was already printed
+    else {
+      val tp = intp.typeOfExpression(line, false)
+      if (tp == NoType) "" // the error message was already printed
+      else intp.global.afterTyper(tp.toString)
     }
   }
   private def warningsCommand(): Result = {
@@ -485,13 +487,14 @@ class ILoop(in0: Option[BufferedReader], protected val out: JPrintWriter)
         }
       case wrapper :: Nil =>
         intp.typeOfExpression(wrapper) match {
-          case Some(PolyType(List(targ), MethodType(List(arg), restpe))) =>
+          case PolyType(List(targ), MethodType(List(arg), restpe)) =>
             intp setExecutionWrapper intp.pathToTerm(wrapper)
             "Set wrapper to '" + wrapper + "'"
-          case Some(x) =>
-            failMsg + "\nFound: " + x
-          case _ =>
-            failMsg + "\nFound: <unknown>"
+          case tp =>
+            failMsg + (
+              if (tp == g.NoType) "\nFound: <unknown>"
+              else "\nFound: <unknown>"
+            )
         }
       case _ => failMsg
     }

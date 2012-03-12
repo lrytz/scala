@@ -128,7 +128,7 @@ abstract class TailCalls extends Transform {
           * the label field.
           */
         this.label    = {
-          val label     = method.newLabel(method.pos, "_" + method.name)
+          val label     = method.newLabel(newTermName("_" + method.name), method.pos)
           val thisParam = method.newSyntheticValueParam(currentClass.typeOfThis)
           label setInfo MethodType(thisParam :: method.tpe.params, method.tpe.finalResultType)
         }
@@ -144,7 +144,7 @@ abstract class TailCalls extends Transform {
       def isTransformed    = isEligible && accessed
       def tailrecFailure() = unit.error(failPos, "could not optimize @tailrec annotated " + method + ": " + failReason)
 
-      def newThis(pos: Position) = method.newValue(pos, nme.THIS) setInfo currentClass.typeOfThis setFlag SYNTHETIC
+      def newThis(pos: Position) = method.newValue(nme.THIS, pos, SYNTHETIC) setInfo currentClass.typeOfThis
 
       override def toString(): String = (
         "" + method.name + " tparams: " + tparams + " tailPos: " + tailPos +
@@ -204,7 +204,7 @@ abstract class TailCalls extends Transform {
           fail(reason)
         }
         def rewriteTailCall(recv: Tree): Tree = {
-          log("Rewriting tail recursive call:  " + fun.pos.lineContent.trim)
+          debuglog("Rewriting tail recursive call:  " + fun.pos.lineContent.trim)
 
           ctx.accessed = true
           typedPos(fun.pos)(Apply(Ident(ctx.label), recv :: transformArgs))
@@ -223,13 +223,12 @@ abstract class TailCalls extends Transform {
       }
 
       tree match {
-        case dd @ DefDef(mods, name, tparams, vparams, tpt, rhs) =>
+        case dd @ DefDef(_, _, _, vparamss0, _, rhs0) =>
           val newCtx = new Context(dd)
+          debuglog("Considering " + dd.name + " for tailcalls")
+          val newRHS = transform(rhs0, newCtx)
 
-          debuglog("Considering " + name + " for tailcalls")
-          val newRHS = transform(rhs, newCtx)
-
-          treeCopy.DefDef(tree, mods, name, tparams, vparams, tpt, {
+          deriveDefDef(tree)(rhs =>
             if (newCtx.isTransformed) {
               /** We have rewritten the tree, but there may be nested recursive calls remaining.
                *  If @tailrec is given we need to fail those now.
@@ -241,7 +240,7 @@ abstract class TailCalls extends Transform {
                 }
               }
               val newThis = newCtx.newThis(tree.pos)
-              val vpSyms  = vparams.flatten map (_.symbol)
+              val vpSyms  = vparamss0.flatten map (_.symbol)
 
               typedPos(tree.pos)(Block(
                 List(ValDef(newThis, This(currentClass))),
@@ -254,7 +253,7 @@ abstract class TailCalls extends Transform {
 
               newRHS
             }
-          })
+          )
 
         case Block(stats, expr) =>
           treeCopy.Block(tree,
@@ -263,11 +262,7 @@ abstract class TailCalls extends Transform {
           )
 
         case CaseDef(pat, guard, body) =>
-          treeCopy.CaseDef(tree,
-            pat,
-            guard,
-            transform(body)
-          )
+          deriveCaseDef(tree)(transform)
 
         case If(cond, thenp, elsep) =>
           treeCopy.If(tree,

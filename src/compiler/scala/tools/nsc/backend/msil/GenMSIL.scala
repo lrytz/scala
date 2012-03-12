@@ -124,8 +124,8 @@ abstract class GenMSIL extends SubComponent {
     // Scala attributes
     // symtab.Definitions -> object (singleton..)
     val SerializableAttr = definitions.SerializableAttr.tpe
-    val CloneableAttr    = definitions.getClass("scala.cloneable").tpe
-    val TransientAtt     = definitions.getClass("scala.transient").tpe
+    val CloneableAttr    = definitions.CloneableAttr.tpe
+    val TransientAtt     = definitions.TransientAttr.tpe
     // remoting: the architectures are too different, no mapping (no portable code
     // possible)
 
@@ -1125,7 +1125,7 @@ abstract class GenMSIL extends SubComponent {
               }
 
               // method: implicit view(FunctionX[PType0, PType1, ...,PTypeN, ResType]):DelegateType
-              val (isDelegateView, paramType, resType) = atPhase(currentRun.typerPhase) {
+              val (isDelegateView, paramType, resType) = beforeTyper {
                 msym.tpe match {
                   case MethodType(params, resultType)
                   if (params.length == 1 && msym.name == nme.view_) =>
@@ -1898,8 +1898,8 @@ abstract class GenMSIL extends SubComponent {
         val sc = iclass.lookupStaticCtor
         if (sc.isDefined) {
           val m = sc.get
-          val oldLastBlock = m.code.blocks.last
-          val lastBlock = m.code.newBlock
+          val oldLastBlock = m.lastBlock
+          val lastBlock = m.newBlock()
           oldLastBlock.replaceInstruction(oldLastBlock.length - 1, JUMP(lastBlock))
           // call object's private ctor from static ctor
           lastBlock.emit(CIL_NEWOBJ(iclass.symbol.primaryConstructor))
@@ -1954,7 +1954,7 @@ abstract class GenMSIL extends SubComponent {
     } // createClassMembers0
 
     private def isTopLevelModule(sym: Symbol): Boolean =
-      atPhase (currentRun.refchecksPhase) {
+      beforeRefchecks {
         sym.isModuleClass && !sym.isImplClass && !sym.isNestedClass
       }
 

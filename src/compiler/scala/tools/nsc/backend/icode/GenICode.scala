@@ -94,7 +94,7 @@ abstract class GenICode extends SubComponent  {
 
       // !! modules should be eliminated by refcheck... or not?
       case ModuleDef(mods, name, impl) =>
-        abort("Modules should not reach backend!")
+        abort("Modules should not reach backend! " + tree)
 
       case ValDef(mods, name, tpt, rhs) =>
         ctx // we use the symbol to add fields
@@ -102,7 +102,7 @@ abstract class GenICode extends SubComponent  {
       case DefDef(mods, name, tparams, vparamss, tpt, rhs) =>
         debuglog("Entering method " + name)
         val m = new IMethod(tree.symbol)
-        m.sourceFile = unit.source.toString()
+        m.sourceFile = unit.source
         m.returnType = if (tree.symbol.isConstructor) UNIT
                        else toTypeKind(tree.symbol.info.resultType)
         ctx.clazz.addMethod(m)
@@ -133,7 +133,7 @@ abstract class GenICode extends SubComponent  {
           if (!ctx1.bb.closed) ctx1.bb.close
           prune(ctx1.method)
         } else
-          ctx1.method.setCode(null)
+          ctx1.method.setCode(NoCode)
         ctx1
 
       case Template(_, _, body) =>
@@ -179,7 +179,7 @@ abstract class GenICode extends SubComponent  {
     }
 
     private def genThrow(expr: Tree, ctx: Context): (Context, TypeKind) = {
-      require(expr.tpe <:< ThrowableClass.tpe)
+      require(expr.tpe <:< ThrowableClass.tpe, expr.tpe)
 
       val thrownKind = toTypeKind(expr.tpe)
       val ctx1       = genLoad(expr, ctx, thrownKind)
@@ -393,15 +393,15 @@ abstract class GenICode extends SubComponent  {
         for (CaseDef(pat, _, body) <- catches.reverse) yield {
           def genWildcardHandler(sym: Symbol): (Symbol, TypeKind, Context => Context) =
             (sym, kind, ctx => {
-              ctx.bb.emit(DROP(REFERENCE(sym)))
+              ctx.bb.emit(DROP(REFERENCE(sym))) // drop the loaded exception
               genLoad(body, ctx, kind)
             })
 
           pat match {
             case Typed(Ident(nme.WILDCARD), tpt)  => genWildcardHandler(tpt.tpe.typeSymbol)
             case Ident(nme.WILDCARD)              => genWildcardHandler(ThrowableClass)
-            case Bind(name, _)                    =>
-              val exception = ctx.method addLocal new Local(pat.symbol, toTypeKind(pat.symbol.tpe), false)
+            case Bind(_, _)                       =>
+              val exception = ctx.method addLocal new Local(pat.symbol, toTypeKind(pat.symbol.tpe), false) // the exception will be loaded and stored into this local
 
               (pat.symbol.tpe.typeSymbol, kind, {
                 ctx: Context =>
@@ -480,7 +480,7 @@ abstract class GenICode extends SubComponent  {
      */
     private def msil_genLoadZeroOfNonEnumValuetype(ctx: Context, kind: TypeKind, pos: Position, leaveAddressOnStackInstead: Boolean) {
       val REFERENCE(clssym) = kind
-      assert(loaders.clrTypes.isNonEnumValuetype(clssym))
+      assert(loaders.clrTypes.isNonEnumValuetype(clssym), clssym)
       val local = ctx.makeLocal(pos, clssym.tpe, "tmp")
       ctx.method.addLocal(local)
       ctx.bb.emit(CIL_LOAD_LOCAL_ADDRESS(local), pos)
@@ -704,7 +704,8 @@ abstract class GenICode extends SubComponent  {
           ctx1
 
         case New(tpt) =>
-          abort("Unexpected New")
+          abort("Unexpected New(" + tpt.summaryString + "/" + tpt + ") received in icode.\n" +
+            "  Call was genLoad" + ((tree, ctx, expectedType)))
 
         case Apply(TypeApply(fun, targs), _) =>
           val sym = fun.symbol
@@ -1054,7 +1055,7 @@ abstract class GenICode extends SubComponent  {
 
         case Match(selector, cases) =>
           debuglog("Generating SWITCH statement.");
-          var ctx1 = genLoad(selector, ctx, INT)
+          var ctx1 = genLoad(selector, ctx, INT) // TODO: Java 7 allows strings in switches (so, don't assume INT and don't convert the literals using intValue)
           val afterCtx = ctx1.newBlock
           var caseCtx: Context  = null
           generatedType = toTypeKind(tree.tpe)
@@ -1064,7 +1065,7 @@ abstract class GenICode extends SubComponent  {
           var default: BasicBlock = afterCtx.bb
 
           for (caze @ CaseDef(pat, guard, body) <- cases) {
-            assert(guard == EmptyTree)
+            assert(guard == EmptyTree, guard)
             val tmpCtx = ctx1.newBlock
             pat match {
               case Literal(value) =>
@@ -1072,6 +1073,15 @@ abstract class GenICode extends SubComponent  {
                 targets = tmpCtx.bb :: targets
               case Ident(nme.WILDCARD) =>
                 default = tmpCtx.bb
+              case Alternative(alts) =>
+                alts foreach {
+                  case Literal(value) =>
+                    tags = value.intValue :: tags
+                    targets = tmpCtx.bb :: targets
+                  case _ =>
+                    abort("Invalid case in alternative in switch-like pattern match: " +
+                          tree + " at: " + tree.pos)
+                }
               case _ =>
                 abort("Invalid case statement in switch-like pattern match: " +
                       tree + " at: " + (tree.pos))
@@ -1293,7 +1303,7 @@ abstract class GenICode extends SubComponent  {
 
     /** The Object => String overload.
      */
-    private lazy val String_valueOf: Symbol = getMember(StringModule, "valueOf") filter (sym =>
+    private lazy val String_valueOf: Symbol = getMember(StringModule, nme.valueOf) filter (sym =>
       sym.info.paramTypes match {
         case List(pt) => pt.typeSymbol == ObjectClass
         case _        => false
@@ -1305,7 +1315,7 @@ abstract class GenICode extends SubComponent  {
     // case we want to get more precise.
     //
     // private def valueOfForType(tp: Type): Symbol = {
-    //   val xs = getMember(StringModule, "valueOf") filter (sym =>
+    //   val xs = getMember(StringModule, nme.valueOf) filter (sym =>
     //     // We always exclude the Array[Char] overload because java throws an NPE if
     //     // you pass it a null.  It will instead find the Object one, which doesn't.
     //     sym.info.paramTypes match {
@@ -1352,7 +1362,7 @@ abstract class GenICode extends SubComponent  {
     def genScalaHash(tree: Tree, ctx: Context): Context = {
       val hashMethod = {
         ctx.bb.emit(LOAD_MODULE(ScalaRunTimeModule))
-        getMember(ScalaRunTimeModule, "hash")
+        getMember(ScalaRunTimeModule, nme.hash_)
       }
 
       val ctx1 = genLoad(tree, ctx, ObjectReference)
@@ -1528,7 +1538,7 @@ abstract class GenICode extends SubComponent  {
       if (mustUseAnyComparator) {
         // when -optimise is on we call the @inline-version of equals, found in ScalaRunTime
         val equalsMethod =
-          if (!settings.XO.value) {
+          if (!settings.optimise.value) {
             def default = platform.externalEquals
             platform match {
               case x: JavaPlatform =>
@@ -1550,7 +1560,7 @@ abstract class GenICode extends SubComponent  {
 
         val ctx1 = genLoad(l, ctx, ObjectReference)
         val ctx2 = genLoad(r, ctx1, ObjectReference)
-        ctx2.bb.emit(CALL_METHOD(equalsMethod, if (settings.XO.value) Dynamic else Static(false)))
+        ctx2.bb.emit(CALL_METHOD(equalsMethod, if (settings.optimise.value) Dynamic else Static(false)))
         ctx2.bb.emit(CZJUMP(thenCtx.bb, elseCtx.bb, NE, BOOL))
         ctx2.bb.close
       }
@@ -1716,7 +1726,7 @@ abstract class GenICode extends SubComponent  {
       do {
         changed = false
         n += 1
-        method.code.blocks foreach prune0
+        method.blocks foreach prune0
       } while (changed)
 
       debuglog("Prune fixpoint reached in " + n + " iterations.");
@@ -1755,7 +1765,7 @@ abstract class GenICode extends SubComponent  {
         val sym = t.symbol
         def getLabel(pos: Position, name: Name) =
           labels.getOrElseUpdate(sym,
-            method.newLabel(sym.pos, unit.freshTermName(name.toString)) setInfo sym.tpe
+            method.newLabel(unit.freshTermName(name.toString), sym.pos) setInfo sym.tpe
           )
 
         t match {
@@ -1924,7 +1934,7 @@ abstract class GenICode extends SubComponent  {
         val ctx1 = new Context(this) setMethod(m)
         ctx1.labels = mutable.HashMap()
         ctx1.method.code = new Code(m)
-        ctx1.bb = ctx1.method.code.startBlock
+        ctx1.bb = ctx1.method.startBlock
         ctx1.defdef = d
         ctx1.scope = EmptyScope
         ctx1.enterScope
@@ -1932,11 +1942,12 @@ abstract class GenICode extends SubComponent  {
       }
 
       /** Return a new context for a new basic block. */
-      def newBlock: Context = {
+      def newBlock(): Context = {
         val block = method.code.newBlock
         handlers foreach (_ addCoveredBlock block)
         currentExceptionHandlers foreach (_ addBlock block)
-        block.varsInScope = mutable.HashSet() ++= scope.varsInScope
+        block.varsInScope.clear()
+        block.varsInScope ++= scope.varsInScope
         new Context(this) setBasicBlock block
       }
 
@@ -1958,7 +1969,7 @@ abstract class GenICode extends SubComponent  {
        */
       private def newExceptionHandler(cls: Symbol, resultKind: TypeKind, pos: Position): ExceptionHandler = {
         handlerCount += 1
-        val exh = new ExceptionHandler(method, "" + handlerCount, cls, pos)
+        val exh = new ExceptionHandler(method, newTermNameCached("" + handlerCount), cls, pos)
         exh.resultKind = resultKind
         method.addHandler(exh)
         handlers = exh :: handlers
@@ -2004,9 +2015,7 @@ abstract class GenICode extends SubComponent  {
 
       /** Make a fresh local variable. It ensures the 'name' is unique. */
       def makeLocal(pos: Position, tpe: Type, name: String): Local = {
-        val sym = method.symbol.newVariable(pos, unit.freshTermName(name))
-          .setInfo(tpe)
-          .setFlag(Flags.SYNTHETIC)
+        val sym = method.symbol.newVariable(unit.freshTermName(name), pos, Flags.SYNTHETIC) setInfo tpe
         this.method.addLocal(new Local(sym, toTypeKind(tpe), false))
       }
 
@@ -2078,12 +2087,12 @@ abstract class GenICode extends SubComponent  {
           exh
         }) else None
 
-        val exhs = handlers.map { handler =>
-            val exh = this.newExceptionHandler(handler._1, handler._2, tree.pos)
+        val exhs = handlers.map { case (sym, kind, handler) =>  // def genWildcardHandler(sym: Symbol): (Symbol, TypeKind, Context => Context) =
+            val exh = this.newExceptionHandler(sym, kind, tree.pos)
             var ctx1 = outerCtx.enterExceptionHandler(exh)
             ctx1.addFinalizer(finalizer, finalizerCtx)
             loadException(ctx1, exh, tree.pos)
-            ctx1 = handler._3(ctx1)
+            ctx1 = handler(ctx1)
             // emit finalizer
             val ctx2 = emitFinalizer(ctx1)
             ctx2.bb.closeWith(JUMP(afterCtx.bb))

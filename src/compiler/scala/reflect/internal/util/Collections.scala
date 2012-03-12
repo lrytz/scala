@@ -21,6 +21,23 @@ trait Collections {
     else !xs2.isEmpty && !xs3.isEmpty && f(xs1.head, xs2.head, xs3.head) && corresponds3(xs1.tail, xs2.tail, xs3.tail)(f)
   )
 
+  /** All these mm methods are "deep map" style methods for
+   *  mapping etc. on a list of lists.
+   */
+  final def mexists[A](xss: List[List[A]])(p: A => Boolean) =
+    xss exists (_ exists p)
+  final def mmap[A, B](xss: List[List[A]])(f: A => B) =
+    xss map (_ map f)
+  final def mforeach[A](xss: List[List[A]])(f: A => Unit) =
+    xss foreach (_ foreach f)
+  final def mfind[A](xss: List[List[A]])(p: A => Boolean): Option[A] = {
+    for (xs <- xss; x <- xs)
+      if (p(x)) return Some(x)
+    None
+  }
+  final def mfilter[A](xss: List[List[A]])(p: A => Boolean) =
+    for (xs <- xss; x <- xs; if p(x)) yield x
+
   final def map2[A, B, C](xs1: List[A], xs2: List[B])(f: (A, B) => C): List[C] = {
     val lb = new ListBuffer[C]
     var ys1 = xs1
@@ -47,7 +64,21 @@ trait Collections {
     }
     lb.toList
   }
+
+  final def foreachWithIndex[A, B](xs: List[A])(f: (A, Int) => Unit) {
+    var index = 0
+    var ys = xs
+    while (!ys.isEmpty) {
+      f(ys.head, index)
+      ys = ys.tail
+      index += 1
+    }
+  }
   
+  @inline final def findOrElse[A](xs: TraversableOnce[A])(p: A => Boolean)(orElse: => A): A = {
+    xs find p getOrElse orElse
+  }
+
   final def mapWithIndex[A, B](xs: List[A])(f: (A, Int) => B): List[B] = {
     val lb = new ListBuffer[B]
     var index = 0
@@ -71,7 +102,7 @@ trait Collections {
       val x2 = ys2.head
       if (p(x1, x2))
         buf += ((x1, x2))
-      
+
       ys1 = ys1.tail
       ys2 = ys2.tail
     }
@@ -103,7 +134,7 @@ trait Collections {
     while (!ys1.isEmpty && !ys2.isEmpty) {
       if (f(ys1.head, ys2.head))
         return true
-      
+
       ys1 = ys1.tail
       ys2 = ys2.tail
     }
@@ -115,7 +146,7 @@ trait Collections {
     while (!ys1.isEmpty && !ys2.isEmpty) {
       if (!f(ys1.head, ys2.head))
         return false
-      
+
       ys1 = ys1.tail
       ys2 = ys2.tail
     }
@@ -128,7 +159,7 @@ trait Collections {
     while (!ys1.isEmpty && !ys2.isEmpty && !ys3.isEmpty) {
       if (!f(ys1.head, ys2.head, ys3.head))
         return false
-      
+
       ys1 = ys1.tail
       ys2 = ys2.tail
       ys3 = ys3.tail
@@ -136,3 +167,6 @@ trait Collections {
     true
   }
 }
+
+object Collections extends Collections { }
+

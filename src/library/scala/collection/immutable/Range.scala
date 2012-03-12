@@ -77,9 +77,9 @@ extends collection.AbstractSeq[Int]
   }
   final val lastElement     = start + (numRangeElements - 1) * step
   final val terminalElement = start + numRangeElements * step
-  
+
   override def last = if (isEmpty) Nil.last else lastElement
-  
+
   protected def copy(start: Int, end: Int, step: Int): Range = new Range(start, end, step)
 
   /** Create a new range with the `start` and `end` values of this range and
@@ -93,14 +93,14 @@ extends collection.AbstractSeq[Int]
 
   override def size = length
   override def length = if (numRangeElements < 0) fail() else numRangeElements
-  
+
   private def description = "%d %s %d by %s".format(start, if (isInclusive) "to" else "until", end, step)
   private def fail() = throw new IllegalArgumentException(description + ": seqs cannot contain more than Int.MaxValue elements.")
   private def validateMaxLength() {
     if (numRangeElements < 0)
       fail()
   }
-  
+
   def validateRangeBoundaries(f: Int => Any): Boolean = {
     validateMaxLength()
 
@@ -121,7 +121,7 @@ extends collection.AbstractSeq[Int]
     if (idx < 0 || idx >= numRangeElements) throw new IndexOutOfBoundsException(idx.toString)
     else start + (step * idx)
   }
-  
+
   @inline final override def foreach[@specialized(Unit) U](f: Int => U) {
     if (validateRangeBoundaries(f)) {
       var i = start
@@ -286,18 +286,36 @@ extends collection.AbstractSeq[Int]
 object Range {
   private[immutable] val MAX_PRINT = 512  // some arbitrary value
 
-  /** Counts in "Long arithmetic" so we can recognize overflow.
+  /** Counts the number of range elements.
+   *  @pre  step != 0
+   *  If the size of the range exceeds Int.MaxValue, the
+   *  result will be negative.
    */
+  def count(start: Int, end: Int, step: Int, isInclusive: Boolean): Int = {
+    if (step == 0)
+      throw new IllegalArgumentException("step cannot be 0.")
+
+    val isEmpty = (
+      if (start == end) !isInclusive
+      else if (start < end) step < 0
+      else step > 0
+    )
+    if (isEmpty) 0
+    else {
+      // Counts with Longs so we can recognize too-large ranges.
+      val gap: Long    = end.toLong - start.toLong
+      val jumps: Long  = gap / step
+      // Whether the size of this range is one larger than the
+      // number of full-sized jumps.
+      val hasStub      = isInclusive || (gap % step != 0)
+      val result: Long = jumps + ( if (hasStub) 1 else 0 )
+
+      if (result > scala.Int.MaxValue) -1
+      else result.toInt
+    }
+  }
   def count(start: Int, end: Int, step: Int): Int =
     count(start, end, step, false)
-
-  def count(start: Int, end: Int, step: Int, isInclusive: Boolean): Int = {
-    // faster path for the common counting range
-    if (start >= 0 && end > start && end < scala.Int.MaxValue && step == 1)
-      (end - start) + ( if (isInclusive) 1 else 0 )
-    else
-      NumericRange.count[Long](start, end, step, isInclusive)
-  }
 
   class Inclusive(start: Int, end: Int, step: Int) extends Range(start, end, step) {
 //    override def par = new ParRange(this)
@@ -387,4 +405,3 @@ object Range {
 //      super.foreach(f)
   }
 }
- 

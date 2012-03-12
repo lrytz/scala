@@ -73,7 +73,9 @@ trait Namers extends MethodSynthesis {
     classAndNamerOfModule.clear()
   }
 
-  abstract class Namer(val context: Context) extends MethodSynth {
+  abstract class Namer(val context: Context) extends MethodSynth with NamerContextErrors {
+
+    import NamerErrorGen._
     val typer = newTyper(context)
 
     private lazy val innerNamer =
@@ -87,7 +89,7 @@ trait Namers extends MethodSynthesis {
       newNamer(context.makeNewScope(tree, sym))
     }
     def createInnerNamer() = {
-      newNamer(context.make(context.tree, owner, new Scope))
+      newNamer(context.make(context.tree, owner, newScope))
     }
     def createPrimaryConstructorParameterNamer: Namer = { //todo: can we merge this with SCCmode?
       val classContext = context.enclClass
@@ -99,7 +101,7 @@ trait Namers extends MethodSynthesis {
     }
 
     def enterValueParams(vparamss: List[List[ValDef]]): List[List[Symbol]] = {
-      listutil.mmap(vparamss) { param =>
+      mmap(vparamss) { param =>
         val sym = assignSymbol(param, param.name, mask = ValueParameterFlags)
         setPrivateWithin(param, sym)
         enterInScope(sym)
@@ -109,9 +111,10 @@ trait Namers extends MethodSynthesis {
 
     protected def owner       = context.owner
     private def contextFile = context.unit.source.file
-    private def typeErrorHandler[T](pos: Position, alt: T): PartialFunction[Throwable, T] = {
+    private def typeErrorHandler[T](tree: Tree, alt: T): PartialFunction[Throwable, T] = {
       case ex: TypeError =>
-        typer.reportTypeError(pos, ex)
+        // H@ need to ensure that we handle only cyclic references
+        TypeSigError(tree, ex)
         alt
     }
     // PRIVATE | LOCAL are fields generated for primary constructor arguments
@@ -129,10 +132,17 @@ trait Namers extends MethodSynthesis {
       || vd.symbol.isLazy
     )
 
-    def setPrivateWithin[Sym <: Symbol](tree: Tree, sym: Sym, mods: Modifiers): Sym = {
+    def setPrivateWithin[Sym <: Symbol](tree: Tree, sym: Sym, mods: Modifiers): Sym =
       if (sym.isPrivateLocal || !mods.hasAccessBoundary) sym
-      else sym setPrivateWithin typer.qualifyingClass(tree, mods.privateWithin, true)
-    }
+      else sym setPrivateWithin (
+        typer.qualifyingClass(tree, mods.privateWithin, true) match {
+          case None =>
+            NoSymbol
+          case Some(sym) =>
+            sym
+        }
+      )
+
     def setPrivateWithin(tree: MemberDef, sym: Symbol): Symbol =
       setPrivateWithin(tree, sym, tree.mods)
 
@@ -195,14 +205,6 @@ trait Namers extends MethodSynthesis {
        )
     )
 
-    private def doubleDefError(pos: Position, sym: Symbol) {
-      val s1 = if (sym.isModule) "case class companion " else ""
-      val s2 = if (sym.isSynthetic) "(compiler-generated) " + s1 else ""
-      val s3 = if (sym.isCase) "case class " + sym.name else "" + sym
-
-      context.error(pos, sym.name + " is already defined as " + s2 + s3)
-    }
-
     private def allowsOverload(sym: Symbol) = (
       sym.isSourceMethod && sym.owner.isClass && !sym.owner.isPackageClass
     )
@@ -221,7 +223,7 @@ trait Namers extends MethodSynthesis {
       if (!allowsOverload(sym)) {
         val prev = scope.lookupEntry(sym.name)
         if ((prev ne null) && prev.owner == scope && conflict(sym, prev.sym)) {
-          doubleDefError(sym.pos, prev.sym)
+          DoubleDefError(sym, prev.sym)
           sym setInfo ErrorType
           scope unlink prev.sym // let them co-exist...
           // FIXME: The comment "let them co-exist" is confusing given that the
@@ -250,7 +252,7 @@ trait Namers extends MethodSynthesis {
         returnContext
       }
       tree.symbol match {
-        case NoSymbol => try dispatch() catch typeErrorHandler(tree.pos, this.context)
+        case NoSymbol => try dispatch() catch typeErrorHandler(tree, this.context)
         case sym      => enterExistingSym(sym)
       }
     }
@@ -275,12 +277,16 @@ trait Namers extends MethodSynthesis {
     def assignAndEnterFinishedSymbol(tree: MemberDef): Symbol = {
       val sym = assignAndEnterSymbol(tree)
       sym setInfo completerOf(tree)
-      log("[+info] " + sym.fullLocationString)
+      // log("[+info] " + sym.fullLocationString)
       sym
     }
 
     private def logAssignSymbol(tree: Tree, sym: Symbol): Symbol = {
-      log("[+symbol] " + sym.hasFlagsToString(-1L) + " " + sym)
+      sym.name.toTermName match {
+        case nme.IMPORT | nme.OUTER | nme.ANON_CLASS_NAME | nme.ANON_FUN_NAME | nme.CONSTRUCTOR => ()
+        case _                                                                                  =>
+          log("[+symbol] " + sym.debugLocationString)
+      }
       tree.symbol = sym
       sym
     }
@@ -293,23 +299,22 @@ trait Namers extends MethodSynthesis {
     private def createMemberSymbol(tree: MemberDef, name: Name, mask: Long): Symbol = {
       val pos         = tree.pos
       val isParameter = tree.mods.isParameter
-      val sym         = tree match {
-        case TypeDef(_, _, _, _) if isParameter     => owner.newTypeParameter(pos, name.toTypeName)
-        case TypeDef(_, _, _, _)                    => owner.newAliasType(pos, name.toTypeName)
-        case DefDef(_, nme.CONSTRUCTOR, _, _, _, _) => owner.newConstructor(pos)
-        case DefDef(_, _, _, _, _, _)               => owner.newMethod(pos, name.toTermName)
-        case ClassDef(_, _, _, _)                   => owner.newClass(pos, name.toTypeName)
-        case ModuleDef(_, _, _)                     => owner.newModule(pos, name)
-        case ValDef(_, _, _, _) if isParameter      => owner.newValueParameter(pos, name)
+      val flags       = tree.mods.flags & mask
+
+      tree match {
+        case TypeDef(_, _, _, _) if isParameter     => owner.newTypeParameter(name.toTypeName, pos, flags)
+        case TypeDef(_, _, _, _)                    => owner.newTypeSymbol(name.toTypeName, pos, flags)
+        case DefDef(_, nme.CONSTRUCTOR, _, _, _, _) => owner.newConstructor(pos, flags)
+        case DefDef(_, _, _, _, _, _)               => owner.newMethod(name.toTermName, pos, flags)
+        case ClassDef(_, _, _, _)                   => owner.newClassSymbol(name.toTypeName, pos, flags)
+        case ModuleDef(_, _, _)                     => owner.newModule(name, pos, flags)
+        case ValDef(_, _, _, _) if isParameter      => owner.newValueParameter(name, pos, flags)
         case PackageDef(pid, _)                     => createPackageSymbol(pos, pid)
-        case ValDef(_, _, _, _)                     => owner.newValue(pos, name)
+        case ValDef(_, _, _, _)                     => owner.newValue(name, pos, flags)
       }
-      sym setFlag (tree.mods.flags & mask)
     }
-    private def createFieldSymbol(tree: ValDef): TermSymbol = (
-      owner.newValue(tree.pos, nme.getterToLocal(tree.name))
-        setFlag tree.mods.flags & FieldFlags | PrivateLocal
-    )
+    private def createFieldSymbol(tree: ValDef): TermSymbol =
+      owner.newValue(nme.getterToLocal(tree.name), tree.pos, tree.mods.flags & FieldFlags | PrivateLocal)
 
     private def createImportSymbol(tree: Tree) =
       NoSymbol.newImport(tree.pos) setInfo completerOf(tree)
@@ -325,7 +330,7 @@ trait Namers extends MethodSynthesis {
       if (existing.isPackage && pkgOwner == existing.owner)
         existing
       else {
-        val pkg          = pkgOwner.newPackage(pos, pid.name.toTermName)
+        val pkg          = pkgOwner.newPackage(pid.name.toTermName, pos)
         val pkgClass     = pkg.moduleClass
         val pkgClassInfo = new PackageClassInfoType(newPackageScope(pkgClass), pkgClass)
 
@@ -448,6 +453,7 @@ trait Namers extends MethodSynthesis {
     }
 
     private def checkSelectors(tree: Import): Unit = {
+      import DuplicatesErrorKinds._
       val Import(expr, selectors) = tree
       val base = expr.tpe
 
@@ -484,8 +490,10 @@ trait Namers extends MethodSynthesis {
               typeSig(tree)
             }
             // for Java code importing Scala objects
-            else if (!nme.isModuleName(from) || isValid(nme.stripModuleSuffix(from)))
-              notAMemberError(tree.pos, expr, from)
+            else if (!nme.isModuleName(from) || isValid(nme.stripModuleSuffix(from))) {
+              typer.TyperErrorGen.NotAMemberError(tree, expr, from)
+              typer.infer.setError(tree)
+            }
           }
           // Setting the position at the import means that if there is
           // more than one hidden name, the second will not be warned.
@@ -493,20 +501,21 @@ trait Namers extends MethodSynthesis {
           checkNotRedundant(tree.pos withPoint fromPos, from, to)
         }
       }
-      def noDuplicates(names: List[Name], message: String) {
+
+      def noDuplicates(names: List[Name], check: DuplicatesErrorKinds.Value) {
         def loop(xs: List[Name]): Unit = xs match {
           case Nil      => ()
           case hd :: tl =>
             if (hd == nme.WILDCARD || !(tl contains hd)) loop(tl)
-            else context.error(tree.pos, hd.decode + " " + message)
+            else DuplicatesError(tree, hd, check)
         }
         loop(names filterNot (x => x == null || x == nme.WILDCARD))
       }
       selectors foreach checkSelector
 
       // checks on the whole set
-      noDuplicates(selectors map (_.name), "is renamed twice")
-      noDuplicates(selectors map (_.rename), "appears twice as a target of a renaming")
+      noDuplicates(selectors map (_.name), RenamedTwice)
+      noDuplicates(selectors map (_.rename), AppearsTwice)
     }
 
     def enterCopyMethodOrGetter(tree: Tree, tparams: List[TypeDef]): Symbol = {
@@ -522,13 +531,13 @@ trait Namers extends MethodSynthesis {
         val vparamss        = tree match { case x: DefDef => x.vparamss ; case _ => Nil }
         val cparamss        = constructorType.paramss
 
-        for ((vparams, cparams) <- vparamss zip cparamss) {
-          for ((param, cparam) <- vparams zip cparams) {
+        map2(vparamss, cparamss)((vparams, cparams) =>
+          map2(vparams, cparams)((param, cparam) =>
             // need to clone the type cparam.tpe???
             // problem is: we don't have the new owner yet (the new param symbol)
             param.tpt setType subst(cparam.tpe)
-          }
-        }
+          )
+        )
       }
       sym setInfo {
         mkTypeCompleter(tree) { copySym =>
@@ -579,7 +588,7 @@ trait Namers extends MethodSynthesis {
       // via "x$lzy" as can be seen in test #3927.
       val sym = (
         if (owner.isClass) createFieldSymbol(tree)
-        else owner.newValue(tree.pos, tree.name + "$lzy") setFlag tree.mods.flags resetFlag IMPLICIT
+        else owner.newValue(tree.name append nme.LAZY_LOCAL, tree.pos, tree.mods.flags & ~IMPLICIT)
       )
       enterValSymbol(tree, sym setFlag MUTABLE setLazyAccessor lazyAccessor)
     }
@@ -621,13 +630,13 @@ trait Namers extends MethodSynthesis {
 
       if (mods.isCase) {
         if (treeInfo.firstConstructorArgs(impl.body).size > MaxFunctionArity)
-          context.error(tree.pos, "Implementation restriction: case classes cannot have more than " + MaxFunctionArity + " parameters.")
+          MaxParametersCaseClassError(tree)
 
         val m = ensureCompanionObject(tree, caseModuleDef)
         classOfModuleClass(m.moduleClass) = new WeakReference(tree)
       }
       val hasDefault = impl.body exists {
-        case DefDef(_, nme.CONSTRUCTOR, _, vparamss, _, _)  => listutil.mexists(vparamss)(_.mods.hasDefault)
+        case DefDef(_, nme.CONSTRUCTOR, _, vparamss, _, _)  => mexists(vparamss)(_.mods.hasDefault)
         case _                                              => false
       }
       if (hasDefault) {
@@ -824,7 +833,7 @@ trait Namers extends MethodSynthesis {
         val tp = tpt.tpe
         val inheritsSelf = tp.typeSymbol == owner
         if (inheritsSelf)
-          context.error(tpt.pos, ""+tp.typeSymbol+" inherits itself")
+          InheritsItselfError(tpt)
 
         if (inheritsSelf || tp.isError) AnyRefClass.tpe
         else tp
@@ -833,7 +842,7 @@ trait Namers extends MethodSynthesis {
       val parents = typer.parentTypes(templ) map checkParent
       enterSelf(templ.self)
 
-      val decls = new Scope
+      val decls = newScope
       val templateNamer = newNamer(context.make(templ, clazz, decls))
       templateNamer enterSyms templ.body
 
@@ -843,10 +852,10 @@ trait Namers extends MethodSynthesis {
         Namers.this.classOfModuleClass get clazz foreach { cdefRef =>
           val cdef = cdefRef()
           if (cdef.mods.isCase) addApplyUnapply(cdef, templateNamer)
-          addMacroMethods(cdef.impl, templateNamer)
+          if (settings.Xmacros.value) addMacroMethods(cdef.impl, templateNamer)
           classOfModuleClass -= clazz
         }
-        addMacroMethods(templ, templateNamer)
+        if (settings.Xmacros.value) addMacroMethods(templ, templateNamer)
       }
 
       // add the copy method to case classes; this needs to be done here, not in SyntheticMethods, because
@@ -919,7 +928,7 @@ trait Namers extends MethodSynthesis {
       }
 
       def thisMethodType(restpe: Type) = {
-        val checkDependencies = new DependentTypeChecker(context)
+        val checkDependencies = new DependentTypeChecker(context)(this)
         checkDependencies check vparamSymss
         // DEPMETTODO: check not needed when they become on by default
         checkDependencies(restpe)
@@ -953,9 +962,9 @@ trait Namers extends MethodSynthesis {
       // def overriddenSymbol = meth.nextOverriddenSymbol
 
       // fill in result type and parameter types from overridden symbol if there is a unique one.
-      if (clazz.isClass && (tpt.isEmpty || listutil.mexists(vparamss)(_.tpt.isEmpty))) {
+      if (clazz.isClass && (tpt.isEmpty || mexists(vparamss)(_.tpt.isEmpty))) {
         // try to complete from matching definition in base type
-        listutil.mforeach(vparamss)(v => if (v.tpt.isEmpty) v.symbol setInfo WildcardType)
+        mforeach(vparamss)(v => if (v.tpt.isEmpty) v.symbol setInfo WildcardType)
         val overridden = overriddenSymbol
         if (overridden != NoSymbol && !overridden.isOverloaded) {
           overridden.cookJavaRawInfo() // #3404 xform java rawtypes into existentials
@@ -993,9 +1002,9 @@ trait Namers extends MethodSynthesis {
         _.info.isInstanceOf[MethodType])) {
         vparamSymss = List(List())
       }
-      listutil.mforeach(vparamss) { vparam =>
+      mforeach(vparamss) { vparam =>
         if (vparam.tpt.isEmpty) {
-          context.error(vparam.pos, "missing parameter type")
+          MissingParameterOrValTypeError(vparam)
           vparam.tpt defineType ErrorType
         }
       }
@@ -1073,7 +1082,7 @@ trait Namers extends MethodSynthesis {
 
             // Create trees for the defaultGetter. Uses tools from Unapplies.scala
             var deftParams = tparams map copyUntyped[TypeDef]
-            val defvParamss = listutil.mmap(previous) { p =>
+            val defvParamss = mmap(previous) { p =>
               // in the default getter, remove the default parameter
               val p1 = atPos(p.pos.focus) { ValDef(p.mods &~ DEFAULTPARAM, p.name, p.tpt.duplicate, EmptyTree) }
               UnTyper.traverse(p1)
@@ -1263,7 +1272,7 @@ trait Namers extends MethodSynthesis {
           val typer1 = typer.constrTyperIf(isBeforeSupercall)
           if (tpt.isEmpty) {
             if (rhs.isEmpty) {
-              context.error(tpt.pos, "missing parameter type");
+              MissingParameterOrValTypeError(tpt)
               ErrorType
             }
             else assignTypeToTree(vdef, newTyper(typer1.context.make(vdef, sym)), WildcardType)
@@ -1277,7 +1286,7 @@ trait Namers extends MethodSynthesis {
           val expr1 = typer.typedQualifier(expr)
           typer checkStable expr1
           if (expr1.symbol != null && expr1.symbol.isRootPackage)
-            context.error(tree.pos, "_root_ cannot be imported")
+            RootImportError(tree)
 
           val newImport = treeCopy.Import(tree, expr1, selectors).asInstanceOf[Import]
           checkSelectors(newImport)
@@ -1291,10 +1300,10 @@ trait Namers extends MethodSynthesis {
 
       val result =
         try getSig
-        catch typeErrorHandler(tree.pos, ErrorType)
+        catch typeErrorHandler(tree, ErrorType)
 
       result match {
-        case PolyType(tparams @ (tp :: _), _) if tp.owner.isTerm => typer.deskolemizeTypeParams(tparams)(result)
+        case PolyType(tparams @ (tp :: _), _) if tp.owner.isTerm => deskolemizeTypeParams(tparams)(result)
         case _                                                   => result
       }
     }
@@ -1338,43 +1347,43 @@ trait Namers extends MethodSynthesis {
      *   - declarations only in mixins or abstract classes (when not @native)
      */
     def validate(sym: Symbol) {
-      def fail(msg: String) = context.error(sym.pos, msg)
+      import SymValidateErrors._
+      def fail(kind: SymValidateErrors.Value) = SymbolValidationError(sym, kind)
+
       def checkWithDeferred(flag: Int) {
         if (sym hasFlag flag)
-          fail("abstract member may not have " + flagsToString(flag) + " modifier")
+          AbstractMemberWithModiferError(sym, flag)
       }
       def checkNoConflict(flag1: Int, flag2: Int) {
         if (sym hasAllFlags flag1 | flag2)
-          fail("illegal combination of modifiers: %s and %s for: %s".format(
-            flagsToString(flag1), flagsToString(flag2), sym))
+          IllegalModifierCombination(sym, flag1, flag2)
       }
       if (sym.isImplicit) {
         if (sym.isConstructor)
-          fail("`implicit' modifier not allowed for constructors")
+          fail(ImplicitConstr)
         if (!sym.isTerm)
-          fail("`implicit' modifier can be used only for values, variables and methods")
+          fail(ImplicitNotTerm)
         if (sym.owner.isPackageClass)
-          fail("`implicit' modifier cannot be used for top-level objects")
+          fail(ImplicitTopObject)
       }
       if (sym.isClass) {
         if (sym.isAnyOverride && !sym.hasFlag(TRAIT))
-          fail("`override' modifier not allowed for classes")
-      }
-      else {
+          fail(OverrideClass)
+      } else {
         if (sym.isSealed)
-          fail("`sealed' modifier can be used only for classes")
+          fail(SealedNonClass)
         if (sym.hasFlag(ABSTRACT))
-          fail("`abstract' modifier can be used only for classes; it should be omitted for abstract members")
+          fail(AbstractNonClass)
       }
 
       if (sym.isConstructor && sym.isAnyOverride)
-        fail("`override' modifier not allowed for constructors")
+        fail(OverrideConstr)
       if (sym.isAbstractOverride && !sym.owner.isTrait)
-        fail("`abstract override' modifier only allowed for members of traits")
+        fail(AbstractOverride)
       if (sym.isLazy && sym.hasFlag(PRESUPER))
-        fail("`lazy' definitions may not be initialized early")
+        fail(LazyAndEarlyInit)
       if (sym.info.typeSymbol == FunctionClass(0) && sym.isValueParameter && sym.owner.isCaseClass)
-        fail("pass-by-name arguments not allowed for case class parameters")
+        fail(ByNameParameter)
 
       if (sym.isDeferred) {
         // Is this symbol type always allowed the deferred flag?
@@ -1391,10 +1400,9 @@ trait Namers extends MethodSynthesis {
         )
         if (sym hasAnnotation NativeAttr)
           sym resetFlag DEFERRED
-        else if (!symbolAllowsDeferred && ownerRequiresConcrete) {
-          fail("only classes can have declared but undefined members" + abstractVarMessage(sym))
-          sym resetFlag DEFERRED
-        }
+        else if (!symbolAllowsDeferred && ownerRequiresConcrete)
+          fail(AbstractVar)
+
         checkWithDeferred(PRIVATE)
         checkWithDeferred(FINAL)
       }
@@ -1435,8 +1443,11 @@ trait Namers extends MethodSynthesis {
     private val ownerSym    = owner.symbol
     override val typeParams = tparams map (_.symbol) //@M
     override val tree       = restp.tree
-    if (ownerSym.isTerm)
-      typer skolemizeTypeParams tparams
+
+    if (ownerSym.isTerm) {
+      val skolems = deriveFreshSkolems(tparams map (_.symbol))
+      map2(tparams, skolems)(_ setSymbol _)
+    }
 
     def completeImpl(sym: Symbol) = {
       // @M an abstract type's type parameters are entered.
@@ -1458,14 +1469,14 @@ trait Namers extends MethodSynthesis {
   //    def foo[T, T2](a: T, x: T2)(implicit w: ComputeT2[T, T2])
   // moreover, the latter is not an encoding of the former, which hides type
   // inference of T2, so you can specify T while T2 is purely computed
-  private class DependentTypeChecker(ctx: Context) extends TypeTraverser {
+  private class DependentTypeChecker(ctx: Context)(namer: Namer) extends TypeTraverser {
     private[this] val okParams = mutable.Set[Symbol]()
     private[this] val method   = ctx.owner
 
     def traverse(tp: Type) = tp match {
       case SingleType(_, sym) =>
         if (sym.owner == method && sym.isValueParameter && !okParams(sym))
-          ctx.error(sym.pos, "illegal dependent method type" + errorAddendum)
+          namer.NamerErrorGen.IllegalDependentMethTpeError(sym)(ctx)
 
       case _ => mapOver(tp)
     }
@@ -1478,8 +1489,6 @@ trait Namers extends MethodSynthesis {
         okParams ++= vps
       }
     }
-    private def errorAddendum =
-      ": parameter appears in the type of another parameter in the same section or an earlier one"
   }
 
   @deprecated("Use underlyingSymbol instead", "2.10.0")
@@ -1508,7 +1517,7 @@ trait Namers extends MethodSynthesis {
     }
     catch {
       case e: InvalidCompanions =>
-        ctx.error(original.pos, e.getMessage)
+        ctx.unit.error(original.pos, e.getMessage)
         NoSymbol
     }
   }

@@ -95,7 +95,8 @@ object Predef extends LowPriorityImplicits {
   type Set[A]     = immutable.Set[A]
   val Map         = immutable.Map
   val Set         = immutable.Set
-  val AnyRef      = new SpecializableCompanion {}   // a dummy used by the specialization annotation
+  // @deprecated("Use scala.AnyRef instead", "2.10.0")
+  // def AnyRef = scala.AnyRef
 
   // Manifest types, companions, and incantations for summoning
   type ClassManifest[T] = scala.reflect.ClassManifest[T]
@@ -269,7 +270,7 @@ object Predef extends LowPriorityImplicits {
   def printf(text: String, xs: Any*) = Console.print(text.format(xs: _*))
 
   def readLine(): String = Console.readLine()
-  def readLine(text: String, args: Any*) = Console.readLine(text, args)
+  def readLine(text: String, args: Any*) = Console.readLine(text, args: _*)
   def readBoolean() = Console.readBoolean()
   def readByte() = Console.readByte()
   def readShort() = Console.readShort()

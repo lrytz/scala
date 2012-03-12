@@ -9,22 +9,6 @@ import symtab.Flags._
 import scala.collection.{ mutable, immutable }
 import scala.tools.util.StringOps.{ ojoin }
 
-object listutil {
-  def mexists[T](xss: List[List[T]])(p: T => Boolean) =
-    xss exists (_ exists p)
-  def mmap[T, U](xss: List[List[T]])(f: T => U) =
-    xss map (_ map f)
-  def mforeach[T](xss: List[List[T]])(f: T => Unit) =
-    xss foreach (_ foreach f)
-  def mfind[T](xss: List[List[T]])(p: T => Boolean): Option[T] = {
-    for (xs <- xss; x <- xs)
-      if (p(x)) return Some(x)
-    None
-  }
-  def mfilter[T](xss: List[List[T]])(p: T => Boolean) =
-    for (xs <- xss; x <- xs; if p(x)) yield x
-}
-
 /** Logic related to method synthesis which involves cooperation between
  *  Namer and Typer.
  */
@@ -33,6 +17,139 @@ trait MethodSynthesis {
 
   import global._
   import definitions._
+  import CODE._
+
+  object synthesisUtil {
+    type M[T]  = Manifest[T]
+    type CM[T] = ClassManifest[T]
+
+    def ValOrDefDef(sym: Symbol, body: Tree) =
+      if (sym.isLazy) ValDef(sym, body)
+      else DefDef(sym, body)
+
+    def applyTypeInternal(manifests: List[M[_]]): Type = {
+      val symbols = manifests map manifestToSymbol
+      val container :: args = symbols
+      val tparams = container.typeConstructor.typeParams
+
+      // Conservative at present - if manifests were more usable this could do a lot more.
+      require(symbols forall (_ ne NoSymbol), "Must find all manifests: " + symbols)
+      require(container.owner.isPackageClass, "Container must be a top-level class in a package: " + container)
+      require(tparams.size == args.size, "Arguments must match type constructor arity: " + tparams + ", " + args)
+
+      typeRef(container.typeConstructor.prefix, container, args map (_.tpe))
+    }
+
+    def companionType[T](implicit m: M[T]) =
+      getRequiredModule(m.erasure.getName).tpe
+
+    // Use these like `applyType[List, Int]` or `applyType[Map, Int, String]`
+    def applyType[CC](implicit m1: M[CC]): Type =
+      applyTypeInternal(List(m1))
+
+    def applyType[CC[X1], X1](implicit m1: M[CC[_]], m2: M[X1]): Type =
+      applyTypeInternal(List(m1, m2))
+
+    def applyType[CC[X1, X2], X1, X2](implicit m1: M[CC[_,_]], m2: M[X1], m3: M[X2]): Type =
+      applyTypeInternal(List(m1, m2, m3))
+
+    def applyType[CC[X1, X2, X3], X1, X2, X3](implicit m1: M[CC[_,_,_]], m2: M[X1], m3: M[X2], m4: M[X3]): Type =
+      applyTypeInternal(List(m1, m2, m3, m4))
+
+    def newMethodType[F](owner: Symbol)(implicit m: Manifest[F]): Type = {
+      val fnSymbol = manifestToSymbol(m)
+      assert(fnSymbol isSubClass FunctionClass(m.typeArguments.size - 1), (owner, m))
+      val symbols = m.typeArguments map (m => manifestToSymbol(m))
+      val formals = symbols.init map (_.typeConstructor)
+      val params  = owner newSyntheticValueParams formals
+
+      MethodType(params, symbols.last.typeConstructor)
+    }
+  }
+  import synthesisUtil._
+
+  class ClassMethodSynthesis(val clazz: Symbol, localTyper: Typer) {
+    private def isOverride(name: TermName) =
+      clazzMember(name).alternatives exists (sym => !sym.isDeferred && (sym.owner != clazz))
+
+    def newMethodFlags(name: TermName) = {
+      val overrideFlag = if (isOverride(name)) OVERRIDE else 0L
+      overrideFlag | SYNTHETIC
+    }
+    def newMethodFlags(method: Symbol) = {
+      val overrideFlag = if (isOverride(method.name)) OVERRIDE else 0L
+      (method.flags | overrideFlag | SYNTHETIC) & ~DEFERRED
+    }
+
+    private def finishMethod(method: Symbol, f: Symbol => Tree): Tree =
+      localTyper typed ValOrDefDef(method, f(method))
+
+    private def createInternal(name: Name, f: Symbol => Tree, info: Type): Tree = {
+      val m = clazz.newMethod(name.toTermName, clazz.pos.focus, newMethodFlags(name))
+      finishMethod(m setInfoAndEnter info, f)
+    }
+    private def createInternal(name: Name, f: Symbol => Tree, infoFn: Symbol => Type): Tree = {
+      val m = clazz.newMethod(name.toTermName, clazz.pos.focus, newMethodFlags(name))
+      finishMethod(m setInfoAndEnter infoFn(m), f)
+    }
+    private def cloneInternal(original: Symbol, f: Symbol => Tree, name: Name): Tree = {
+      val m = original.cloneSymbol(clazz, newMethodFlags(original)) setPos clazz.pos.focus
+      m.name = name
+      finishMethod(clazz.info.decls enter m, f)
+    }
+
+    private def cloneInternal(original: Symbol, f: Symbol => Tree): Tree =
+      cloneInternal(original, f, original.name)
+
+    def clazzMember(name: Name)  = clazz.info nonPrivateMember name
+    def typeInClazz(sym: Symbol) = clazz.thisType memberType sym
+
+    /** Function argument takes the newly created method symbol of
+     *  the same type as `name` in clazz, and returns the tree to be
+     *  added to the template.
+     */
+    def overrideMethod(name: Name)(f: Symbol => Tree): Tree =
+      overrideMethod(clazzMember(name))(f)
+
+    def overrideMethod(original: Symbol)(f: Symbol => Tree): Tree =
+      cloneInternal(original, sym => f(sym setFlag OVERRIDE))
+
+    def deriveMethod(original: Symbol, nameFn: Name => Name)(f: Symbol => Tree): Tree =
+      cloneInternal(original, f, nameFn(original.name))
+
+    def createMethod(name: Name, paramTypes: List[Type], returnType: Type)(f: Symbol => Tree): Tree =
+      createInternal(name, f, (m: Symbol) => MethodType(m newSyntheticValueParams paramTypes, returnType))
+
+    def createMethod(name: Name, returnType: Type)(f: Symbol => Tree): Tree =
+      createInternal(name, f, NullaryMethodType(returnType))
+
+    def createMethod(original: Symbol)(f: Symbol => Tree): Tree =
+      createInternal(original.name, f, original.info)
+
+    def forwardMethod(original: Symbol, newMethod: Symbol)(transformArgs: List[Tree] => List[Tree]): Tree =
+      createMethod(original)(m => gen.mkMethodCall(newMethod, transformArgs(m.paramss.head map Ident)))
+
+    def createSwitchMethod(name: Name, range: Seq[Int], returnType: Type)(f: Int => Tree) = {
+      createMethod(name, List(IntClass.tpe), returnType) { m =>
+        val arg0    = Ident(m.firstParam)
+        val default = DEFAULT ==> THROW(IndexOutOfBoundsExceptionClass, arg0)
+        val cases   = range.map(num => CASE(LIT(num)) ==> f(num)).toList :+ default
+
+        Match(arg0, cases)
+      }
+    }
+
+    // def foo() = constant
+    def constantMethod(name: Name, value: Any): Tree = {
+      val constant = Constant(value)
+      createMethod(name, Nil, constant.tpe)(_ => Literal(constant))
+    }
+    // def foo = constant
+    def constantNullary(name: Name, value: Any): Tree = {
+      val constant = Constant(value)
+      createMethod(name, constant.tpe)(_ => Literal(constant))
+    }
+  }
 
   /** There are two key methods in here.
    *
@@ -48,10 +165,12 @@ trait MethodSynthesis {
   trait MethodSynth {
     self: Namer =>
 
+    import NamerErrorGen._
+
     def enterGetterSetter(tree: ValDef) {
       val ValDef(mods, name, _, _) = tree
       if (nme.isSetterName(name))
-        context.error(tree.pos, "Names of vals or vars may not end in `_='")
+        ValOrValWithSetterSuffixError(tree)
 
       val getter = Getter(tree).createAndEnterSymbol()
 
@@ -59,7 +178,7 @@ trait MethodSynthesis {
         if (mods.isLazy) enterLazyVal(tree, getter)
         else {
           if (mods.isPrivateLocal)
-            context.error(tree.pos, "private[this] not allowed for case class parameters")
+            PrivateThisCaseClassParameterError(tree)
           // Create the setter if necessary.
           if (mods.isMutable)
             Setter(tree).createAndEnterSymbol()
@@ -81,7 +200,7 @@ trait MethodSynthesis {
                   map (acc => atPos(vd.pos.focus)(acc derive annotations))
             filterNot (_ eq EmptyTree)
         )
-        log(trees.mkString("Accessor trees:\n  ", "\n  ", "\n"))
+        // log(trees.mkString("Accessor trees:\n  ", "\n  ", "\n"))
         if (vd.symbol.isLazy) List(stat)
         else trees
       case _ =>
@@ -141,11 +260,7 @@ trait MethodSynthesis {
       def keepClean  = false  // whether annotations whose definitions are not meta-annotated should be kept.
       def validate() { }
       def createAndEnterSymbol(): Symbol = {
-        val sym = (
-          owner.newMethod(tree.pos.focus, name)
-            setFlag tree.mods.flags & flagsMask
-            setFlag flagsExtra
-        )
+        val sym = owner.newMethod(name, tree.pos.focus, (tree.mods.flags & flagsMask) | flagsExtra)
         setPrivateWithin(tree, sym)
         enterInScope(sym)
         sym setInfo completer(sym)
@@ -167,7 +282,7 @@ trait MethodSynthesis {
         }
       }
       private def logDerived(result: Tree): Tree = {
-        log("[+derived] " + ojoin(mods.defaultFlagString, basisSym.accurateKindString, basisSym.getterName.decode)
+        debuglog("[+derived] " + ojoin(mods.defaultFlagString, basisSym.accurateKindString, basisSym.getterName.decode)
           + " (" + derivedSym + ")\n        " + result)
 
         result
@@ -207,26 +322,39 @@ trait MethodSynthesis {
       override def validate() {
         assert(derivedSym != NoSymbol, tree)
         if (derivedSym.isOverloaded)
-          context.error(derivedSym.pos, derivedSym+" is defined twice")
+          GetterDefinedTwiceError(derivedSym)
 
         super.validate()
       }
-      // keep type tree of original abstract field
-      private def fixTypeTree(dd: DefDef): DefDef = {
-        dd.tpt match {
-          case tt: TypeTree if dd.rhs == EmptyTree  =>
-            tt setOriginal tree.tpt
-          case tpt =>
-            tpt setPos tree.tpt.pos.focus
-        }
-        dd
-      }
       override def derivedTree: DefDef = {
-        fixTypeTree {
-          DefDef(derivedSym,
-            if (mods.isDeferred) EmptyTree
-            else gen.mkCheckInit(fieldSelection)
-          )
+        // For existentials, don't specify a type for the getter, even one derived
+        // from the symbol! This leads to incompatible existentials for the field and
+        // the getter. Let the typer do all the work. You might think "why only for
+        // existentials, why not always," and you would be right, except: a single test
+        // fails, but it looked like some work to deal with it. Test neg/t0606.scala
+        // starts compiling (instead of failing like it's supposed to) because the typer
+        // expects to be able to identify escaping locals in typedDefDef, and fails to
+        // spot that brand of them. In other words it's an artifact of the implementation.
+        val tpt = derivedSym.tpe.finalResultType match {
+          case ExistentialType(_, _)  => TypeTree()
+          case tp                     => TypeTree(tp)
+        }
+        tpt setPos focusPos(derivedSym.pos)
+        // keep type tree of original abstract field
+        if (mods.isDeferred)
+          tpt setOriginal tree.tpt
+
+        // TODO - reconcile this with the DefDef creator in Trees (which
+        //   at this writing presented no way to pass a tree in for tpt.)
+        atPos(derivedSym.pos) {
+          DefDef(
+            Modifiers(derivedSym.flags),
+            derivedSym.name.toTermName,
+            Nil,
+            Nil,
+            tpt,
+            if (mods.isDeferred) EmptyTree else gen.mkCheckInit(fieldSelection)
+          ) setSymbol derivedSym
         }
       }
     }
@@ -248,7 +376,7 @@ trait MethodSynthesis {
       override def keepClean = !mods.isParamAccessor
       override def derivedTree = (
         if (mods.isDeferred) EmptyTree
-        else treeCopy.ValDef(tree, mods | flagsExtra, name, tree.tpt, tree.rhs)
+        else copyValDef(tree)(mods = mods | flagsExtra, name = this.name)
       )
     }
     case class Param(tree: ValDef) extends DerivedFromValDef {
@@ -264,7 +392,7 @@ trait MethodSynthesis {
     }
 
     sealed abstract class BeanAccessor(bean: String) extends DerivedFromValDef {
-      def name       = bean + tree.name.toString.capitalize
+      val name       = newTermName(bean + tree.name.toString.capitalize)
       def flagsMask  = BeanPropertyFlags
       def flagsExtra = 0
       override def derivedSym = enclClass.info decl name
@@ -275,8 +403,7 @@ trait MethodSynthesis {
         if (derivedSym == NoSymbol) {
           // the namer decides whether to generate these symbols or not. at that point, we don't
           // have symbolic information yet, so we only look for annotations named "BeanProperty".
-          context.error(tree.pos,
-            "implementation limitation: the BeanProperty annotation cannot be used in a type alias or renamed import")
+          BeanPropertyAnnotationLimitationError(tree)
         }
         super.validate()
       }
@@ -324,9 +451,9 @@ trait MethodSynthesis {
       val beans = beanAccessorsFromNames(tree)
       if (beans.nonEmpty) {
         if (!name(0).isLetter)
-          context.error(tree.pos, "`BeanProperty' annotation can be applied only to fields that start with a letter")
+          BeanPropertyAnnotationFieldWithoutLetterError(tree)
         else if (mods.isPrivate)  // avoids name clashes with private fields in traits
-          context.error(tree.pos, "`BeanProperty' annotation can be applied only to non-private fields")
+          BeanPropertyAnnotationPrivateFieldError(tree)
 
         // Create and enter the symbols here, add the trees in finishGetterSetter.
         beans foreach (_.createAndEnterSymbol())

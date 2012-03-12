@@ -15,10 +15,8 @@ import scala.tools.nsc.io.{ Directory, Path => SPath }
 import nsc.util.ClassPath
 import util.PathResolver
 import scala.tools.ant.sabbus.CompilationPathProperty
-
 import java.io.File
 import java.lang.reflect.Method
-
 import org.apache.tools.ant.Task
 import org.apache.tools.ant.types.{Path, Reference, FileSet}
 import org.apache.tools.ant.types.Commandline.Argument
@@ -281,6 +279,26 @@ class PartestTask extends Task with CompilationPathProperty {
       }
     } getOrElse sys.error("Provided classpath does not contain a Scala library.")
 
+    val scalaCompiler = {
+      (classpath.list map { fs => new File(fs) }) find { f =>
+        f.getName match {
+          case "scala-compiler.jar" => true
+          case "compiler" if (f.getParentFile.getName == "classes") => true
+          case _ => false
+        }
+      }
+    } getOrElse sys.error("Provided classpath does not contain a Scala compiler.")
+
+    val scalaPartest = {
+      (classpath.list map { fs => new File(fs) }) find { f =>
+        f.getName match {
+          case "scala-partest.jar" => true
+          case "partest" if (f.getParentFile.getName == "classes") => true
+          case _ => false
+        }
+      }
+    } getOrElse sys.error("Provided classpath does not contain a Scala partest.")
+
     def scalacArgsFlat: Option[Seq[String]] = scalacArgs map (_ flatMap { a =>
       val parts = a.getParts
       if(parts eq null) Seq[String]() else parts.toSeq
@@ -289,11 +307,23 @@ class PartestTask extends Task with CompilationPathProperty {
     val antRunner = new scala.tools.partest.nest.AntRunner
     val antFileManager = antRunner.fileManager
 
+    // this is a workaround for https://issues.scala-lang.org/browse/SI-5433
+    // when that bug is fixed, this paragraph of code can be safely removed
+    // we hack into the classloader that will become parent classloader for scalac
+    // this way we ensure that reflective macro lookup will pick correct Code.lift
+    val loader = getClass.getClassLoader.asInstanceOf[org.apache.tools.ant.AntClassLoader]
+    val path = new org.apache.tools.ant.types.Path(getProject())
+    val newClassPath = ClassPath.join(nest.PathSettings.srcCodeLib.toString, loader.getClasspath)
+    path.setPath(newClassPath)
+    loader.setClassPath(path)
+
     antFileManager.showDiff = showDiff
     antFileManager.showLog = showLog
     antFileManager.failed = runFailed
     antFileManager.CLASSPATH = ClassPath.join(classpath.list: _*)
     antFileManager.LATEST_LIB = scalaLibrary.getAbsolutePath
+    antFileManager.LATEST_COMP = scalaCompiler.getAbsolutePath
+    antFileManager.LATEST_PARTEST = scalaPartest.getAbsolutePath
 
     javacmd foreach (x => antFileManager.JAVACMD = x.getAbsolutePath)
     javaccmd foreach (x => antFileManager.JAVAC_CMD = x.getAbsolutePath)
@@ -361,18 +391,18 @@ class PartestTask extends Task with CompilationPathProperty {
 
   private def oneResult(res: (String, Int)) =
     <testcase name={res._1}>{
-  	  res._2 match {
-  	    case 0 => scala.xml.NodeSeq.Empty
+      res._2 match {
+        case 0 => scala.xml.NodeSeq.Empty
         case 1 => <failure message="Test failed"/>
         case 2 => <failure message="Test timed out"/>
-  	  }
-  	}</testcase>
+      }
+    }</testcase>
 
   private def testReport(kind: String, results: Iterable[(String, Int)], succs: Int, fails: Int) =
     <testsuite name={kind} tests={(succs + fails).toString} failures={fails.toString}>
-  	  <properties/>
-  	  {
-  	    results.map(oneResult(_))
-  	  }
+      <properties/>
+      {
+        results.map(oneResult(_))
+      }
     </testsuite>
 }

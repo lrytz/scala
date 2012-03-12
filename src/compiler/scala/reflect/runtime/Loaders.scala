@@ -63,8 +63,8 @@ trait Loaders { self: SymbolTable =>
    */
   protected def createClassModule(owner: Symbol, name: TypeName, completer: (Symbol, Symbol) => LazyType) = {
     assert(!(name.toString endsWith "[]"), name)
-    val clazz = owner.newClass(NoPosition, name)
-    val module = owner.newModule(NoPosition, name.toTermName)
+    val clazz = owner.newClass(name)
+    val module = owner.newModule(name.toTermName)
     owner.info.decls enter clazz
     owner.info.decls enter module
     initClassModule(clazz, module, completer(clazz, module))
@@ -97,9 +97,9 @@ trait Loaders { self: SymbolTable =>
     0 < dp && dp < (name.length - 1)
   }
 
-  class PackageScope(pkgClass: Symbol) extends Scope {
+  class PackageScope(pkgClass: Symbol) extends Scope() with SynchronizedScope {
     assert(pkgClass.isType)
-    private var negatives = mutable.Set[Name]()
+    private val negatives = mutable.Set[Name]() // Syncnote: Performance only, so need not be protected.
     override def lookupEntry(name: Name): ScopeEntry = {
       val e = super.lookupEntry(name)
       if (e != null)

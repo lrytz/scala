@@ -45,7 +45,7 @@ trait Constants extends api.Constants {
       case x: Char      => CharTag
       case x: Type      => ClassTag
       case x: Symbol    => EnumTag
-      case _            => throw new Error("bad constant value: " + value)
+      case _            => throw new Error("bad constant value: " + value + " of class " + value.getClass)
     }
 
     def isByteRange: Boolean  = isIntRange && Byte.MinValue <= intValue && intValue <= Byte.MaxValue
@@ -217,7 +217,7 @@ trait Constants extends api.Constants {
     }
 
     def escapedStringValue: String = {
-      def escape(text: String): String = (text map escapedChar) mkString ""
+      def escape(text: String): String = text flatMap escapedChar
       tag match {
         case NullTag   => "null"
         case StringTag => "\"" + escape(stringValue) + "\""
