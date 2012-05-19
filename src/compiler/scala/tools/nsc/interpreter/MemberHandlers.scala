@@ -9,6 +9,7 @@ package interpreter
 import scala.collection.{ mutable, immutable }
 import scala.PartialFunction.cond
 import scala.reflect.internal.Chars
+import language.implicitConversions
 
 trait MemberHandlers {
   val intp: IMain
@@ -63,6 +64,7 @@ trait MemberHandlers {
   }
 
   sealed abstract class MemberDefHandler(override val member: MemberDef) extends MemberHandler(member) {
+    def symbol          = if (member.symbol eq null) NoSymbol else member.symbol
     def name: Name      = member.name
     def mods: Modifiers = member.mods
     def keyword         = member.keyword
@@ -71,6 +73,7 @@ trait MemberHandlers {
     override def definesImplicit = member.mods.isImplicit
     override def definesTerm: Option[TermName] = Some(name.toTermName) filter (_ => name.isTermName)
     override def definesType: Option[TypeName] = Some(name.toTypeName) filter (_ => name.isTypeName)
+    override def definedSymbols = if (symbol eq NoSymbol) Nil else List(symbol)
   }
 
   /** Class to handle one member among all the members included
@@ -88,6 +91,7 @@ trait MemberHandlers {
     def importedNames        = List[Name]()
     def definedNames         = definesTerm.toList ++ definesType.toList
     def definedOrImported    = definedNames ++ importedNames
+    def definedSymbols       = List[Symbol]()
 
     def extraCodeToEvaluate(req: Request): String = ""
     def resultExtractionCode(req: Request): String = ""
@@ -120,7 +124,7 @@ trait MemberHandlers {
     private def vparamss = member.vparamss
     private def isMacro = member.mods.hasFlag(scala.reflect.internal.Flags.MACRO)
     // true if not a macro and 0-arity
-    override def definesValue = !isMacro && (vparamss.isEmpty || vparamss.head.isEmpty)
+    override def definesValue = !isMacro && flattensToEmpty(vparamss)
     override def resultExtractionCode(req: Request) =
       if (mods.isPublic) codegenln(name, ": ", req.typeOf(name)) else ""
   }
@@ -183,7 +187,7 @@ trait MemberHandlers {
     // TODO: Need to track these specially to honor Predef masking attempts,
     // because they must be the leading imports in the code generated for each
     // line.  We can use the same machinery as Contexts now, anyway.
-    def isPredefImport = treeInfo.isPredefExpr(expr)
+    def isPredefImport = isReferenceToPredef(expr)
 
     // wildcard imports, e.g. import foo._
     private def selectorWild    = selectors filter (_.name == nme.USCOREkw)
