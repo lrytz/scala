@@ -5228,7 +5228,7 @@ trait Types extends api.Types { self: SymbolTable =>
       tp2.typeSymbol.isPackageClass
     else if (tp2 eq NoPrefix)
       tp1.typeSymbol.isPackageClass
-    else {
+    else annotsInferMode {
       isSameType2(tp1, tp2) || {
         val tp1n = normalizePlus(tp1)
         val tp2n = normalizePlus(tp2)

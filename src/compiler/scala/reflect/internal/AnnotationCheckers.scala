@@ -69,7 +69,7 @@ trait AnnotationCheckers {
     def adaptAnnotations(tree: Tree, mode: Int, pt: Type): Tree = tree
     
     /**
-     * bla blabla bla
+     * @todo: maybe we can use adaptAnnotations instead? or even "addAnnotations", see end of CPSAnnotationChecker
      */
     def packedTypeAdaptAnnotations(tree: Tree, owner: Symbol): Tree = tree
   }
