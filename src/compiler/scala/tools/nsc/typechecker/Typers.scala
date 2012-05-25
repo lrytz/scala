@@ -723,7 +723,7 @@ trait Typers extends Modes with Adaptations with Taggings {
           if (context1.hasErrors) SilentTypeError(context1.errBuffer.head)
           else SilentResultValue(result)
         } else {
-          assert(context.bufferErrors || isPastTyper, "silent mode is not available past typer")
+//          assert(context.bufferErrors || isPastTyper, "silent mode is not available past typer")
           withSavedContext(context){
             val res = op(this)
             val errorsToReport = context.flushAndReturnBuffer()

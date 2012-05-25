@@ -87,6 +87,13 @@ trait AnnotationCheckers {
     inferMode -= 1
     res
   }
+  def nonInferMode[T](op: => T): T = {
+    val savedMode = inferMode
+    inferMode = 0
+    val res = op
+    inferMode = savedMode
+    res
+  }
   private var inferMode: Int = 0
 
   /** Register an annotation checker.  Typically these

@@ -6148,11 +6148,18 @@ trait Types extends api.Types { self: SymbolTable =>
       val rest = elimSuper(ts1 filter (t1 => !(t <:< t1)))
       if (rest exists (t1 => t1 <:< t)) rest else t :: rest
   }
-  def elimAnonymousClass(t: Type) = t match {
-    case TypeRef(pre, clazz, Nil) if clazz.isAnonymousClass =>
-      clazz.classBound.asSeenFrom(pre, clazz.owner)
-    case _ =>
-      t
+  def elimAnonymousClass(t: Type): Type = t match {
+    case AnnotatedType(anns, tp, selfs) =>
+      val tp1 = elimAnonymousClass(tp)
+      if (tp eq tp1) t
+      else AnnotatedType(anns, tp1, selfs)
+    case t =>
+      t.underlying match {
+        case TypeRef(pre, clazz, Nil) if clazz.isAnonymousClass =>
+          clazz.classBound.asSeenFrom(pre, clazz.owner)
+        case undert =>
+          undert
+      }
   }
   def elimRefinement(t: Type) = t match {
     case RefinedType(parents, decls) if !decls.isEmpty => intersectionType(parents)
@@ -6171,7 +6178,7 @@ trait Types extends api.Types { self: SymbolTable =>
     val ts0 = elimSub0(ts)
     if (ts0.isEmpty || ts0.tail.isEmpty) ts0
     else {
-      val ts1 = ts0 mapConserve (t => elimAnonymousClass(t.underlying))
+      val ts1 = ts0 mapConserve (t => elimAnonymousClass(t))
       if (ts1 eq ts0) ts0
       else elimSub(ts1, depth)
     }
@@ -6285,6 +6292,8 @@ trait Types extends api.Types { self: SymbolTable =>
         NullaryMethodType(lub0(matchingRestypes(ts, Nil)))
       case ts @ TypeBounds(_, _) :: rest =>
         TypeBounds(glb(ts map (_.bounds.lo), depth), lub(ts map (_.bounds.hi), depth))
+      case ts @ AnnotatedType(annots, tpe, _) :: rest =>
+        annotationsLub(lub0(ts map (_.withoutAnnotations)), ts)
       case ts =>
         lubResults get (depth, ts) match {
           case Some(lubType) =>
@@ -6359,7 +6368,7 @@ trait Types extends api.Types { self: SymbolTable =>
             // Verify that every given type conforms to the calculated lub.
             // In theory this should not be necessary, but higher-order type
             // parameters are not handled correctly.
-            val ok = ts forall { t =>
+            val ok = nonInferMode(ts forall { t =>
               (t <:< lubRefined) || {
                 if (settings.debug.value || printLubs) {
                   Console.println(
@@ -6369,7 +6378,7 @@ trait Types extends api.Types { self: SymbolTable =>
                 }
                 false
               }
-            }
+            })
             // If not, fall back on the more conservative calculation.
             if (ok) lubRefined
             else lubBase
