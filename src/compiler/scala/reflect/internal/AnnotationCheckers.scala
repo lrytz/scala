@@ -67,11 +67,6 @@ trait AnnotationCheckers {
      *  before. If the implementing class cannot do the adaptiong, it
      *  should return the tree unchanged.*/
     def adaptAnnotations(tree: Tree, mode: Int, pt: Type): Tree = tree
-    
-    /**
-     * @todo: maybe we can use adaptAnnotations instead? or even "addAnnotations", see end of CPSAnnotationChecker
-     */
-    def packedTypeAdaptAnnotations(tree: Tree, owner: Symbol): Tree = tree
   }
 
   // Syncnote: Annotation checkers inaccessible to reflection, so no sync in var necessary.
@@ -85,13 +80,6 @@ trait AnnotationCheckers {
     inferMode += 1
     val res = op
     inferMode -= 1
-    res
-  }
-  def nonInferMode[T](op: => T): T = {
-    val savedMode = inferMode
-    inferMode = 0
-    val res = op
-    inferMode = savedMode
     res
   }
   private var inferMode: Int = 0
@@ -160,10 +148,5 @@ trait AnnotationCheckers {
   def adaptAnnotations(tree: Tree, mode: Int, pt: Type): Tree = {
     annotationCheckers.foldLeft(tree)((tree, checker) =>
       checker.adaptAnnotations(tree, mode, pt))
-  }
-  
-  def packedTypeAdaptAnnotations(tree: Tree, owner: Symbol): Tree = {
-    annotationCheckers.foldLeft(tree)((tree, checker) =>
-      checker.packedTypeAdaptAnnotations(tree, owner))
   }
 }

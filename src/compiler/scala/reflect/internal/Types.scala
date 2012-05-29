@@ -6178,7 +6178,7 @@ trait Types extends api.Types { self: SymbolTable =>
     val ts0 = elimSub0(ts)
     if (ts0.isEmpty || ts0.tail.isEmpty) ts0
     else {
-      val ts1 = ts0 mapConserve (t => elimAnonymousClass(t))
+      val ts1 = ts0 mapConserve elimAnonymousClass
       if (ts1 eq ts0) ts0
       else elimSub(ts1, depth)
     }
@@ -6368,7 +6368,7 @@ trait Types extends api.Types { self: SymbolTable =>
             // Verify that every given type conforms to the calculated lub.
             // In theory this should not be necessary, but higher-order type
             // parameters are not handled correctly.
-            val ok = nonInferMode(ts forall { t =>
+            val ok = ts forall { t =>
               (t <:< lubRefined) || {
                 if (settings.debug.value || printLubs) {
                   Console.println(
@@ -6378,7 +6378,7 @@ trait Types extends api.Types { self: SymbolTable =>
                 }
                 false
               }
-            })
+            }
             // If not, fall back on the more conservative calculation.
             if (ok) lubRefined
             else lubBase
@@ -6653,7 +6653,7 @@ trait Types extends api.Types { self: SymbolTable =>
   /** Make symbol `sym` a member of scope `tp.decls`
    *  where `thistp` is the narrowed owner type of the scope.
    */
-  def addMember(thistp: Type, tp: Type, sym: Symbol): Unit = annotsInferMode {
+  def addMember(thistp: Type, tp: Type, sym: Symbol): Unit = {
     assert(sym != NoSymbol)
     // debuglog("add member " + sym+":"+sym.info+" to "+thistp) //DEBUG
     if (!(thistp specializes sym)) {

@@ -3411,8 +3411,7 @@ trait Typers extends Modes with Adaptations with Taggings {
     }
 
     /** convert local symbols and skolems to existentials */
-    def packedType(tree0: Tree, owner: Symbol): Type = {
-      val tree = packedTypeAdaptAnnotations(tree0, owner)
+    def packedType(tree: Tree, owner: Symbol): Type = {
       def defines(tree: Tree, sym: Symbol) =
         sym.isExistentialSkolem && sym.unpackLocation == tree ||
         tree.isDef && tree.symbol == sym
