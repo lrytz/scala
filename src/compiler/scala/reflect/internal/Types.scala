@@ -6148,18 +6148,11 @@ trait Types extends api.Types { self: SymbolTable =>
       val rest = elimSuper(ts1 filter (t1 => !(t <:< t1)))
       if (rest exists (t1 => t1 <:< t)) rest else t :: rest
   }
-  def elimAnonymousClass(t: Type): Type = t match {
-    case AnnotatedType(anns, tp, selfs) =>
-      val tp1 = elimAnonymousClass(tp)
-      if (tp eq tp1) t
-      else AnnotatedType(anns, tp1, selfs)
-    case t =>
-      t.underlying match {
-        case TypeRef(pre, clazz, Nil) if clazz.isAnonymousClass =>
-          clazz.classBound.asSeenFrom(pre, clazz.owner)
-        case undert =>
-          undert
-      }
+  def elimAnonymousClass(t: Type) = t match {
+    case TypeRef(pre, clazz, Nil) if clazz.isAnonymousClass =>
+      clazz.classBound.asSeenFrom(pre, clazz.owner)
+    case _ =>
+      t
   }
   def elimRefinement(t: Type) = t match {
     case RefinedType(parents, decls) if !decls.isEmpty => intersectionType(parents)
@@ -6168,6 +6161,28 @@ trait Types extends api.Types { self: SymbolTable =>
 
   /** Eliminate from list of types all elements which are a subtype
    *  of some other element of the list. */
+
+/* history of elimSub
+initial
+  - simple, wrong (did not compare all pairs)
+
+https://github.com/scala/scala/commit/76e2ea8895ebc598862b44cacb42a45a3c48d1b9
+  - compare all pairs
+  - if result has two or more, map over _.singleDeref and call elimSub again (not sure why)
+
+https://github.com/scala/scala/commit/7529035f6d21021dcf518a8b53729d1c5c6374f5
+  - rename "sinleDeref" to "underlying"
+
+https://github.com/scala/scala/commit/9077de63b9f5d596b8ea3df5baeac3f87835e7a2
+  - if result has two or more, "elimAnonymousClass" after going to "underlying"
+
+https://github.com/scala/scala/commit/22608da738a56936d185d71e447b0fd274a8f454
+  - List.mapConverse(ts) --> ts.mapConverse
+
+https://github.com/scala/scala/commit/4fbdc7ce71c61a4579b108904eca8e3697c24960
+  - use "isSubType" with depth instead of "<:<"
+*/
+
   private def elimSub(ts: List[Type], depth: Int): List[Type] = {
     def elimSub0(ts: List[Type]): List[Type] = ts match {
       case List() => List()
@@ -6175,10 +6190,19 @@ trait Types extends api.Types { self: SymbolTable =>
         val rest = elimSub0(ts1 filter (t1 => !isSubType(t1, t, decr(depth))))
         if (rest exists (t1 => isSubType(t, t1, decr(depth)))) rest else t :: rest
     }
+    def elimSingletonAndAnonClass(t: Type) = t match {
+      case AnnotatedType(anns, tp, selfs) =>
+        val tp1 = elimAnonymousClass(tp.underlying)
+        if (tp1 eq tp) t
+        else AnnotatedType(anns, tp1, selfs)
+      case _ =>
+        elimAnonymousClass(t.underlying)
+    }
+
     val ts0 = elimSub0(ts)
     if (ts0.isEmpty || ts0.tail.isEmpty) ts0
     else {
-      val ts1 = ts0 mapConserve elimAnonymousClass
+      val ts1 = ts0 mapConserve elimSingletonAndAnonClass
       if (ts1 eq ts0) ts0
       else elimSub(ts1, depth)
     }
@@ -6653,7 +6677,7 @@ trait Types extends api.Types { self: SymbolTable =>
   /** Make symbol `sym` a member of scope `tp.decls`
    *  where `thistp` is the narrowed owner type of the scope.
    */
-  def addMember(thistp: Type, tp: Type, sym: Symbol): Unit = {
+  def addMember(thistp: Type, tp: Type, sym: Symbol) {
     assert(sym != NoSymbol)
     // debuglog("add member " + sym+":"+sym.info+" to "+thistp) //DEBUG
     if (!(thistp specializes sym)) {
