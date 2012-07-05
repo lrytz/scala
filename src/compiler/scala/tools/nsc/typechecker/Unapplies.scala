@@ -224,33 +224,69 @@ trait Unapplies extends ast.TreeDSL
    * This attachment class stores the copy method parameter ValDefs as an attachment in the
    * ClassDef of the case class.
    */
+
+  class CopyParamssAttachment(val paramss: List[List[ValDef]])
+
   def caseClassCopyMeth(cdef: ClassDef): Option[DefDef] = {
+    // @TODO: disallow when there's an implciit parameter list, and one of the last two parameter
+    // list refers to an abstract type (e.g. a type parameter)
     def isDisallowed(vd: ValDef) = isRepeatedParamType(vd.tpt) || isByNameParamType(vd.tpt)
-    val classParamss  = constrParamss(cdef)
+    val cparamss  = constrParamss(cdef)
 
-    if (cdef.symbol.hasAbstractFlag || classParamss.exists(_ exists isDisallowed)) None
+    if (cdef.symbol.hasAbstractFlag || cparamss.exists(_ exists isDisallowed)) None
     else {
-      def makeCopyParam(vd: ValDef, putDefault: Boolean) = {
-        val rhs = if (putDefault) toIdent(vd) else EmptyTree
-        val flags = PARAM | (vd.mods.flags & IMPLICIT) | (if (putDefault) DEFAULTPARAM else 0)
-        // empty tpt: see comment above
-        val tpt = atPos(vd.pos.focus)(TypeTree() setOriginal vd.tpt)
-        treeCopy.ValDef(vd, Modifiers(flags), vd.name, tpt, rhs)
-      }
-
       val tparams = cdef.tparams map copyUntypedInvariant
-      val paramss = classParamss match {
-        case Nil => Nil
-        case ps :: pss =>
-          ps.map(makeCopyParam(_, putDefault = true)) :: mmap(pss)(makeCopyParam(_, putDefault = false))
+      def makeCopyParam(vd: ValDef, addDefault: Boolean) = {
+        val rhs = if (addDefault) toIdent(vd) else EmptyTree
+        val flags = vd.mods | (if (addDefault) DEFAULTPARAM else 0)
+        // empty tpt: see comment on class CopyParamssAttachment
+        val tpt = atPos(vd.pos.focus)(TypeTree() setOriginal vd.tpt)
+        treeCopy.ValDef(vd, flags, vd.name, tpt, rhs)
       }
 
+      val (copyParamss, funParamss, funWithImplicitParamss) = cparamss match {
+        case Nil => (Nil, Nil, Nil)
+        case ps :: pss =>
+          val psWithDefaults = List(ps.map(makeCopyParam(_, addDefault = true)))
+          val pssUntyped = mmap(pss)(makeCopyParam(_, addDefault = false))
+          val (pssExpl, pssImpl) = pssUntyped.span(!_.exists(_.mods.isImplicit))
+          if (pssExpl.isEmpty)
+            (psWithDefaults ::: pssImpl, Nil, Nil)
+          else if (pssImpl.isEmpty)
+            (psWithDefaults, pssExpl, Nil)
+          else {
+            val (funPss, lastExplicitPss) = pssExpl.splitAt(pssExpl.length-1)
+            (psWithDefaults, funPss, lastExplicitPss.head :: pssImpl)
+          }
+      }
+
+      val synthMod = Modifiers(SYNTHETIC)
       val classTpe = classType(cdef, tparams)
-      val argss = mmap(paramss)(toIdent)
-      val body: Tree = New(classTpe, argss)
+      val argss = copyParamss match {
+        case Nil => Nil
+        case pss => mmap(pss ::: funParamss ::: funWithImplicitParamss)(toIdent)
+      }
+      val finalBody: Tree = New(classTpe, argss)
+      val funBody = if (funWithImplicitParamss.isEmpty) finalBody else {
+        val x = tpnme.ANON_CLASS_NAME
+        val parents = List(gen.mkAttributedRef(definitions.AnyRefClass))
+        val apply = DefDef(synthMod, nme.apply, Nil, funWithImplicitParamss, classTpe, finalBody)
+        Block(
+          List(
+              ClassDef(
+                Modifiers(FINAL), x, Nil,
+                Template(parents, emptyValDef, NoMods, List(Nil), List(Nil), List(apply), cdef.pos.focus))
+              ),
+          New(
+            Ident(x),
+            List(Nil))
+        )
+      }
+      val copyBody = funParamss.foldRight(funBody)(Function.apply _)
       val copyDefDef = atPos(cdef.pos.focus)(
-        DefDef(Modifiers(SYNTHETIC), nme.copy, tparams, paramss, TypeTree(), body)
+        DefDef(synthMod, nme.copy, tparams, copyParamss, TypeTree(), copyBody)
       )
+      copyDefDef.addAttachment(new CopyParamssAttachment(copyParamss ::: funParamss ::: funWithImplicitParamss))
       Some(copyDefDef)
     }
   }

@@ -513,13 +513,17 @@ trait Namers extends MethodSynthesis {
         val constructorType = clazz.primaryConstructor.tpe
         val subst = new SubstSymMap(clazz.typeParams, tparams map (_.symbol))
         val classParamss = constructorType.paramss
-        val DefDef(_, _, _, copyParamss, _, _) = copyDefDef
 
-        map2(copyParamss, classParamss)((copyParams, classParams) =>
-          map2(copyParams, classParams)((copyP, classP) =>
-            copyP.tpt setType subst(classP.tpe)
-          )
-        )
+        copyDefDef.attachments.get[CopyParamssAttachment] match {
+          case Some(att) =>
+            map2(att.paramss, classParamss)((copyParams, classParams) =>
+              map2(copyParams, classParams)((copyP, classP) =>
+                copyP.tpt setType subst(classP.tpe)
+              )
+            )
+          case None =>
+            assert(false, "synthetic copy should have attachment: "+ copyDefDef)
+        }
       }
 
       sym setInfo {
