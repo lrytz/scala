@@ -24,6 +24,7 @@ import scala.collection.GenIterable
 import scala.collection.GenTraversableOnce
 import scala.collection.GenTraversable
 import immutable.HashMapCombiner
+import reflect.{ClassTag, classTag}
 
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -70,6 +71,10 @@ import language.implicitConversions
  *  which splits the splitter into a sequence of disjunct subsplitters. This is typically a
  *  very fast operation which simply creates wrappers around the receiver collection.
  *  This can be repeated recursively.
+ *
+ *  Tasks are scheduled for execution through a
+ *  [[scala.collection.parallel.TaskSupport]] object, which can be changed
+ *  through the `tasksupport` setter of the collection.
  *
  *  Method `newCombiner` produces a new combiner. Combiners are an extension of builders.
  *  They provide a method `combine` which combines two combiners and returns a combiner
@@ -164,6 +169,11 @@ self: ParIterableLike[T, Repr, Sequential] =>
     _tasksupport = defaultTaskSupport
   }
 
+  /** The task support object which is responsible for scheduling and
+   *  load-balancing tasks to processors.
+   *                                                                              
+   *  @see [[scala.collection.parallel.TaskSupport]]
+   */     
   def tasksupport = {
     val ts = _tasksupport
     if (ts eq null) {
@@ -172,6 +182,24 @@ self: ParIterableLike[T, Repr, Sequential] =>
     } else ts
   }
 
+  /** Changes the task support object which is responsible for scheduling and
+   *  load-balancing tasks to processors.
+   *
+   *  A task support object can be changed in a parallel collection after it
+   *  has been created, but only during a quiescent period, i.e. while there
+   *  are no concurrent invocations to parallel collection methods.
+   *                                                                              
+   *  Here is a way to change the task support of a parallel collection:          
+   *                                                                              
+   *  {{{                                                                         
+   *  import scala.collection.parallel._                                          
+   *  val pc = mutable.ParArray(1, 2, 3)                                          
+   *  pc.tasksupport = new ForkJoinTaskSupport(                                   
+   *    new scala.concurrent.forkjoin.ForkJoinPool(2))                            
+   *  }}}                                                                         
+   *
+   *  @see [[scala.collection.parallel.TaskSupport]]
+   */     
   def tasksupport_=(ts: TaskSupport) = _tasksupport = ts
 
   def seq: Sequential
@@ -183,25 +211,25 @@ self: ParIterableLike[T, Repr, Sequential] =>
   def hasDefiniteSize = true
 
   def isEmpty = size == 0
-  
+
   def nonEmpty = size != 0
-  
+
   def head = iterator.next
-  
+
   def headOption = if (nonEmpty) Some(head) else None
-  
+
   def tail = drop(1)
-  
+
   def last = {
     var lst = head
     for (x <- this.seq) lst = x
     lst
   }
-  
+
   def lastOption = if (nonEmpty) Some(last) else None
-  
+
   def init = take(size - 1)
-  
+
   /** Creates a new parallel iterator used to traverse the elements of this parallel collection.
    *  This iterator is more specific than the iterator of the returned by `iterator`, and augmented
    *  with additional accessor and transformer methods.
@@ -303,7 +331,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected implicit def builder2ops[Elem, To](cb: Builder[Elem, To]) = new BuilderOps[Elem, To] {
     def ifIs[Cmb](isbody: Cmb => Unit) = new Otherwise[Cmb] {
       def otherwise(notbody: => Unit)(implicit t: ClassTag[Cmb]) {
-        if (cb.getClass == t.erasure) isbody(cb.asInstanceOf[Cmb]) else notbody
+        if (cb.getClass == t.runtimeClass) isbody(cb.asInstanceOf[Cmb]) else notbody
       }
     }
     def isCombiner = cb.isInstanceOf[Combiner[_, _]]
@@ -822,7 +850,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
     def size = splitter.remaining
   }
 
-  override def toArray[U >: T: ArrayTag]: Array[U] = {
+  override def toArray[U >: T: ClassTag]: Array[U] = {
     val arr = new Array[U](size)
     copyToArray(arr)
     arr
@@ -840,7 +868,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
 
   override def toBuffer[U >: T]: collection.mutable.Buffer[U] = seq.toBuffer // have additional, parallel buffers?
 
-  override def toTraversable: GenTraversable[T] = this.asInstanceOf[GenTraversable[T]] // TODO add ParTraversable[T]
+  override def toTraversable: GenTraversable[T] = this.asInstanceOf[GenTraversable[T]]
 
   override def toIterable: ParIterable[T] = this.asInstanceOf[ParIterable[T]]
 
@@ -849,7 +877,13 @@ self: ParIterableLike[T, Repr, Sequential] =>
   override def toSet[U >: T]: immutable.ParSet[U] = toParCollection[U, immutable.ParSet[U]](() => immutable.ParSet.newCombiner[U])
 
   override def toMap[K, V](implicit ev: T <:< (K, V)): immutable.ParMap[K, V] = toParMap[K, V, immutable.ParMap[K, V]](() => immutable.ParMap.newCombiner[K, V])
+  
+  override def toVector: Vector[T] = to[Vector]
 
+  override def to[Col[_]](implicit cbf: CanBuildFrom[Nothing, T, Col[T @uncheckedVariance]]): Col[T @uncheckedVariance] = if (cbf().isCombiner) {
+    toParCollection[T, Col[T]](() => cbf().asCombiner)
+  } else seq.to(cbf)
+  
   /* tasks */
 
   protected trait StrictSplitterCheckTask[R, Tp] extends Task[R, Tp] {

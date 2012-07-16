@@ -8,7 +8,8 @@ $(document).ready(function(){
                name == 'scala.Predef.any2stringfmt' ||
                name == 'scala.Predef.any2stringadd' ||
                name == 'scala.Predef.any2ArrowAssoc' ||
-               name == 'scala.Predef.any2Ensuring'
+               name == 'scala.Predef.any2Ensuring' ||
+               name == 'scala.collection.TraversableOnce.alternateImplicit'
     };
 
     $("#linearization li:gt(0)").filter(function(){
@@ -25,9 +26,37 @@ $(document).ready(function(){
     // Member filter box
     var input = $("#textfilter input");
     input.bind("keyup", function(event) {
-        if (event.keyCode == 27)
-            input.val(""); // escape key
-        filter(true);
+
+        switch ( event.keyCode ) {
+
+        case 27: // escape key
+            input.val("");
+            filter(true);
+            break;
+
+        case 38: // up
+            input.val("");
+            filter(false);
+            window.scrollTo(0, $("body").offset().top);
+            input.focus();
+            break;
+
+        case 33: //page up
+            input.val("");
+            filter(false);            
+            break;
+
+        case 34: //page down
+            input.val("");
+            filter(false);            
+            break;            
+
+        default: 
+            window.scrollTo(0, $("#mbrsel").offset().top);
+            filter(true);        
+            break;
+
+        }        
     });
     input.focus(function(event) {
         input.select();
@@ -37,13 +66,13 @@ $(document).ready(function(){
         filter();
     });
     $(document).keydown(function(event) {
-        if(!event.altKey && !event.ctrlKey &&
-           (event.keyCode == 27 || (event.keyCode >= 48 && event.keyCode <= 90)) &&
-           document.activeElement != $("#textfilter input")[0]) {
-               $("#textfilter input").focus();
+
+        if (event.keyCode == 9) { // tab
+            $("#index-input", window.parent.document).focus();
+            input.attr("value", "");
+            return false;            
         }
     });
-    $("#textfilter input").focus();
 
     $("#linearization li").click(function(){
         if ($(this).hasClass("in")) {
@@ -156,21 +185,18 @@ $(document).ready(function(){
     });
 
     /* Linear super types and known subclasses */
-    function toggleShowContentFct(outerElement){
-      var content = $(".hiddenContent", outerElement);
-      var vis = $(":visible", content);
-      if (vis.length > 0) {
+    function toggleShowContentFct(e){
+      e.toggleClass("open");
+      var content = $(".hiddenContent", e.parent().get(0));
+      if (content.is(':visible')) {
         content.slideUp(100);
-        $(".showElement", outerElement).show();
-        $(".hideElement", outerElement).hide();
       }
       else {
         content.slideDown(100);
-        $(".showElement", outerElement).hide();
-        $(".hideElement", outerElement).show();
       }
     };
-    $(".toggleContainer").click(function() {
+
+    $(".toggle:not(.diagram-link)").click(function() {
       toggleShowContentFct($(this));
     });
 
@@ -251,7 +277,8 @@ function initInherit() {
     });
 };
 
-function filter(scrollToMember) {
+/* filter used to take boolean scrollToMember */
+function filter() {
     var query = $.trim($("#textfilter input").val()).toLowerCase();
     query = query.replace(/[-[\]{}()*+?.,\\^$|#]/g, "\\$&").replace(/\s+/g, "|");
     var queryRegExp = new RegExp(query, "i");
@@ -326,10 +353,6 @@ function filter(scrollToMember) {
       else
         members.hide();
     };
-
-    if (scrollToMember) {
-      window.scrollTo(0, $("#mbrsel").offset().top);
-    }
 
     return false;
 };

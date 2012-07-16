@@ -257,11 +257,21 @@ abstract class AddInterfaces extends InfoTransform { self: Erasure =>
   /** Transforms the member tree containing the implementation
    *  into a member of the impl class.
    */
-  private def implMethodDef(tree: Tree): Tree = (
-    implMethodMap get tree.symbol
-            map (impl => new ChangeOwnerAndReturnTraverser(tree.symbol, impl)(tree setSymbol impl))
-      getOrElse abort("implMethod missing for " + tree.symbol)
-  )
+  private def implMethodDef(tree: Tree): Tree = {
+    val impl = implMethodMap.getOrElse(tree.symbol, abort("implMethod missing for " + tree.symbol))
+
+    val newTree = if (impl.isErroneous) tree else { // e.g. res/t687
+      // SI-5167: Ensure that the tree that we are grafting refers the parameter symbols from the
+      // new method symbol `impl`, rather than the symbols of the original method signature in
+      // the trait. `tree setSymbol impl` does *not* suffice!
+      val DefDef(_, _, _, vparamss, _, _) = tree
+      val oldSyms = vparamss.flatten.map(_.symbol)
+      val newSyms = impl.info.paramss.flatten
+      assert(oldSyms.length == newSyms.length, (oldSyms, impl, impl.info))
+      tree.substituteSymbols(oldSyms, newSyms)
+    }
+    new ChangeOwnerAndReturnTraverser(newTree.symbol, impl)(newTree setSymbol impl)
+  }
 
   /** Add mixin constructor definition
    *    def $init$(): Unit = ()
@@ -308,8 +318,7 @@ abstract class AddInterfaces extends InfoTransform { self: Erasure =>
         // body until now, because the typer knows that Any has no
         // constructor and won't accept a call to super.init.
         assert((clazz isSubClass AnyValClass) || clazz.info.parents.isEmpty, clazz)
-        val superCall = Apply(Select(Super(This(tpnme.EMPTY), tpnme.EMPTY), nme.CONSTRUCTOR), Nil)
-        Block(List(superCall), expr)
+        Block(List(Apply(gen.mkSuperSelect, Nil)), expr)
 
       case Block(stats, expr) =>
         // needs `hasSymbol` check because `supercall` could be a block (named / default args)

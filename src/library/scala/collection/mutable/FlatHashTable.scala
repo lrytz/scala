@@ -50,6 +50,10 @@ trait FlatHashTable[A] extends FlatHashTable.HashUtils[A] {
 
   protected def capacity(expectedSize: Int) = if (expectedSize == 0) 1 else powerOfTwo(expectedSize)
 
+  /** The initial size of the hash table.
+   */
+  def initialSize: Int = 32
+
   private def initialCapacity = capacity(initialSize)
 
   protected def randomSeed = seedGenerator.get.nextInt()
@@ -361,10 +365,6 @@ private[collection] object FlatHashTable {
   def defaultLoadFactor: Int = 450
   final def loadFactorDenum = 1000
 
-  /** The initial size of the hash table.
-   */
-  def initialSize: Int = 32
-
   def sizeForThreshold(size: Int, _loadFactor: Int) = math.max(32, (size.toLong * loadFactorDenum / _loadFactor).toInt)
 
   def newThreshold(_loadFactor: Int, size: Int) = {
@@ -397,9 +397,7 @@ private[collection] object FlatHashTable {
       //h = h + (h << 4)
       //h ^ (h >>> 10)
 
-      var i = hcode * 0x9e3775cd
-      i = java.lang.Integer.reverseBytes(i)
-      val improved = i * 0x9e3775cd
+      val improved = util.hashing.byteswap32(hcode)
 
       // for the remainder, see SI-5293
       // to ensure that different bits are used for different hash tables, we have to rotate based on the seed

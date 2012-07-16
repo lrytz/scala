@@ -30,9 +30,9 @@ trait Contexts { self: Analyzer =>
 
   private val startContext = {
     NoContext.make(
-    global.Template(List(), emptyValDef, List()) setSymbol global.NoSymbol setType global.NoType,
-    global.definitions.RootClass,
-    global.definitions.RootClass.info.decls)
+    Template(List(), emptyValDef, List()) setSymbol global.NoSymbol setType global.NoType,
+    rootMirror.RootClass,
+    rootMirror.RootClass.info.decls)
   }
 
   var lastAccessCheckDetails: String = ""
@@ -100,6 +100,12 @@ trait Contexts { self: Analyzer =>
     var outer: Context = _                  // The next outer context
     var enclClass: Context = _              // The next outer context whose tree is a
                                             // template or package definition
+    @inline final def savingEnclClass[A](c: Context)(a: => A): A = {
+      val saved = enclClass
+      enclClass = c
+      try a finally enclClass = saved
+    }
+
     var enclMethod: Context = _             // The next outer context whose tree is a method
     var variance: Int = _                   // Variance relative to enclosing class
     private var _undetparams: List[Symbol] = List() // Undetermined type parameters,
@@ -438,8 +444,8 @@ trait Contexts { self: Analyzer =>
 
     def enclosingContextChain: List[Context] = this :: outer.enclosingContextChain
 
-    override def toString = "Context(%s@%s unit=%s scope=%s errors=%b)".format(
-      owner.fullName, tree.shortClass, unit, scope.##, hasErrors
+    override def toString = "Context(%s@%s unit=%s scope=%s errors=%b, reportErrors=%b, throwErrors=%b)".format(
+      owner.fullName, tree.shortClass, unit, scope.##, hasErrors, reportErrors, throwErrors
     )
     /** Is `sub` a subclass of `base` or a companion object of such a subclass?
      */
@@ -543,7 +549,7 @@ trait Contexts { self: Analyzer =>
       (pre == NoPrefix) || {
         val ab = sym.accessBoundary(sym.owner)
 
-        (  (ab.isTerm || ab == definitions.RootClass)
+        (  (ab.isTerm || ab == rootMirror.RootClass)
         || (accessWithin(ab) || accessWithinLinked(ab)) &&
              (  !sym.hasLocalFlag
              || sym.owner.isImplClass // allow private local accesses to impl classes
@@ -598,16 +604,16 @@ trait Contexts { self: Analyzer =>
      *  it is accessible, and if it is imported there is not already a local symbol
      *  with the same names. Local symbols override imported ones. This fixes #2866.
      */
-    private def isQualifyingImplicit(sym: Symbol, pre: Type, imported: Boolean) =
+    private def isQualifyingImplicit(name: Name, sym: Symbol, pre: Type, imported: Boolean) =
       sym.isImplicit &&
       isAccessible(sym, pre) &&
       !(imported && {
-        val e = scope.lookupEntry(sym.name)
+        val e = scope.lookupEntry(name)
         (e ne null) && (e.owner == scope)
       })
 
     private def collectImplicits(syms: List[Symbol], pre: Type, imported: Boolean = false): List[ImplicitInfo] =
-      for (sym <- syms if isQualifyingImplicit(sym, pre, imported)) yield
+      for (sym <- syms if isQualifyingImplicit(sym.name, sym, pre, imported)) yield
         new ImplicitInfo(sym.name, pre, sym)
 
     private def collectImplicitImports(imp: ImportInfo): List[ImplicitInfo] = {
@@ -621,7 +627,7 @@ trait Contexts { self: Analyzer =>
           var impls = collect(sels1) filter (info => info.name != from)
           if (to != nme.WILDCARD) {
             for (sym <- imp.importedSymbol(to).alternatives)
-              if (isQualifyingImplicit(sym, pre, imported = true))
+              if (isQualifyingImplicit(to, sym, pre, imported = true))
                 impls = new ImplicitInfo(to, pre, sym) :: impls
           }
           impls
@@ -638,11 +644,12 @@ trait Contexts { self: Analyzer =>
           if (owner != nextOuter.owner && owner.isClass && !owner.isPackageClass && !inSelfSuperCall) {
             if (!owner.isInitialized) return nextOuter.implicitss
             // debuglog("collect member implicits " + owner + ", implicit members = " + owner.thisType.implicitMembers)//DEBUG
-            val savedEnclClass = enclClass
-            this.enclClass = this
-            val res = collectImplicits(owner.thisType.implicitMembers, owner.thisType)
-            this.enclClass = savedEnclClass
-            res
+            savingEnclClass(this) {
+              // !!! In the body of `class C(implicit a: A) { }`, `implicitss` returns `List(List(a), List(a), List(<predef..)))`
+              //     it handled correctly by implicit search, which considers the second `a` to be shadowed, but should be
+              //     remedied nonetheless.
+              collectImplicits(owner.thisType.implicitMembers, owner.thisType)
+            }
           } else if (scope != nextOuter.scope && !owner.isPackageClass) {
             debuglog("collect local implicits " + scope.toList)//DEBUG
             collectImplicits(scope.toList, NoPrefix)

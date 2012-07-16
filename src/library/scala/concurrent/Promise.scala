@@ -25,9 +25,23 @@ package scala.concurrent
  */
 trait Promise[T] {
 
+  // used for internal callbacks defined in
+  // the lexical scope of this trait;
+  // _never_ for application callbacks.
+  private implicit def internalExecutor: ExecutionContext = Future.InternalCallbackExecutor
+
   /** Future containing the value of this promise.
    */
   def future: Future[T]
+
+  /** Returns whether the promise has already been completed with
+   *  a value or an exception.
+   *
+   *  $nonDeterministic
+   *
+   *  @return    `true` if the promise is already completed, `false` otherwise
+   */
+  def isCompleted: Boolean
 
   /** Completes the promise with either an exception or a value.
    *
@@ -106,26 +120,23 @@ object Promise {
   /** Creates a promise object which can be completed with a value.
    *  
    *  @tparam T       the type of the value in the promise
-   *  @param executor the execution context on which the promise is created on
    *  @return         the newly created `Promise` object
    */
-  def apply[T]()(implicit executor: ExecutionContext): Promise[T] = new impl.Promise.DefaultPromise[T]()
+  def apply[T](): Promise[T] = new impl.Promise.DefaultPromise[T]()
 
   /** Creates an already completed Promise with the specified exception.
    *  
    *  @tparam T       the type of the value in the promise
-   *  @param executor the execution context on which the promise is created on
    *  @return         the newly created `Promise` object
    */
-  def failed[T](exception: Throwable)(implicit executor: ExecutionContext): Promise[T] = new impl.Promise.KeptPromise[T](Left(exception))
+  def failed[T](exception: Throwable): Promise[T] = new impl.Promise.KeptPromise[T](Left(exception))
 
   /** Creates an already completed Promise with the specified result.
    *  
    *  @tparam T       the type of the value in the promise
-   *  @param executor the execution context on which the promise is created on
    *  @return         the newly created `Promise` object
    */
-  def successful[T](result: T)(implicit executor: ExecutionContext): Promise[T] = new impl.Promise.KeptPromise[T](Right(result))
+  def successful[T](result: T): Promise[T] = new impl.Promise.KeptPromise[T](Right(result))
   
 }
 

@@ -183,7 +183,7 @@ abstract class ClassfileParser {
         if (in.buf(start).toInt != CONSTANT_CLASS) errorBadTag(start)
         val name = getExternalName(in.getChar(start + 1))
         if (nme.isModuleName(name))
-          c = definitions.getModule(nme.stripModuleSuffix(name))
+          c = rootMirror.getModule(nme.stripModuleSuffix(name))
         else
           c = classNameToSymbol(name)
 
@@ -234,7 +234,7 @@ abstract class ClassfileParser {
           //assert(name.endsWith("$"), "Not a module class: " + name)
           f = forceMangledName(name dropRight 1, true)
           if (f == NoSymbol)
-            f = definitions.getModule(name dropRight 1)
+            f = rootMirror.getModule(name dropRight 1)
         } else {
           val origName = nme.originalName(name)
           val owner = if (static) ownerTpe.typeSymbol.linkedClassOfClass else ownerTpe.typeSymbol
@@ -417,7 +417,7 @@ abstract class ClassfileParser {
    */
   def forceMangledName(name: Name, module: Boolean): Symbol = {
     val parts = name.decode.toString.split(Array('.', '$'))
-    var sym: Symbol = definitions.RootClass
+    var sym: Symbol = rootMirror.RootClass
 
     // was "at flatten.prev"
     beforeFlatten {
@@ -445,7 +445,7 @@ abstract class ClassfileParser {
         return NoSymbol.newClass(name.toTypeName)
       }
       val completer     = new global.loaders.ClassfileLoader(file)
-      var owner: Symbol = definitions.RootClass
+      var owner: Symbol = rootMirror.RootClass
       var sym: Symbol   = NoSymbol
       var ss: Name      = null
       var start         = 0
@@ -473,9 +473,9 @@ abstract class ClassfileParser {
 
     def lookupClass(name: Name) = try {
       if (name.pos('.') == name.length)
-        definitions.getMember(definitions.EmptyPackageClass, name.toTypeName)
+        definitions.getMember(rootMirror.EmptyPackageClass, name.toTypeName)
       else
-        definitions.getClass(name) // see tickets #2464, #3756
+        rootMirror.getClass(name) // see tickets #2464, #3756
     } catch {
       case _: FatalError => loadClassSymbol(name)
     }
@@ -613,14 +613,13 @@ abstract class ClassfileParser {
       parseAttributes(sym, info)
       getScope(jflags).enter(sym)
 
-      // sealed java enums (experimental)
-      if (isEnum && opt.experimental) {
-        // need to give singleton type
-        sym setInfo info.narrow
-        if (!sym.superClass.isSealed)
-          sym.superClass setFlag SEALED
+      // sealed java enums
+      if (isEnum) {
+        val enumClass = sym.owner.linkedClassOfClass
+        if (!enumClass.isSealed)
+          enumClass setFlag (SEALED | ABSTRACT)
 
-        sym.superClass addChild sym
+        enumClass addChild sym
       }
     }
   }
@@ -646,7 +645,14 @@ abstract class ClassfileParser {
               // if this is a non-static inner class, remove the explicit outer parameter
               val newParams = innerClasses.get(currentClass) match {
                 case Some(entry) if !isScalaRaw && !isStatic(entry.jflags) =>
-                  assert(params.head.tpe.typeSymbol == clazz.owner, params.head.tpe.typeSymbol + ": " + clazz.owner)
+                  /* About `clazz.owner.isPackage` below: SI-5957
+                   * For every nested java class A$B, there are two symbols in the scala compiler.
+                   *  1. created by SymbolLoader, because of the existence of the A$B.class file, owner: package
+                   *  2. created by ClassfileParser of A when reading the inner classes, owner: A
+                   * If symbol 1 gets completed (e.g. because the compiled source mentions `A$B`, not `A#B`), the
+                   * ClassfileParser for 1 executes, and clazz.owner is the package.
+                   */
+                  assert(params.head.tpe.typeSymbol == clazz.owner || clazz.owner.isPackage, params.head.tpe.typeSymbol + ": " + clazz.owner)
                   params.tail
                 case _ =>
                   params
@@ -863,7 +869,7 @@ abstract class ClassfileParser {
           }
           else in.skip(attrLen)
         case tpnme.SyntheticATTR =>
-          sym.setFlag(SYNTHETIC)
+          sym.setFlag(SYNTHETIC | HIDDEN)
           in.skip(attrLen)
         case tpnme.BridgeATTR =>
           sym.setFlag(BRIDGE)
@@ -880,7 +886,7 @@ abstract class ClassfileParser {
         case tpnme.ScalaSignatureATTR =>
           if (!isScalaAnnot) {
             debuglog("warning: symbol " + sym.fullName + " has pickled signature in attribute")
-            unpickler.unpickle(in.buf, in.bp, clazz, staticModule, in.file.toString)
+            unpickler.unpickle(in.buf, in.bp, clazz, staticModule, in.file.name)
           }
           in.skip(attrLen)
         case tpnme.ScalaATTR =>
@@ -898,7 +904,7 @@ abstract class ClassfileParser {
                 case Some(san: AnnotationInfo) =>
                   val bytes =
                     san.assocs.find({ _._1 == nme.bytes }).get._2.asInstanceOf[ScalaSigBytes].bytes
-                  unpickler.unpickle(bytes, 0, clazz, staticModule, in.file.toString)
+                  unpickler.unpickle(bytes, 0, clazz, staticModule, in.file.name)
                 case None =>
                   throw new RuntimeException("Scala class file does not contain Scala annotation")
               }
@@ -920,7 +926,7 @@ abstract class ClassfileParser {
           val srcfileLeaf = pool.getName(in.nextChar).toString.trim
           val srcpath = sym.enclosingPackage match {
             case NoSymbol => srcfileLeaf
-            case definitions.EmptyPackage => srcfileLeaf
+            case rootMirror.EmptyPackage => srcfileLeaf
             case pkg => pkg.fullName(File.separatorChar)+File.separator+srcfileLeaf
           }
           srcfile0 = settings.outputDirs.srcFilesFor(in.file, srcpath).find(_.exists)
@@ -1014,9 +1020,16 @@ abstract class ClassfileParser {
     } catch {
       case f: FatalError => throw f // don't eat fatal errors, they mean a class was not found
       case ex: Throwable =>
-        debuglog("dropping annotation on " + sym + ", an error occured during parsing (e.g. annotation  class not found)")
+        // We want to be robust when annotations are unavailable, so the very least
+        // we can do is warn the user about the exception
+        // There was a reference to ticket 1135, but that is outdated: a reference to a class not on
+        // the classpath would *not* end up here. A class not found is signaled
+        // with a `FatalError` exception, handled above. Here you'd end up after a NPE (for example),
+        // and that should never be swallowed silently.
+        warning("Caught: " + ex + " while parsing annotations in " + in.file)
+        if (settings.debug.value) ex.printStackTrace()
 
-        None // ignore malformed annotations ==> t1135
+        None // ignore malformed annotations
     }
 
     /**

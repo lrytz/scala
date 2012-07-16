@@ -21,7 +21,7 @@ abstract class Duplicators extends Analyzer {
 
   def retyped(context: Context, tree: Tree): Tree = {
     resetClassOwners
-    (new BodyDuplicator(context)).typed(tree)
+    (newBodyDuplicator(context)).typed(tree)
   }
 
   /** Retype the given tree in the given context. Use this method when retyping
@@ -37,15 +37,17 @@ abstract class Duplicators extends Analyzer {
 
     envSubstitution = new SubstSkolemsTypeMap(env.keysIterator.toList, env.valuesIterator.toList)
     debuglog("retyped with env: " + env)
-    (new BodyDuplicator(context)).typed(tree)
+    newBodyDuplicator(context).typed(tree)
   }
 
+  protected def newBodyDuplicator(context: Context) = new BodyDuplicator(context)
+  
   def retypedMethod(context: Context, tree: Tree, oldThis: Symbol, newThis: Symbol): Tree =
-    (new BodyDuplicator(context)).retypedMethod(tree.asInstanceOf[DefDef], oldThis, newThis)
+    (newBodyDuplicator(context)).retypedMethod(tree.asInstanceOf[DefDef], oldThis, newThis)
 
   /** Return the special typer for duplicate method bodies. */
   override def newTyper(context: Context): Typer =
-    new BodyDuplicator(context)
+    newBodyDuplicator(context)
 
   private def resetClassOwners() {
     oldClassOwner = null
@@ -143,8 +145,8 @@ abstract class Duplicators extends Analyzer {
       else
         sym
 
-    private def invalidate(tree: Tree) {
-      debuglog("attempting to invalidate " + tree.symbol + ", owner - " + (if (tree.symbol ne null) tree.symbol.owner else "<NULL>"))
+    private def invalidate(tree: Tree, owner: Symbol = NoSymbol) {
+      debuglog("attempting to invalidate " + tree.symbol)
       if (tree.isDef && tree.symbol != NoSymbol) {
         debuglog("invalid " + tree.symbol)
         invalidSyms(tree.symbol) = tree
@@ -158,18 +160,20 @@ abstract class Duplicators extends Analyzer {
             newsym.setInfo(fixType(ldef.symbol.info))
             ldef.symbol = newsym
             debuglog("newsym: " + newsym + " info: " + newsym.info)
-
+          
           case vdef @ ValDef(mods, name, _, rhs) if mods.hasFlag(Flags.LAZY) =>
             debuglog("ValDef " + name + " sym.info: " + vdef.symbol.info)
             invalidSyms(vdef.symbol) = vdef
-            val newsym = vdef.symbol.cloneSymbol(context.owner)
+            val newowner = if (owner != NoSymbol) owner else context.owner
+            val newsym = vdef.symbol.cloneSymbol(newowner)
             newsym.setInfo(fixType(vdef.symbol.info))
             vdef.symbol = newsym
-            debuglog("newsym: " + newsym + " info: " + newsym.info)
-
+            debuglog("newsym: " + newsym + " info: " + newsym.info + ", owner: " + newsym.owner + ", " + newsym.owner.isClass)
+            if (newsym.owner.isClass) newsym.owner.info.decls enter newsym
+          
           case DefDef(_, name, tparams, vparamss, _, rhs) =>
             // invalidate parameters
-            invalidate(tparams ::: vparamss.flatten)
+            invalidateAll(tparams ::: vparamss.flatten)
             tree.symbol = NoSymbol
 
           case _ =>
@@ -178,14 +182,14 @@ abstract class Duplicators extends Analyzer {
       }
     }
 
-    private def invalidate(stats: List[Tree]) {
-      stats foreach invalidate
+    private def invalidateAll(stats: List[Tree], owner: Symbol = NoSymbol) {
+      stats.foreach(invalidate(_, owner))
     }
 
     def retypedMethod(ddef: DefDef, oldThis: Symbol, newThis: Symbol): Tree = {
       oldClassOwner = oldThis
       newClassOwner = newThis
-      invalidate(ddef.tparams)
+      invalidateAll(ddef.tparams)
       mforeach(ddef.vparamss) { vdef =>
         invalidate(vdef)
         vdef.tpe = null
@@ -207,6 +211,11 @@ abstract class Duplicators extends Analyzer {
       }
     }
 
+    /** Optionally cast this tree into some other type, if required.
+     *  Unless overridden, just returns the tree.
+     */
+    def castType(tree: Tree, pt: Type): Tree = tree
+    
     /** Special typer method for re-type checking trees. It expects a typed tree.
      *  Returns a typed tree that has fresh symbols for all definitions in the original tree.
      *
@@ -239,15 +248,15 @@ abstract class Duplicators extends Analyzer {
 
         case Block(stats, res) =>
           debuglog("invalidating block")
-          invalidate(stats)
+          invalidateAll(stats)
           invalidate(res)
           tree.tpe = null
           super.typed(tree, mode, pt)
 
         case ClassDef(_, _, _, tmpl @ Template(parents, _, stats)) =>
-          // log("invalidating classdef " + tree.tpe)
+          // log("invalidating classdef " + tree)
           tmpl.symbol = tree.symbol.newLocalDummy(tree.pos)
-          invalidate(stats)
+          invalidateAll(stats, tree.symbol)
           tree.tpe = null
           super.typed(tree, mode, pt)
 
@@ -317,10 +326,10 @@ abstract class Duplicators extends Analyzer {
           super.typed(atPos(tree.pos)(tree1), mode, pt)
 
         case This(_) =>
-          // log("selection on this, plain: " + tree)
+          debuglog("selection on this, plain: " + tree)
           tree.symbol = updateSym(tree.symbol)
-          tree.tpe = null
-          val tree1 = super.typed(tree, mode, pt)
+          val ntree = castType(tree, pt)
+          val tree1 = super.typed(ntree, mode, pt)
           // log("plain this typed to: " + tree1)
           tree1
 /* no longer needed, because Super now contains a This(...)
@@ -356,16 +365,18 @@ abstract class Duplicators extends Analyzer {
         case EmptyTree =>
           // no need to do anything, in particular, don't set the type to null, EmptyTree.tpe_= asserts
           tree
-
+        
         case _ =>
           debuglog("Duplicators default case: " + tree.summaryString)
+          debuglog(" ---> " + tree)
           if (tree.hasSymbol && tree.symbol != NoSymbol && (tree.symbol.owner == definitions.AnyClass)) {
             tree.symbol = NoSymbol // maybe we can find a more specific member in a subclass of Any (see AnyVal members, like ==)
           }
-          tree.tpe = null
-          super.typed(tree, mode, pt)
+          val ntree = castType(tree, pt)
+          super.typed(ntree, mode, pt)
       }
     }
+    
   }
 }
 

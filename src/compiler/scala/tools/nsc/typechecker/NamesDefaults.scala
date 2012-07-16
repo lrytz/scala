@@ -9,6 +9,7 @@ package typechecker
 import symtab.Flags._
 import scala.collection.mutable
 import scala.ref.WeakReference
+import scala.reflect.ClassTag
 
 /**
  *  @author Lukas Rytz
@@ -20,8 +21,19 @@ trait NamesDefaults { self: Analyzer =>
   import definitions._
   import NamesDefaultsErrorsGen._
 
-  val defaultParametersOfMethod =
-    perRunCaches.newWeakMap[Symbol, Set[WeakReference[Symbol]]]() withDefaultValue Set()
+  // Default getters of constructors are added to the companion object in the
+  // typeCompleter of the constructor (methodSig). To compute the signature,
+  // we need the ClassDef. To create and enter the symbols into the companion
+  // object, we need the templateNamer of that module class. These two are stored
+  // as an attachment in the companion module symbol
+  class ConstructorDefaultsAttachment(val classWithDefault: ClassDef, var companionModuleClassNamer: Namer)
+
+  // To attach the default getters of local (term-owned) methods to the method symbol.
+  // Used in Namer.enterExistingSym: it needs to re-enter the method symbol and also
+  // default getters, which could not be found otherwise.
+  class DefaultsOfLocalMethodAttachment(val defaultGetters: mutable.Set[Symbol]) {
+    def this(default: Symbol) = this(mutable.Set(default))
+  }
 
   case class NamedApplyInfo(
     qual:       Option[Tree],
@@ -39,14 +51,14 @@ trait NamesDefaults { self: Analyzer =>
   def isNamed(arg: Tree) = nameOf(arg).isDefined
 
   /** @param pos maps indices from old to new */
-  def reorderArgs[T: ArrayTag](args: List[T], pos: Int => Int): List[T] = {
+  def reorderArgs[T: ClassTag](args: List[T], pos: Int => Int): List[T] = {
     val res = new Array[T](args.length)
     foreachWithIndex(args)((arg, index) => res(pos(index)) = arg)
     res.toList
   }
 
   /** @param pos maps indices from new to old (!) */
-  def reorderArgsInv[T: ArrayTag](args: List[T], pos: Int => Int): List[T] = {
+  def reorderArgsInv[T: ClassTag](args: List[T], pos: Int => Int): List[T] = {
     val argsArray = args.toArray
     (argsArray.indices map (i => argsArray(pos(i)))).toList
   }
@@ -260,19 +272,18 @@ trait NamesDefaults { self: Analyzer =>
     def argValDefs(args: List[Tree], paramTypes: List[Type], blockTyper: Typer): List[ValDef] = {
       val context = blockTyper.context
       val symPs = map2(args, paramTypes)((arg, tpe) => {
-        val byName = isByNameParamType(tpe)
-        val (argTpe, repeated) =
-          if (isScalaRepeatedParamType(tpe)) arg match {
-            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) =>
-              (expr.tpe, true)
-            case _ =>
-              (seqType(arg.tpe), true)
-          } else (arg.tpe, false)
-        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos)
-        val valType = if (byName) functionType(List(), argTpe)
-                      else if (repeated) argTpe
-                      else argTpe
-        s.setInfo(valType)
+        val byName   = isByNameParamType(tpe)
+        val repeated = isScalaRepeatedParamType(tpe)
+        val argTpe = (
+          if (repeated) arg match {
+            case Typed(expr, Ident(tpnme.WILDCARD_STAR)) => expr.tpe
+            case _                                       => seqType(arg.tpe)
+          }
+          else arg.tpe
+        ).widen // have to widen or types inferred from literal defaults will be singletons
+        val s = context.owner.newValue(unit.freshTermName("x$"), arg.pos) setInfo (
+          if (byName) functionType(Nil, argTpe) else argTpe
+        )
         (context.scope.enter(s), byName, repeated)
       })
       map2(symPs, args) {
@@ -377,7 +388,7 @@ trait NamesDefaults { self: Analyzer =>
    */
   def addDefaults(givenArgs: List[Tree], qual: Option[Tree], targs: List[Tree],
                   previousArgss: List[List[Tree]], params: List[Symbol],
-                  pos: util.Position, context: Context): (List[Tree], List[Symbol]) = {
+                  pos: scala.reflect.internal.util.Position, context: Context): (List[Tree], List[Symbol]) = {
     if (givenArgs.length < params.length) {
       val (missing, positional) = missingParams(givenArgs, params)
       if (missing forall (_.hasDefault)) {
@@ -478,7 +489,18 @@ trait NamesDefaults { self: Analyzer =>
         // instead of arg, but can't do that because eventually setType(ErrorType)
         // is called, and EmptyTree can only be typed NoType.  Thus we need to
         // disable conforms as a view...
-        try typer.silent(_.typed(arg, subst(paramtpe))) match {
+        val errsBefore = reporter.ERROR.count
+        try typer.silent { tpr =>
+          val res = tpr.typed(arg, subst(paramtpe))
+          // better warning for SI-5044: if `silent` was not actually silent give a hint to the user
+          // [H]: the reason why `silent` is not silent is because the cyclic reference exception is
+          // thrown in a context completely different from `context` here. The exception happens while
+          // completing the type, and TypeCompleter is created/run with a non-silent Namer `context`
+          // and there is at the moment no way to connect the two unless we go through some global state.
+          if (errsBefore < reporter.ERROR.count)
+            WarnAfterNonSilentRecursiveInference(param, arg)(context)
+          res
+        } match {
           case SilentResultValue(t)  => !t.isErroneous // #4041
           case _        => false
         }
@@ -487,7 +509,7 @@ trait NamesDefaults { self: Analyzer =>
           // CyclicReferences.  Fix for #3685
           case cr @ CyclicReference(sym, _) =>
             (sym.name == param.name) && sym.accessedOrSelf.isVariable && {
-              NameClashError(sym, arg)(typer.context)
+              NameClashError(sym, arg)(context)
               true
             }
         }

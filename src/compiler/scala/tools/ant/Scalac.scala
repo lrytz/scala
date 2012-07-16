@@ -99,7 +99,7 @@ class Scalac extends ScalaMatchingTask with ScalacShared {
 
   /** Defines valid values for the `target` property. */
   object Target extends PermissibleValue {
-    val values = List("jvm-1.5", "msil")
+    val values = List("jvm-1.5", "jvm-1.6", "jvm-1.7", "msil")
   }
 
   /** Defines valid values for the `deprecation` and `unchecked` properties. */
@@ -632,7 +632,7 @@ class Scalac extends ScalaMatchingTask with ScalacShared {
       case "none" =>
       case x =>
         val depFilePath = SPath(x)
-        command.settings.dependenciesFile.value = SPath(getProject.getBaseDir).normalize resolve depFilePath path
+        command.settings.dependenciesFile.value = SPath(getProject.getBaseDir).normalize.resolve(depFilePath).path
     }
 
     (command.settings, sourceFiles, javaOnly)

@@ -63,7 +63,7 @@ trait SyntheticMethods extends ast.TreeDSL {
     // in the original order.
     def accessors = clazz.caseFieldAccessors sortBy { acc =>
       originalAccessors indexWhere { orig =>
-        (acc.name == orig.name) || (acc.name startsWith (orig.name append "$"))
+        (acc.name == orig.name) || (acc.name startsWith (orig.name append "$").asInstanceOf[Name]) // [Eugene++] why do we need this cast?
       }
     }
     val arity = accessors.size
@@ -87,7 +87,7 @@ trait SyntheticMethods extends ast.TreeDSL {
     )
 
     def forwardToRuntime(method: Symbol): Tree =
-      forwardMethod(method, getMember(ScalaRunTimeModule, method.name prepend "_"))(mkThis :: _)
+      forwardMethod(method, getMember(ScalaRunTimeModule, (method.name prepend "_").asInstanceOf[Name]))(mkThis :: _) // [Eugene++] why do we need this cast?
 
     def callStaticsMethod(name: String)(args: Tree*): Tree = {
       val method = termMember(RuntimeStaticsModule, name)
@@ -196,14 +196,14 @@ trait SyntheticMethods extends ast.TreeDSL {
      *     (this.underlying == that.underlying
      */
     def equalsDerivedValueClassMethod: Tree = createMethod(nme.equals_, List(AnyClass.tpe), BooleanClass.tpe) { m =>
-      equalsCore(m, List(clazz.firstParamAccessor))
+      equalsCore(m, List(clazz.derivedValueClassUnbox))
     }
 
     /** The hashcode method for value classes
      * def hashCode(): Int = this.underlying.hashCode
      */
     def hashCodeDerivedValueClassMethod: Tree = createMethod(nme.hashCode_, Nil, IntClass.tpe) { m =>
-      Select(mkThisSelect(clazz.firstParamAccessor), nme.hashCode_)
+      Select(mkThisSelect(clazz.derivedValueClassUnbox), nme.hashCode_)
     }
 
     /** The _1, _2, etc. methods to implement ProductN.

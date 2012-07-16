@@ -3,7 +3,7 @@ package doc
 package model
 
 import scala.collection._
-import util.{RangePosition, OffsetPosition, SourceFile}
+import scala.reflect.internal.util.{RangePosition, OffsetPosition, SourceFile}
 
 /** The goal of this trait is , using makeTree,
   * to browse a tree to
@@ -52,7 +52,7 @@ trait TreeFactory { thisTreeFactory: ModelFactory with TreeFactory =>
                 if (asym.isSetter) asym = asym.getter(asym.owner)
                 makeTemplate(asym.owner) match {
                   case docTmpl: DocTemplateImpl =>
-                    val mbrs: List[MemberImpl] = makeMember(asym, null, docTmpl)
+                    val mbrs: Option[MemberImpl] = findMember(asym, docTmpl)
                     mbrs foreach { mbr => refs += ((start, (mbr,end))) }
                   case _ =>
                 }

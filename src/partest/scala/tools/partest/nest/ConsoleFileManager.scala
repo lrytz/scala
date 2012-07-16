@@ -84,6 +84,8 @@ class ConsoleFileManager extends FileManager {
       latestFile        = testClassesDir.parent / "bin"
       latestLibFile     = testClassesDir / "library"
       latestActorsFile  = testClassesDir / "library" / "actors"
+      latestActMigFile  = testClassesDir / "actors-migration"
+      latestReflectFile = testClassesDir / "reflect"
       latestCompFile    = testClassesDir / "compiler"
       latestPartestFile = testClassesDir / "partest"
       latestFjbgFile    = testParent / "lib" / "fjbg.jar"
@@ -94,6 +96,8 @@ class ConsoleFileManager extends FileManager {
       latestFile        = dir / "bin"
       latestLibFile     = dir / "lib/scala-library.jar"
       latestActorsFile  = dir / "lib/scala-actors.jar"
+      latestActMigFile  = dir / "lib/scala-actors-migration.jar"
+      latestReflectFile = dir / "lib/scala-reflect.jar"
       latestCompFile    = dir / "lib/scala-compiler.jar"
       latestPartestFile = dir / "lib/scala-partest.jar"
       latestFjbgFile    = testParent / "lib" / "fjbg.jar"
@@ -104,6 +108,8 @@ class ConsoleFileManager extends FileManager {
         latestFile        = prefixFile("build/quick/bin")
         latestLibFile     = prefixFile("build/quick/classes/library")
         latestActorsFile  = prefixFile("build/quick/classes/library/actors")
+        latestActMigFile  = prefixFile("build/quick/classes/actors-migration")
+        latestReflectFile = prefixFile("build/quick/classes/reflect")
         latestCompFile    = prefixFile("build/quick/classes/compiler")
         latestPartestFile = prefixFile("build/quick/classes/partest")
       }
@@ -114,6 +120,8 @@ class ConsoleFileManager extends FileManager {
         latestFile        = prefixFileWith(p, "bin")
         latestLibFile     = prefixFileWith(p, "lib/scala-library.jar")
         latestActorsFile  = prefixFileWith(p, "lib/scala-actors.jar")
+        latestActMigFile  = prefixFileWith(p, "lib/scala-actors-migration.jar")
+        latestReflectFile = prefixFileWith(p, "lib/scala-reflect.jar")
         latestCompFile    = prefixFileWith(p, "lib/scala-compiler.jar")
         latestPartestFile = prefixFileWith(p, "lib/scala-partest.jar")
       }
@@ -123,6 +131,8 @@ class ConsoleFileManager extends FileManager {
         latestFile        = prefixFile("dists/latest/bin")
         latestLibFile     = prefixFile("dists/latest/lib/scala-library.jar")
         latestActorsFile  = prefixFile("dists/latest/lib/scala-actors.jar")
+        latestActMigFile  = prefixFile("dists/latest/lib/scala-actors-migration.jar")
+        latestReflectFile = prefixFile("dists/latest/lib/scala-reflect.jar")
         latestCompFile    = prefixFile("dists/latest/lib/scala-compiler.jar")
         latestPartestFile = prefixFile("dists/latest/lib/scala-partest.jar")
       }
@@ -132,6 +142,8 @@ class ConsoleFileManager extends FileManager {
         latestFile        = prefixFile("build/pack/bin")
         latestLibFile     = prefixFile("build/pack/lib/scala-library.jar")
         latestActorsFile  = prefixFile("build/pack/lib/scala-actors.jar")
+        latestActMigFile  = prefixFile("build/pack/lib/scala-actors-migration.jar")
+        latestReflectFile = prefixFile("build/pack/lib/scala-reflect.jar")
         latestCompFile    = prefixFile("build/pack/lib/scala-compiler.jar")
         latestPartestFile = prefixFile("build/pack/lib/scala-partest.jar")
       }
@@ -145,10 +157,10 @@ class ConsoleFileManager extends FileManager {
         names map (x => prefixFile(base + "/" + x).lastModified) reduceLeft (_ max _)
 
       // detect most recent build
-      val quickTime = mostRecentOf("build/quick/classes", "compiler/compiler.properties", "library/library.properties")
-      val packTime  = mostRecentOf("build/pack/lib", "scala-compiler.jar", "scala-library.jar")
-      val distTime  = mostRecentOf("dists/latest/lib", "scala-compiler.jar", "scala-library.jar")
-      val instTime  = mostRecentOf("lib", "scala-compiler.jar", "scala-library.jar")
+      val quickTime = mostRecentOf("build/quick/classes", "compiler/compiler.properties", "reflect/reflect.properties", "library/library.properties")
+      val packTime  = mostRecentOf("build/pack/lib", "scala-compiler.jar", "scala-reflect.jar", "scala-library.jar")
+      val distTime  = mostRecentOf("dists/latest/lib", "scala-compiler.jar", "scala-reflect.jar", "scala-library.jar")
+      val instTime  = mostRecentOf("lib", "scala-compiler.jar", "scala-reflect.jar", "scala-library.jar")
 
       val pairs = Map(
         (quickTime, () => setupQuick()),
@@ -164,19 +176,25 @@ class ConsoleFileManager extends FileManager {
     }
 
     LATEST_LIB = latestLibFile.getAbsolutePath
+    LATEST_REFLECT = latestReflectFile.getAbsolutePath
     LATEST_COMP = latestCompFile.getAbsolutePath
     LATEST_PARTEST = latestPartestFile.getAbsolutePath
     LATEST_ACTORS = latestActorsFile.getAbsolutePath
+    LATEST_ACTORS_MIGRATION = latestActMigFile.getAbsolutePath
   }
 
   var LATEST_LIB: String = ""
+  var LATEST_REFLECT: String = ""
   var LATEST_COMP: String = ""
   var LATEST_PARTEST: String = ""
   var LATEST_ACTORS: String = ""
+  var LATEST_ACTORS_MIGRATION: String = ""
 
   var latestFile: File = _
   var latestLibFile: File = _
   var latestActorsFile: File = _
+  var latestActMigFile: File = _
+  var latestReflectFile: File = _
   var latestCompFile: File = _
   var latestPartestFile: File = _
   var latestFjbgFile: File = _

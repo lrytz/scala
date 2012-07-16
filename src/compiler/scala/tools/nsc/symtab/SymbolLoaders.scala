@@ -12,7 +12,7 @@ import scala.tools.nsc.util.{ ClassPath }
 import classfile.ClassfileParser
 import reflect.internal.Flags._
 import reflect.internal.MissingRequirementError
-import util.Statistics._
+import reflect.internal.util.Statistics
 import scala.tools.nsc.io.{ AbstractFile, MsilFile }
 
 /** This class ...
@@ -23,6 +23,7 @@ import scala.tools.nsc.io.{ AbstractFile, MsilFile }
 abstract class SymbolLoaders {
   val global: Global
   import global._
+  import SymbolLoadersStats._
 
   protected def enterIfNew(owner: Symbol, member: Symbol, completer: SymbolLoader): Symbol = {
     assert(owner.info.decls.lookup(member.name) == NoSymbol, owner.fullName + "." + member.name)
@@ -49,6 +50,46 @@ abstract class SymbolLoaders {
     module setInfo completer
     module.moduleClass setInfo moduleClassLoader
     enterIfNew(owner, module, completer)
+  }
+
+  /** Enter package with given `name` into scope of `root`
+   *  and give them `completer` as type.
+   */
+  def enterPackage(root: Symbol, name: String, completer: SymbolLoader): Symbol = {
+    val pname = newTermName(name)
+    val preExisting = root.info.decls lookup pname
+    if (preExisting != NoSymbol) {
+      // Some jars (often, obfuscated ones) include a package and
+      // object with the same name. Rather than render them unusable,
+      // offer a setting to resolve the conflict one way or the other.
+      // This was motivated by the desire to use YourKit probes, which
+      // require yjp.jar at runtime. See SI-2089.
+      if (settings.termConflict.isDefault)
+        throw new TypeError(
+          root+" contains object and package with same name: "+
+          name+"\none of them needs to be removed from classpath"
+        )
+      else if (settings.termConflict.value == "package") {
+        global.warning(
+          "Resolving package/object name conflict in favor of package " +
+          preExisting.fullName + ".  The object will be inaccessible."
+        )
+        root.info.decls.unlink(preExisting)
+      }
+      else {
+        global.warning(
+          "Resolving package/object name conflict in favor of object " +
+          preExisting.fullName + ".  The package will be inaccessible."
+        )
+        return NoSymbol
+      }
+    }
+    // todo: find out initialization sequence for pkg/pkg.moduleClass is different from enterModule
+    val pkg = root.newPackage(pname)
+    pkg.moduleClass setInfo completer
+    pkg setInfo pkg.moduleClass.tpe
+    root.info.decls enter pkg
+    pkg
   }
 
   /** Enter class and module with given `name` into scope of `root`
@@ -171,40 +212,6 @@ abstract class SymbolLoaders {
   class PackageLoader(classpath: ClassPath[platform.BinaryRepr]) extends SymbolLoader {
     protected def description = "package loader "+ classpath.name
 
-    def enterPackage(root: Symbol, name: String, completer: SymbolLoader) {
-      val preExisting = root.info.decls.lookup(newTermName(name))
-      if (preExisting != NoSymbol) {
-        // Some jars (often, obfuscated ones) include a package and
-        // object with the same name. Rather than render them unusable,
-        // offer a setting to resolve the conflict one way or the other.
-        // This was motivated by the desire to use YourKit probes, which
-        // require yjp.jar at runtime. See SI-2089.
-        if (settings.termConflict.isDefault)
-          throw new TypeError(
-            root+" contains object and package with same name: "+
-            name+"\none of them needs to be removed from classpath"
-          )
-        else if (settings.termConflict.value == "package") {
-          global.warning(
-            "Resolving package/object name conflict in favor of package " +
-            preExisting.fullName + ".  The object will be inaccessible."
-          )
-          root.info.decls.unlink(preExisting)
-        }
-        else {
-          global.warning(
-            "Resolving package/object name conflict in favor of object " +
-            preExisting.fullName + ".  The package will be inaccessible."
-          )
-          return
-        }
-      }
-      val pkg = root.newPackage(newTermName(name))
-      pkg.moduleClass.setInfo(completer)
-      pkg.setInfo(pkg.moduleClass.tpe)
-      root.info.decls.enter(pkg)
-    }
-
     protected def doComplete(root: Symbol) {
       assert(root.isPackageClass, root)
       root.setInfo(new PackageClassInfoType(newScope, root))
@@ -230,7 +237,7 @@ abstract class SymbolLoaders {
     protected def description = "class file "+ classfile.toString
 
     protected def doComplete(root: Symbol) {
-      val start = startTimer(classReadNanos)
+      val start = Statistics.startTimer(classReadNanos)
       classfileParser.parse(classfile, root)
       if (root.associatedFile eq null) {
         root match {
@@ -242,7 +249,7 @@ abstract class SymbolLoaders {
             debuglog("Not setting associatedFile to %s because %s is a %s".format(classfile, root.name, root.shortSymbolClass))
         }
       }
-      stopTimer(classReadNanos, start)
+      Statistics.stopTimer(classReadNanos, start)
     }
     override def sourcefile: Option[AbstractFile] = classfileParser.srcfile
   }
@@ -277,4 +284,9 @@ abstract class SymbolLoaders {
   /** used from classfile parser to avoid cyclies */
   var parentsLevel = 0
   var pendingLoadActions: List[() => Unit] = Nil
+}
+
+object SymbolLoadersStats {
+  import reflect.internal.TypesStats.typerNanos
+  val classReadNanos = Statistics.newSubTimer  ("time classfilereading", typerNanos)
 }

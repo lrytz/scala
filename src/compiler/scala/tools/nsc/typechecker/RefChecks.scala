@@ -285,7 +285,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
         def memberTp = self.memberType(member)
         def otherTp  = self.memberType(other)
         def noErrorType = other.tpe != ErrorType && member.tpe != ErrorType
-        def isRootOrNone(sym: Symbol) = sym == RootClass || sym == NoSymbol
+        def isRootOrNone(sym: Symbol) = sym != null && sym.isRoot || sym == NoSymbol
         def isNeitherInClass = (member.owner != clazz) && (other.owner != clazz)
         def objectOverrideErrorMsg = (
           "overriding " + other.fullLocationString + " with " + member.fullLocationString + ":\n" +
@@ -536,7 +536,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
 
         def javaErasedOverridingSym(sym: Symbol): Symbol =
           clazz.tpe.nonPrivateMemberAdmitting(sym.name, BRIDGE).filter(other =>
-            !other.isDeferred && other.isJavaDefined && {
+            !other.isDeferred && other.isJavaDefined && !sym.enclClass.isSubClass(other.enclClass) && {
               // #3622: erasure operates on uncurried types --
               // note on passing sym in both cases: only sym.isType is relevant for uncurry.transformInfo
               // !!! erasure.erasure(sym, uncurry.transformInfo(sym, tp)) gives erreneous of inaccessible type - check whether that's still the case!
@@ -766,7 +766,16 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
       for (member <- clazz.info.decls)
         if (member.isAnyOverride && !(clazz.thisType.baseClasses exists (hasMatchingSym(_, member)))) {
           // for (bc <- clazz.info.baseClasses.tail) Console.println("" + bc + " has " + bc.info.decl(member.name) + ":" + bc.info.decl(member.name).tpe);//DEBUG
-          unit.error(member.pos, member.toString() + " overrides nothing");
+
+          val nonMatching: List[Symbol] = clazz.info.member(member.name).alternatives.filterNot(_.owner == clazz).filterNot(_.isFinal)
+          def issueError(suffix: String) = unit.error(member.pos, member.toString() + " overrides nothing" + suffix);
+          nonMatching match {
+            case Nil =>
+              issueError("")
+            case ms =>
+              val superSigs = ms.map(m => m.defStringSeenAs(clazz.tpe memberType m)).mkString("\n")
+              issueError(s".\nNote: the super classes of ${member.owner} contain the following, non final members named ${member.name}:\n${superSigs}")
+          }
           member resetFlag (OVERRIDE | ABSOVERRIDE)  // Any Override
         }
     }
@@ -807,9 +816,9 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
       for (i <- 0 until seenTypes.length) {
         val baseClass = clazz.info.baseTypeSeq(i).typeSymbol
         seenTypes(i) match {
-          case List() =>
+          case Nil =>
             println("??? base "+baseClass+" not found in basetypes of "+clazz)
-          case List(_) =>
+          case _ :: Nil =>
             ;// OK
           case tp1 :: tp2 :: _ =>
             unit.error(clazz.pos, "illegal inheritance;\n " + clazz +
@@ -1084,8 +1093,16 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
         def isEitherNullable     = (NullClass.tpe <:< receiver.info) || (NullClass.tpe <:< actual.info)
         def isBoolean(s: Symbol) = unboxedValueClass(s) == BooleanClass
         def isUnit(s: Symbol)    = unboxedValueClass(s) == UnitClass
-        def isNumeric(s: Symbol) = isNumericValueClass(unboxedValueClass(s)) || (s isSubClass ScalaNumberClass)
-        def isSpecial(s: Symbol) = isPrimitiveValueClass(unboxedValueClass(s)) || (s isSubClass ScalaNumberClass) || isMaybeValue(s)
+        def isNumeric(s: Symbol) = isNumericValueClass(unboxedValueClass(s)) || isAnyNumber(s)
+        def isScalaNumber(s: Symbol) = s isSubClass ScalaNumberClass
+        // test is behind a platform guard
+        def isJavaNumber(s: Symbol) = !forMSIL && (s isSubClass JavaNumberClass)
+        // includes java.lang.Number if appropriate [SI-5779]
+        def isAnyNumber(s: Symbol) = isScalaNumber(s) || isJavaNumber(s)
+        def isMaybeAnyValue(s: Symbol) = isPrimitiveValueClass(unboxedValueClass(s)) || isMaybeValue(s)
+        // used to short-circuit unrelatedTypes check if both sides are special
+        def isSpecial(s: Symbol) = isMaybeAnyValue(s) || isAnyNumber(s)
+        // unused
         def possibleNumericCount = onSyms(_ filter (x => isNumeric(x) || isMaybeValue(x)) size)
         val nullCount            = onSyms(_ filter (_ == NullClass) size)
 
@@ -1133,7 +1150,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
             nonSensiblyNew()
           else if (isNew(args.head) && (receiver.isEffectivelyFinal || isReferenceOp))   // object X ; X == new Y
             nonSensiblyNew()
-          else if (receiver.isEffectivelyFinal && !(receiver isSubClass actual)) {  // object X, Y; X == Y
+          else if (receiver.isEffectivelyFinal && !(receiver isSubClass actual) && !actual.isRefinementClass) {  // object X, Y; X == Y
             if (isEitherNullable)
               nonSensible("non-null ", false)
             else
@@ -1155,7 +1172,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
           if (isCaseEquals) {
             def thisCase = receiver.info.member(nme.equals_).owner
             actual.info.baseClasses.find(_.isCase) match {
-              case Some(p) if (p != thisCase) => nonSensible("case class ", false)
+              case Some(p) if p != thisCase => nonSensible("case class ", false)
               case None =>
                 // stronger message on (Some(1) == None)
                 //if (receiver.isCase && receiver.isEffectivelyFinal && !(receiver isSubClass actual)) nonSensiblyNeq()
@@ -1301,9 +1318,9 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
           }
           List(tree1)
         }
-      case Import(_, _)                                        => Nil
-      case DefDef(mods, _, _, _, _, _) if (mods hasFlag MACRO) => Nil
-      case _                                                   => List(transform(tree))
+      case Import(_, _)                                                                       => Nil
+      case DefDef(mods, _, _, _, _, _) if (mods hasFlag MACRO) || (tree.symbol hasFlag MACRO) => Nil
+      case _                                                                                  => List(transform(tree))
     }
 
     /* Check whether argument types conform to bounds of type parameters */
@@ -1488,7 +1505,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
 
     private def transformCaseApply(tree: Tree, ifNot: => Unit) = {
       val sym = tree.symbol
-          
+
       def isClassTypeAccessible(tree: Tree): Boolean = tree match {
         case TypeApply(fun, targs) =>
           isClassTypeAccessible(fun)
@@ -1497,7 +1514,7 @@ abstract class RefChecks extends InfoTransform with reflect.internal.transform.R
           // the companion class is actually not a ClassSymbol, but a reference to an abstract type.
           module.symbol.companionClass.isClass
       }
-      
+
       val doTransform =
         sym.isSourceMethod &&
         sym.isCase &&

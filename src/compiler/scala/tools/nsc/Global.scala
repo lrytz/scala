@@ -12,7 +12,8 @@ import scala.tools.util.PathResolver
 import scala.collection.{ mutable, immutable }
 import io.{ SourceReader, AbstractFile, Path }
 import reporters.{ Reporter, ConsoleReporter }
-import util.{ NoPosition, Exceptional, ClassPath, SourceFile, NoSourceFile, Statistics, StatisticsInfo, BatchSourceFile, ScriptSourceFile, ScalaClassLoader, returning }
+import util.{ Exceptional, ClassPath, MergedClassPath, StatisticsInfo, ScalaClassLoader, returning }
+import scala.reflect.internal.util.{ NoPosition, SourceFile, NoSourceFile, BatchSourceFile, ScriptSourceFile }
 import scala.reflect.internal.pickling.{ PickleBuffer, PickleFormat }
 import settings.{ AestheticSettings }
 import symtab.{ Flags, SymbolTable, SymbolLoaders, SymbolTrackers }
@@ -30,22 +31,44 @@ import backend.opt.{ Inliners, InlineExceptionHandlers, ClosureElimination, Dead
 import backend.icode.analysis._
 import language.postfixOps
 import reflect.internal.StdAttachments
+import scala.reflect.ClassTag
 
-class Global(var currentSettings: Settings, var reporter: Reporter) extends SymbolTable
-                                                                       with ClassLoaders
-                                                                       with ToolBoxes
-                                                                       with CompilationUnits
-                                                                       with Plugins
-                                                                       with PhaseAssembly
-                                                                       with Trees
-                                                                       with FreeVars
-                                                                       with TreePrinters
-                                                                       with DocComments
-                                                                       with Positions {
+class Global(var currentSettings: Settings, var reporter: Reporter)
+    extends SymbolTable
+    with CompilationUnits
+    with Plugins
+    with PhaseAssembly
+    with Trees
+    with Printers
+    with DocComments
+    with Positions { self =>
+
+  // [Eugene++] would love to find better homes for the new things dumped into Global
+
+  // the mirror --------------------------------------------------
+
+  override def isCompilerUniverse = true
+
+  class GlobalMirror extends Roots(NoSymbol) {
+    val universe: self.type = self
+    def rootLoader: LazyType = platform.rootLoader
+    override def toString = "compiler mirror"
+  }
+
+  lazy val rootMirror: Mirror = {
+    val rm = new GlobalMirror
+    rm.init()
+    rm.asInstanceOf[Mirror]
+  }
+  def RootClass: ClassSymbol = rootMirror.RootClass
+  def EmptyPackageClass: ClassSymbol = rootMirror.EmptyPackageClass
+  // [Eugene++] this little inconvenience gives us precise types for Expr.mirror and TypeTag.mirror
+  // by the way, is it possible to define variant type members?
 
   override def settings = currentSettings
 
-  import definitions.{ findNamedMember, findMemberFromRoot }
+  import definitions.findNamedMember
+  def findMemberFromRoot(fullName: Name): Symbol = rootMirror.findMemberFromRoot(fullName)
 
   // alternate constructors ------------------------------------------
 
@@ -72,15 +95,17 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     if (forMSIL) new { val global: Global.this.type = Global.this } with MSILPlatform
     else new { val global: Global.this.type = Global.this } with JavaPlatform
 
-  def classPath: ClassPath[platform.BinaryRepr] = platform.classPath
-  def rootLoader: LazyType = platform.rootLoader
+  type PlatformClassPath = ClassPath[platform.BinaryRepr]
+  type OptClassPath = Option[PlatformClassPath]
+
+  def classPath: PlatformClassPath = platform.classPath
 
   // sub-components --------------------------------------------------
 
   /** Generate ASTs */
   type TreeGen = scala.tools.nsc.ast.TreeGen
 
-  object gen extends {
+  override object gen extends {
     val global: Global.this.type = Global.this
   } with TreeGen {
     def mkAttributedCast(tree: Tree, pt: Type): Tree =
@@ -294,7 +319,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       def ccon = Class.forName(name).getConstructor(classOf[CharsetDecoder], classOf[Reporter])
 
       try Some(ccon.newInstance(charset.newDecoder(), reporter).asInstanceOf[SourceReader])
-      catch { case x =>
+      catch { case ex: Throwable =>
         globalError("exception while trying to instantiate source reader '" + name + "'")
         None
       }
@@ -339,8 +364,8 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     def checkPhase = wasActive(settings.check)
     def logPhase   = isActive(settings.log)
 
-    // Write *.icode files the setting was given.
-    def writeICode = settings.writeICode.isSetByUser && isActive(settings.writeICode)
+    // Write *.icode files right after GenICode when -Xprint-icode was given.
+    def writeICodeAtICode = settings.writeICode.isSetByUser && isActive(settings.writeICode)
 
     // showing/printing things
     def browsePhase   = isActive(settings.browse)
@@ -381,6 +406,9 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   lazy val loaders = new SymbolLoaders {
     val global: Global.this.type = Global.this
   }
+
+  /** Returns the mirror that loaded given symbol */
+  def mirrorThatLoaded(sym: Symbol): Mirror = rootMirror
 
 // ------------ Phases -------------------------------------------}
 
@@ -682,7 +710,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   object icodeChecker extends icodeCheckers.ICodeChecker()
 
   object typer extends analyzer.Typer(
-    analyzer.NoContext.make(EmptyTree, Global.this.definitions.RootClass, newScope)
+    analyzer.NoContext.make(EmptyTree, RootClass, newScope)
   )
 
   /** Add the internal compiler phases to the phases set.
@@ -840,6 +868,170 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
   def printAfterEachPhase[T](op: => T): Unit =
     describeAfterEachPhase(op) foreach (m => println("  " + m))
 
+  // ------------ Invalidations ---------------------------------
+
+  /** Is given package class a system package class that cannot be invalidated?
+   */
+  private def isSystemPackageClass(pkg: Symbol) =
+    // [Eugene++ to Martin] please, verify
+// was:    pkg == definitions.RootClass ||
+    pkg == RootClass ||
+    pkg == definitions.ScalaPackageClass || {
+      val pkgname = pkg.fullName
+      (pkgname startsWith "scala.") && !(pkgname startsWith "scala.tools")
+    }
+
+  /** Invalidates packages that contain classes defined in a classpath entry, and
+   *  rescans that entry.
+   *  @param path  A fully qualified name that refers to a directory or jar file that's
+   *               an entry on the classpath.
+   *  First, causes the classpath entry referred to by `path` to be rescanned, so that
+   *  any new files or deleted files or changes in subpackages are picked up.
+   *  Second, invalidates any packages for which one of the following considitions is met:
+
+   *   - the classpath entry contained during the last compilation run classfiles
+   *     that represent a member in the package
+   *   - the classpath entry now contains classfiles
+   *     that represent a member in the package
+   *   - the set of subpackages has changed.
+   *
+   *  The invalidated packages are reset in their entirety; all member classes and member packages
+   *  are re-accessed using the new classpath.
+   *  Not invalidated are system packages that the compiler needs to access as parts
+   *  of standard definitions. The criterion what is a system package is currently:
+   *  any package rooted in "scala", with the exception of packages rooted in "scala.tools".
+   *  This can be refined later.
+   *  @return A pair consisting of
+   *    - a list of invalidated packages
+   *    - a list of of packages that should have been invalidated but were not because
+   *      they are system packages.
+   */
+  def invalidateClassPathEntries(paths: String*): (List[ClassSymbol], List[ClassSymbol]) = {
+    val invalidated, failed = new mutable.ListBuffer[ClassSymbol]
+    classPath match {
+      case cp: MergedClassPath[_] =>
+        def assoc(path: String): List[(PlatformClassPath, PlatformClassPath)] = {
+          val dir = AbstractFile getDirectory path
+          val canonical = dir.canonicalPath
+          def matchesCanonical(e: ClassPath[_]) = e.origin match {
+            case Some(opath) =>
+              (AbstractFile getDirectory opath).canonicalPath == canonical
+            case None =>
+              false
+          }
+          cp.entries find matchesCanonical match {
+            case Some(oldEntry) =>
+              List(oldEntry -> cp.context.newClassPath(dir))
+            case None =>
+              println(s"canonical = $canonical, origins = ${cp.entries map (_.origin)}")
+              error(s"cannot invalidate: no entry named $path in classpath $classPath")
+              List()
+          }
+        }
+        val subst = Map(paths flatMap assoc: _*)
+        if (subst.nonEmpty) {
+          platform updateClassPath subst
+          informProgress(s"classpath updated on entries [${subst.keys mkString ","}]")
+          def mkClassPath(elems: Iterable[PlatformClassPath]): PlatformClassPath =
+            if (elems.size == 1) elems.head
+            else new MergedClassPath(elems, classPath.context)
+          val oldEntries = mkClassPath(subst.keys)
+          val newEntries = mkClassPath(subst.values)
+          // [Eugene++ to Martin] please, verify
+// was:          reSync(definitions.RootClass, Some(classPath), Some(oldEntries), Some(newEntries), invalidated, failed)
+          reSync(RootClass, Some(classPath), Some(oldEntries), Some(newEntries), invalidated, failed)
+        }
+    }
+    def show(msg: String, syms: collection.Traversable[Symbol]) =
+      if (syms.nonEmpty)
+        informProgress(s"$msg: ${syms map (_.fullName) mkString ","}")
+    show("invalidated packages", invalidated)
+    show("could not invalidate system packages", failed)
+    (invalidated.toList, failed.toList)
+  }
+
+  /** Re-syncs symbol table with classpath
+   *  @param root         The root symbol to be resynced (a package class)
+   *  @param allEntries   Optionally, the corresponding package in the complete current classPath
+   *  @param oldEntries   Optionally, the corresponding package in the old classPath entries
+   *  @param newEntries   Optionally, the corresponding package in the new classPath entries
+   *  @param invalidated  A listbuffer collecting the invalidated package classes
+   *  @param failed       A listbuffer collecting system package classes which could not be invalidated
+   * The resyncing strategy is determined by the absence or presence of classes and packages.
+   * If either oldEntries or newEntries contains classes, root is invalidated, provided a corresponding package
+   * exists in allEntries, or otherwise is removed.
+   * Otherwise, the action is determined by the following matrix, with columns:
+   *
+   *      old new all sym   action
+   *       +   +   +   +    recurse into all child packages of old ++ new
+   *       +   -   +   +    invalidate root
+   *       +   -   -   +    remove root from its scope
+   *       -   +   +   +    invalidate root
+   *       -   +   +   -    create and enter root
+   *       -   -   *   *    no action
+   *
+   *  Here, old, new, all mean classpaths and sym means symboltable. + is presence of an
+   *  entry in its column, - is absence, * is don't care.
+   *
+   *  Note that new <= all and old <= sym, so the matrix above covers all possibilities.
+   */
+  private def reSync(root: ClassSymbol,
+             allEntries: OptClassPath, oldEntries: OptClassPath, newEntries: OptClassPath,
+             invalidated: mutable.ListBuffer[ClassSymbol], failed: mutable.ListBuffer[ClassSymbol]) {
+    ifDebug(informProgress(s"syncing $root, $oldEntries -> $newEntries"))
+
+    val getName: ClassPath[platform.BinaryRepr] => String = (_.name)
+    def hasClasses(cp: OptClassPath) = cp.isDefined && cp.get.classes.nonEmpty
+    def invalidateOrRemove(root: ClassSymbol) = {
+      allEntries match {
+        case Some(cp) => root setInfo new loaders.PackageLoader(cp)
+        case None => root.owner.info.decls unlink root.sourceModule
+      }
+      invalidated += root
+    }
+    def packageNames(cp: PlatformClassPath): Set[String] = cp.packages.toSet map getName
+    def subPackage(cp: PlatformClassPath, name: String): OptClassPath =
+      cp.packages find (cp1 => getName(cp1) == name)
+
+    val classesFound = hasClasses(oldEntries) || hasClasses(newEntries)
+    if (classesFound && !isSystemPackageClass(root)) {
+      invalidateOrRemove(root)
+    } else {
+      if (classesFound) {
+        // [Eugene++ to Martin] please, verify
+// was:        if (root.isRoot) invalidateOrRemove(definitions.EmptyPackageClass)
+        if (root.isRoot) invalidateOrRemove(EmptyPackageClass)
+        else failed += root
+      }
+      (oldEntries, newEntries) match {
+        case (Some(oldcp) , Some(newcp)) =>
+          for (pstr <- packageNames(oldcp) ++ packageNames(newcp)) {
+            val pname = newTermName(pstr)
+            val pkg = (root.info decl pname) orElse {
+              // package was created by external agent, create symbol to track it
+              assert(!subPackage(oldcp, pstr).isDefined)
+              loaders.enterPackage(root, pstr, new loaders.PackageLoader(allEntries.get))
+            }
+            reSync(
+                pkg.moduleClass.asInstanceOf[ClassSymbol],
+                subPackage(allEntries.get, pstr), subPackage(oldcp, pstr), subPackage(newcp, pstr),
+                invalidated, failed)
+          }
+        case (Some(oldcp), None) =>
+          invalidateOrRemove(root)
+        case (None, Some(newcp)) =>
+          invalidateOrRemove(root)
+        case (None, None) =>
+      }
+    }
+  }
+
+  /** Invalidate contents of setting -Yinvalidate */
+  def doInvalidation() = settings.Yinvalidate.value match {
+    case "" =>
+    case entry => invalidateClassPathEntries(entry)
+  }
+
   // ----------- Runs ---------------------------------------
 
   private var curRun: Run = null
@@ -859,6 +1051,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
    *
    *  @param    sym A class symbol, object symbol, package, or package class.
    */
+  @deprecated("use invalidateClassPathEntries instead")
   def clearOnNextRun(sym: Symbol) = false
     /* To try out clearOnNext run on the scala.tools.nsc project itself
      * replace `false` above with the following code
@@ -870,7 +1063,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       }
     }}
 
-     * Then, fsc -Xexperimental clears the nsc porject between successive runs of `fsc`.
+     * Then, fsc -Xexperimental clears the nsc project between successive runs of `fsc`.
      */
 
   /** Remove the current run when not needed anymore. Used by the build
@@ -1115,6 +1308,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     /** Reset all classes contained in current project, as determined by
      *  the clearOnNextRun hook
      */
+    @deprecated("use invalidateClassPathEntries instead")
     def resetProjectClasses(root: Symbol): Unit = try {
       def unlink(sym: Symbol) =
         if (sym != NoSymbol) root.info.decls.unlink(sym)
@@ -1220,14 +1414,22 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     val mixinPhase                   = phaseNamed("mixin")
     val cleanupPhase                 = phaseNamed("cleanup")
     val icodePhase                   = phaseNamed("icode")
-    // val inlinerPhase                 = phaseNamed("inliner")
-    // val inlineExceptionHandlersPhase = phaseNamed("inlineExceptionHandlers")
-    // val closelimPhase                = phaseNamed("closelim")
-    // val dcePhase                     = phaseNamed("dce")
+    val inlinerPhase                 = phaseNamed("inliner")
+    val inlineExceptionHandlersPhase = phaseNamed("inlineExceptionHandlers")
+    val closelimPhase                = phaseNamed("closelim")
+    val dcePhase                     = phaseNamed("dce")
     val jvmPhase                     = phaseNamed("jvm")
+    // val msilPhase                    = phaseNamed("msil")
 
     def runIsAt(ph: Phase)   = globalPhase.id == ph.id
     def runIsPast(ph: Phase) = globalPhase.id > ph.id
+    // def runIsAtBytecodeGen   = (runIsAt(jvmPhase) || runIsAt(msilPhase))
+    def runIsAtOptimiz       = {
+      runIsAt(inlinerPhase)                 || // listing phases in full for robustness when -Ystop-after has been given.
+      runIsAt(inlineExceptionHandlersPhase) ||
+      runIsAt(closelimPhase)                ||
+      runIsAt(dcePhase)
+    }
 
     isDefined = true
 
@@ -1342,17 +1544,23 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       compileUnits(sources map (new CompilationUnit(_)), firstPhase)
     }
 
-    /** Compile list of units, starting with phase `fromPhase`
-     */
     def compileUnits(units: List[CompilationUnit], fromPhase: Phase) {
       try compileUnitsInternal(units, fromPhase)
-      catch { case ex =>
-        globalError(supplementErrorMessage("uncaught exception during compilation: " + ex.getClass.getName))
+      catch { case ex: Throwable =>
+        val shown = if (settings.verbose.value) {
+          val pw = new java.io.PrintWriter(new java.io.StringWriter)
+          ex.printStackTrace(pw)
+          pw.toString
+        } else ex.getClass.getName
+        // ex.printStackTrace(Console.out) // DEBUG for fsc, note that error stacktraces do not print in fsc
+        globalError(supplementErrorMessage("uncaught exception during compilation: " + shown))
         throw ex
       }
     }
 
     private def compileUnitsInternal(units: List[CompilationUnit], fromPhase: Phase) {
+      doInvalidation()
+
       units foreach addUnit
       val startTime = currentTime
 
@@ -1369,15 +1577,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
         informTime(globalPhase.description, startTime)
         phaseTimings(globalPhase) = currentTime - startTime
 
-        // write icode to *.icode files
-        if (opt.writeICode)
+        if (opt.writeICodeAtICode || (opt.printPhase && runIsAtOptimiz)) {
+          // Write *.icode files when -Xprint-icode or -Xprint:<some-optimiz-phase> was given.
           writeICode()
-
-        // print trees
-        if (opt.printPhase || opt.printLate && runIsAt(cleanupPhase)) {
+        } else if (opt.printPhase || opt.printLate && runIsAt(cleanupPhase)) {
+          // print trees
           if (opt.showTrees) nodePrinters.printAll()
           else printAllUnits()
         }
+
         // print the symbols presently attached to AST nodes
         if (opt.showSymbols)
           trackerFactory.snapshot()
@@ -1425,7 +1633,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
       // Reset project
       if (!stopPhase("namer")) {
         atPhase(namerPhase) {
-          resetProjectClasses(definitions.RootClass)
+          resetProjectClasses(RootClass)
         }
       }
     }
@@ -1459,28 +1667,15 @@ class Global(var currentSettings: Settings, var reporter: Reporter) extends Symb
     /** Compile abstract file until `globalPhase`, but at least to phase "namer".
      */
     def compileLate(unit: CompilationUnit) {
-      val maxId = math.max(globalPhase.id, typerPhase.id)
       addUnit(unit)
 
-      firstPhase.iterator takeWhile (_.id < maxId) foreach (ph =>
-        atPhase(ph)(ph.asInstanceOf[GlobalPhase] applyPhase unit)
-      )
-      refreshProgress
+      if (firstPhase ne null) { // we might get here during initialization, is a source is newer than the binary
+        val maxId = math.max(globalPhase.id, typerPhase.id)
+        firstPhase.iterator takeWhile (_.id < maxId) foreach (ph =>
+          atPhase(ph)(ph.asInstanceOf[GlobalPhase] applyPhase unit))
+        refreshProgress
+      }
     }
-
-    /**
-     * Attempt to locate a source file providing the given name as a top-level
-     * definition in the given context, and add it to the run via compileLate
-     * if found.
-     */
-    def compileSourceFor(context : analyzer.Context, name : Name) = false
-
-    /**
-     * Attempt to locate a source file providing the given name as a top-level
-     * definition with the given prefix, and add it to the run via compileLate
-     * if found.
-     */
-    def compileSourceFor(qual : Tree, name : Name) = false
 
     /** Reset package class to state at typer (not sure what this
      *  is needed for?)
