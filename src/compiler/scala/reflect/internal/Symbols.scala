@@ -1482,7 +1482,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *    new C
      *  }
      */
-    def classBound: Type = annotsInferMode {
+    def classBound: Type = {
       val tp = refinedType(info.parents, owner)
       val thistp = tp.typeSymbol.thisType
       val oldsymbuf = new ListBuffer[Symbol]

@@ -21,7 +21,7 @@ trait AnnotationCheckers {
      * If this field is overridden to be true, the type checker will
      * never issue a type error when `annotationsConform` returns false.
      * However, this AnnotationChecker is still used for threading annotations
-     * through the type system, namely in LUB, GLB and classBound.
+     * through the type system, namely in LUB, GLB, isSameType and specializesSym.
      */
     val inferenceOnly = false
     
