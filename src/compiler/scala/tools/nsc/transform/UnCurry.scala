@@ -232,7 +232,14 @@ abstract class UnCurry extends InfoTransform
      * If `settings.XoldPatmat.value`, also synthesized AbstractPartialFunction subclasses (see synthPartialFunction).
      *
      */
-    def transformFunction(fun: Function): Tree =
+    def transformFunction(fun: Function): Tree = {
+      fun.tpe match {
+        case RefinedType(List(funTp), decls) =>
+          fun.tpe = funTp
+        case _ =>
+          ()
+      }
+
       deEta(fun) match {
         // nullary or parameterless
         case fun1 if fun1 ne fun => fun1
@@ -273,6 +280,7 @@ abstract class UnCurry extends InfoTransform
           }
 
       }
+    }
 
     /** Transform a function node (x => body) of type PartialFunction[T, R] where
      *    body = expr match { case P_i if G_i => E_i }_i=1..n
