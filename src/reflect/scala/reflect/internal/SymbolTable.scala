@@ -163,6 +163,7 @@ abstract class SymbolTable extends macros.Universe
   final def phase_=(p: Phase) {
     //System.out.println("setting phase to " + p)
     assert((p ne null) && p != NoPhase, p)
+    if (ph != p) notifyPhaseChange(p)
     ph = p
     per = period(currentRunId, p.id)
   }
@@ -176,6 +177,8 @@ abstract class SymbolTable extends macros.Universe
     phStack = phStack.tail
     phase = ph
   }
+
+  def notifyPhaseChange(p: Phase) { }
 
   /** The current compiler run identifier. */
   def currentRunId: RunId
@@ -206,7 +209,9 @@ abstract class SymbolTable extends macros.Universe
   @inline final def enteringPhase[T](ph: Phase)(op: => T): T = {
     val saved = pushPhase(ph)
     try op
-    finally popPhase(saved)
+    finally {
+      popPhase(saved)
+    }
   }
 
   @inline final def exitingPhase[T](ph: Phase)(op: => T): T = enteringPhase(ph.next)(op)
