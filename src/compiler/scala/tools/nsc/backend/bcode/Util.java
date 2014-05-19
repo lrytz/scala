@@ -219,6 +219,8 @@ public class Util {
     public static AbstractInsnNode insnLabelledBy(final LabelNode label) {
         assert label != null;
         AbstractInsnNode labelled = label;
+        // all non-real instructions (LabelNode, FrameNode, LineNumberNode) have opcode -1 (defined
+        // in their constructor). Here we just advance until the next real instruction.
         while (labelled != null && labelled.getOpcode() < 0) {
             labelled = labelled.getNext();
         }
