@@ -544,7 +544,7 @@ abstract class GenBCode extends BCodeOptClosu {
      *
      *  A useful distinction of inter-class optimizations involves:
      *    (e) method-inlining and closure-inlining, ie what `BCodeOptInter.WholeProgramAnalysis`  does
-     *    (f) the "limited form" referred to above, ie what `BCodeOptInter.DClosureOptimizerImpl` does
+     *    (f) the "limited form" referred to above, ie what `BCodeOptGCSavvyClosu.DClosureOptimizerImpl` does
      *        Unlike (e), different groups of ClassNodes in (f) can be optimized in parallel,
      *        where a "group" comprises a master-class and the dclosures the master-class is responsible for.
      *

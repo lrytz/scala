@@ -315,6 +315,18 @@ abstract class BCodeOptIntra extends BCodeOptGCSavvyClosu {
      *        To recap, `cleanseClass()` executes in a Worker2 thread. The dclosure-specific optimizations are organized
      *        such that exclusive write access to a dclosure is granted to its master class (there's always one).
      *
+     *
+     *        this is safe because dclosure classes are NOT added as work items to queue 2.
+     *        Therefore, cleanseClass will never be invoked for a dclosure (assertion below)
+     *          - cleanseClass is invoked for every class, also for dclosure classes. this is done
+     *            by a Worker2, and there are multiple running in parallel.
+     *          - if it's a master class, then DClosureOptimizerImpl is used. closure optimizations
+     *            also change the dclosure classes "owned" by a master class.
+     *          - this is safe because each dclosure class belongs to exactly one master, and no
+     *            workers acts on on any dclosure classes. (also no two workers work on the same
+     *            master class at the same time).
+     *
+     *
      *  In summary, (1) and (4) should have the (chosen level of) optimizations applied,
      *  with (1) also amenable to dclosure-specific optimizations.
      *
