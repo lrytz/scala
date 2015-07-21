@@ -77,7 +77,7 @@ class FlagsTest {
   @Test
   def lateAntiCrossCheck(): Unit = {
     val allButNegatable = AllFlags & ~(PROTECTED | OVERRIDE | PRIVATE)
-    val lateable        = 0L | DEFERRED | FINAL | INTERFACE | METHOD | MODULE
+    val lateable        = DEFERRED | FINAL | INTERFACE | METHOD | MODULE
     val lateFlags       = lateable << LateShift
     val allButLateable  = AllFlags & ~lateable
 

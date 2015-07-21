@@ -322,9 +322,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     def newModuleVarSymbol(accessor: Symbol): TermSymbol = {
       val newName  = nme.moduleVarName(accessor.name.toTermName)
-      val newFlags = MODULEVAR | ( if (this.isClass) PrivateLocal | SYNTHETIC else 0 )
+      val newFlags = MODULEVAR | ( if (this.isClass) PrivateLocal | SYNTHETIC else 0L )
       val newInfo  = accessor.tpe.finalResultType
-      val mval     = newVariable(newName, accessor.pos.focus, newFlags.toLong) addAnnotation VolatileAttr
+      val mval     = newVariable(newName, accessor.pos.focus, newFlags) addAnnotation VolatileAttr
 
       if (this.isClass)
         mval setInfoAndEnter newInfo
@@ -704,7 +704,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       if (!isCompilerUniverse && !isThreadsafe(purpose = FlagOps(mask))) initialize
       (flags & mask) != 0
     }
-    def hasFlag(mask: Int): Boolean = hasFlag(mask.toLong)
 
     /** Does symbol have ALL the flags in `mask` set? */
     final def hasAllFlags(mask: Long): Boolean = {
@@ -3154,7 +3153,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // a type symbol bound by an existential type, for instance the T in
     // List[T] forSome { type T }
     override def isExistentialSkolem = this hasFlag EXISTENTIAL
-    override def isGADTSkolem        = this hasAllFlags GADT_SKOLEM_FLAGS.toLong
+    override def isGADTSkolem        = this hasAllFlags GADT_SKOLEM_FLAGS
     override def isTypeSkolem        = this hasFlag PARAM
     override def isAbstractType      = this hasFlag DEFERRED
 
