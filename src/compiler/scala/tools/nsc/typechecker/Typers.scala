@@ -1971,7 +1971,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         VolatileValueError(vdef)
 
       val rhs1 =
-        if (vdef.rhs.isEmpty) {
+        if (vdef.mods hasFlag DEFAULTPARAM) EmptyTree
+        else if (vdef.rhs.isEmpty) {
           if (sym.isVariable && sym.owner.isTerm && !sym.isLazy && !isPastTyper)
             LocalVarUninitializedError(vdef)
           vdef.rhs
