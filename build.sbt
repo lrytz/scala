@@ -79,6 +79,7 @@ lazy val commonSettings = clearSourceAndResourceDirectories ++ Seq[Setting[_]](
   // version := "2.12.0-SNAPSHOT",
   git.baseVersion := "2.12.0",
   git.uncommittedSignifier := None,
+  incOptions := incOptions.value.withNameHashing(false),
   scalaVersion := bootstrapScalaVersion,
   // we don't cross build Scala itself
   crossPaths := false,
