@@ -66,9 +66,19 @@ val jlineDep = "jline" % "jline" % versionProps("jline.version")
 val antDep = "org.apache.ant" % "ant" % "1.9.4"
 val scalacheckDep = withoutScalaLang("org.scalacheck" %% "scalacheck" % versionNumber("scalacheck") % "it")
 
+enablePlugins(GitVersioning)
+
+publish := {}
+publishLocal := {}
+
 lazy val commonSettings = clearSourceAndResourceDirectories ++ Seq[Setting[_]](
+  resolvers += Resolver.bintrayRepo("lrytz", "sbt-hoard-demo"),
+  bintrayRepository := "sbt-hoard-demo",
+  licenses += ("BSD New", url("http://www.scala-lang.org/license.html")),
   organization := "org.scala-lang",
-  version := "2.11.8-SNAPSHOT",
+  // version := "2.12.0-SNAPSHOT",
+  git.baseVersion := "2.12.0",
+  git.uncommittedSignifier := None,
   scalaVersion := bootstrapScalaVersion,
   // we don't cross build Scala itself
   crossPaths := false,
@@ -136,7 +146,7 @@ lazy val generatePropertiesFileSettings = Seq[Setting[_]](
   generateVersionPropertiesFile := generateVersionPropertiesFileImpl.value
 )
 
-val libIncludes: FileFilter = "*.tmpl" | "*.xml" | "*.js" | "*.css" | "rootdoc.txt"
+val libIncludes: FileFilter = "*.tmpl" | "*.xml" | "*.js" | "*.css" | "rootdoc.txt" | "inc_compile"
 
 lazy val library = configureAsSubproject(project)
   .settings(generatePropertiesFileSettings: _*)
