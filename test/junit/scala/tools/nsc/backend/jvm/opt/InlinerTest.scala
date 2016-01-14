@@ -4,7 +4,7 @@ package opt
 
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import org.junit.Test
+import org.junit.{Ignore, Test}
 import scala.collection.generic.Clearable
 import scala.tools.asm.Opcodes._
 import org.junit.Assert._
@@ -273,6 +273,26 @@ class InlinerTest extends ClearAfterClass {
     for (callsite <- callGraph.callsites.valuesIterator.flatMap(_.valuesIterator) if methods.contains(callsite.callsiteMethod)) {
       checkCallsite(callsite, g)
     }
+  }
+
+  @Test
+  def noInlineRecursive(): Unit = {
+    val code =
+      """class C {
+        |  // not inlined, breakInlineCycles removes the inline request for the t1 callsite
+        |  @inline final def t1: Int = t1 + 1
+        |
+        |  // for both callsites (t2 and m) an inlining request is created. breakInlineCycles
+        |  // removes one of them (deterministic by sorting callsites); t2 is not inlined, m is.
+        |  @inline final def m: Int = t2 + 1
+        |  @inline final def t2: Int = m + 1
+        |}
+      """.stripMargin
+    val List(c) = compile(code)
+
+    assertInvoke(getSingleMethod(c, "t1"), "C", "t1")
+    assertInvoke(getSingleMethod(c, "m"), "C", "t2")
+    assertInvoke(getSingleMethod(c, "t2"), "C", "t2") // m is inlined into t2, t2 recursively invokes itself
   }
 
   @Test
@@ -1501,5 +1521,37 @@ class InlinerTest extends ClearAfterClass {
     // tests that no warning is emitted
     val List(a, b) = compileClassesSeparately(List(codeA, codeB), extraArgs = "-Yopt:l:project -Yopt-warnings")
     assertInvoke(getSingleMethod(b, "t"), "A", "f")
+  }
+
+  @Test @Ignore // TODO
+  def inlineKnownType(): Unit = {
+    val code =
+      """class C {
+        |  @inline def f = 1 // not final
+        |  def t = (new C).f
+        |}
+      """.stripMargin
+    val List(c) = compile(code)
+    assertNoInvoke(getSingleMethod(c, "t"))
+  }
+
+  @Test
+  def arrowAssocInline(): Unit = {
+    val code =
+      """class C {
+        |  def t1 = "a" -> "b"
+        |  def t2 = 1 -> true // ArrowAssoc is not specialized, this creates a Tuple2
+        |}
+      """.stripMargin
+    val List(c) = compile(code)
+
+    assertDoesNotInvoke(getSingleMethod(c, "t1"), "$minus$greater$extension")
+
+    assertDoesNotInvoke(getSingleMethod(c, "t2"), "$minus$greater$extension")
+    assertInvoke(getSingleMethod(c, "t2"), "scala/runtime/BoxesRunTime", "boxToInteger")
+
+    // TODO: should get rid of a more code (https://github.com/scala/scala-dev/issues/16)
+    //   - Predef.ArrowAssoc identity function is called
+    //   - null check on Predef.ArrowAssoc$.MODULE$
   }
 }

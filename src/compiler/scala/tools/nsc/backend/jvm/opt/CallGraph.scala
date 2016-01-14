@@ -28,12 +28,11 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
    *
    * Indexing the call graph by the containing MethodNode and the invocation MethodInsnNode allows
    * finding callsites efficiently. For example, an inlining heuristic might want to know all
-   * callsites withing a callee method.
+   * callsites within a callee method.
    *
    * Note that the call graph is not guaranteed to be complete: callsites may be missing. In
-   * particular, if a method is very large, all of its callsites might not be in the hash map.
-   * The reason is that adding a method to the call graph requires running an ASM analyzer, which
-   * can be too slow.
+   * particular, if a method is very large, its callsites might not be in the hash map. The reason
+   * is that adding a method to the call graph requires running an ASM analyzer, which can be too slow.
    *
    * Note that call graph entries (Callsite instances) keep a reference to the invocation
    * MethodInsnNode, which keeps all AbstractInsnNodes of the method reachable. Adding classes
@@ -94,7 +93,6 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
   def addMethod(methodNode: MethodNode, definingClass: ClassBType): Unit = {
     if (!BytecodeUtils.isAbstractMethod(methodNode) && !BytecodeUtils.isNativeMethod(methodNode)) {
       // TODO: run dataflow analyses to make the call graph more precise
-      //  - producers to get forwarded parameters (ForwardedParam)
       //  - typeAnalysis for more precise argument types, more precise callee
 
       // For now we run a NullnessAnalyzer. It is used to determine if the receiver of an instance
@@ -127,6 +125,16 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
 
         methodNode.instructions.iterator.asScala foreach {
           case call: MethodInsnNode if a.frameAt(call) != null => // skips over unreachable code
+
+            // TODO: put in Callee only stuff that's actually about the callee, not about the callsite (e.g. not safeToInline)
+            // then cache the Callee objects - they are metadata about methods
+            // OR: store the necessary information in the calleeDeclarationClassBType.info.inlineInfo.methodInfos
+            // Callee should just be a MethodInfo!
+
+            // the reason why things are split up in the current fashion: computing the below parts
+            // of the callsite info (safeToInline) requires the declClass, declClassNode, which may
+            // fail, so we put them in the `Either` of the callee. but they should be part of the
+            // callsite.
             val callee: Either[OptimizerWarning, Callee] = for {
               (method, declarationClass)     <- byteCodeRepository.methodNode(call.owner, call.name, call.desc): Either[OptimizerWarning, (MethodNode, InternalName)]
               (declarationClassNode, source) <- byteCodeRepository.classNodeAndSource(declarationClass): Either[OptimizerWarning, (ClassNode, Source)]
@@ -197,7 +205,20 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
     argInfosForSams(capturedSams, lmf.indy, numCaptures, prodCons)
   }
 
+  // todo: rename, not only for sams (also type classes)
   private def argInfosForSams(sams: IntMap[ClassBType], consumerInsn: AbstractInsnNode, numConsumed: => Int, prodCons: => ProdConsAnalyzer): IntMap[ArgInfo] = {
+
+    // identify more
+    //   - method call (including getter): store info about the returned value in the Callee object
+    //   (there we can get symbolic info, no?)
+    //   - field read - new kind of callee?
+    //     - `this` (?)
+    //   - `new ...` -- support constructions for SAM types, not only IndyLambda!
+    //     - NOTE: PordCons may return multiple producers (if-else) ==> need to unify them somehow?
+
+
+
+
     // TODO: use type analysis instead of ProdCons - should be more efficient
     // some random thoughts:
     //  - assign special types to parameters and indy-lambda-functions to track them
@@ -335,8 +356,11 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
     }
   }
 
-    /**
+  /**
    * A callsite in the call graph.
+   *
+   * TODO: replace boolean fields by a single `flags` int, create getters
+   *   can also merge with the callsiteStackHeight -- this number cannot be very large
    *
    * @param callsiteInstruction The invocation instruction
    * @param callsiteMethod      The method containing the callsite
@@ -380,6 +404,8 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
   /**
    * A callee in the call graph.
    *
+   * TODO: replace booleans by a single `flags` int
+   *
    * @param callee                 The callee, as it appears in the invocation instruction. For
    *                               virtual calls, an override of the callee might be invoked. Also,
    *                               the callee can be abstract.
@@ -397,7 +423,7 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
   final case class Callee(callee: MethodNode, calleeDeclarationClass: ClassBType,
                           safeToInline: Boolean, safeToRewrite: Boolean, canInlineFromSource: Boolean,
                           annotatedInline: Boolean, annotatedNoInline: Boolean,
-                          samParamTypes: IntMap[ClassBType],
+                          samParamTypes: IntMap[ClassBType], // TODO: storing the type here is redundant, position is enough, type is in callee's descriptor
                           calleeInfoWarning: Option[CalleeInfoWarning]) {
     assert(!(safeToInline && safeToRewrite), s"A callee of ${callee.name} can be either safeToInline or safeToRewrite, but not both.")
     override def toString = s"Callee($calleeDeclarationClass.${callee.name})"

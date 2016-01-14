@@ -27,7 +27,7 @@ class Inliner[BT <: BTypes](val btypes: BT) {
   import backendUtils._
 
   def runInliner(): Unit = {
-    rewriteFinalTraitMethodInvocations()
+    rewriteFinalTraitMethodInvocations() // TODO: is it possible that inlining enables more trait calls to be rewritten? if so, this should be done during inlining.
 
     for (request <- collectAndOrderInlineRequests) {
       val Right(callee) = request.callsite.callee // collectAndOrderInlineRequests returns callsites with a known callee

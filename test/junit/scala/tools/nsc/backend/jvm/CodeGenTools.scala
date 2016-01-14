@@ -184,19 +184,19 @@ object CodeGenTools {
   }
 
   def assertInvoke(m: Method, receiver: String, method: String): Unit = assertInvoke(m.instructions, receiver, method)
-  def assertInvoke(l: List[Instruction], receiver: String, method: String): Unit = {
-    assert(l.exists {
+  def assertInvoke(ins: List[Instruction], receiver: String, method: String): Unit = {
+    assert(ins exists {
       case Invoke(_, `receiver`, `method`, _, _) => true
       case _ => false
-    }, l.stringLines)
+    }, ins.stringLines)
   }
 
   def assertDoesNotInvoke(m: Method, method: String): Unit = assertDoesNotInvoke(m.instructions, method)
-  def assertDoesNotInvoke(l: List[Instruction], method: String): Unit = {
-    assert(!l.exists {
-      case i: Invoke => i.name == method
-      case _ => false
-    }, l.stringLines)
+  def assertDoesNotInvoke(ins: List[Instruction], method: String): Unit = {
+    assert(ins forall {
+      case i: Invoke => i.name != method
+      case _ => true
+    }, ins.stringLines)
   }
 
   def assertInvokedMethods(m: Method, expected: List[String]): Unit = assertInvokedMethods(m.instructions, expected)

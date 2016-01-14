@@ -72,6 +72,10 @@ abstract class BTypes {
    *
    * Concurrent because stack map frames are computed when in the class writer, which might run
    * on multiple classes concurrently.
+   *
+   * TODO: document better what classes are added: all classes referenced from a compilation unit.
+   * TODO: document what happens if a new class becomes available after inlining.
+   * in this case the ClassBType is build from the classfile, also if the class is scala-defined.
    */
   val classBTypeFromInternalName: concurrent.Map[InternalName, ClassBType] = recordPerRunCache(TrieMap.empty)
 
@@ -82,9 +86,9 @@ abstract class BTypes {
   val callsitePositions: concurrent.Map[MethodInsnNode, Position] = recordPerRunCache(TrieMap.empty)
 
   /**
-   * Stores callsite instructions of invocatinos annotated `f(): @inline/noinline`.
+   * Stores callsite instructions of invocations annotated `f(): @inline/noinline`.
    * Instructions are added during code generation (BCodeBodyBuilder). The maps are then queried
-   * when building the CallGraph, every Callsite object has an annotated(No)Inline field.
+   * when building the CallGraph, every Callsite instance has an annotated(No)Inline field.
    */
   val inlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(mutable.Set.empty)
   val noInlineAnnotatedCallsites: mutable.Set[MethodInsnNode] = recordPerRunCache(mutable.Set.empty)
@@ -151,6 +155,9 @@ abstract class BTypes {
   /**
    * Parse the classfile for `internalName` and construct the [[ClassBType]]. If the classfile cannot
    * be found in the `byteCodeRepository`, the `info` of the resulting ClassBType is undefined.
+   *
+   * TODO: rename this method. It's used to also for classes being compiled, in which case no classfile is parsed
+   * TODO: also for classes that are referenced from a compilation unit, no classfile is parsed - these classes are in classBTypeFromInternalName
    */
   def classBTypeFromParsedClassfile(internalName: InternalName): ClassBType = {
     classBTypeFromInternalName.getOrElse(internalName, {
@@ -164,6 +171,8 @@ abstract class BTypes {
 
   /**
    * Construct the [[ClassBType]] for a parsed classfile.
+   *
+   * TODO: rename this method. It's used also for classes being compiled, in which case no classfile is parsed
    */
   def classBTypeFromClassNode(classNode: ClassNode): ClassBType = {
     classBTypeFromInternalName.getOrElse(classNode.name, {
