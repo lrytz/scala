@@ -1023,7 +1023,11 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           bc.genStartConcat(tree.pos)
           for (elem <- concatenations) {
             val loadedElem = elem match {
-              case Apply(boxOp, value :: Nil) if currentRun.runDefinitions.isBox(boxOp.symbol) =>
+              case Apply(fun @ Select(qual, _), value :: Nil) if currentRun.runDefinitions.isBox(fun.symbol) =>
+                if (!exitingTyper(treeInfo.isExprSafeToInline(qual))) {
+                  genLoad(qual)
+                  bc drop ObjectRef
+                }
                 // Eliminate boxing of primitive values. Boxing is introduced by erasure because
                 // there's only a single synthetic `+` method "added" to the string class.
                 value
