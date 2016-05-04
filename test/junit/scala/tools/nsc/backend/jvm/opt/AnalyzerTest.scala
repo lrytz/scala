@@ -55,7 +55,7 @@ class AnalyzerTest extends ClearAfterClass {
     assertEquals(aliasesAtI2l(1).iterator.toList, List(1, 8, 9)) // a, e and stack top
     assertEquals(aliasesAtI2l(4).iterator.toList, List(4, 6))
 
-    val List(add) = findInstr(f, "LADD")
+    val add = getInstr(f, "LADD")
     val aliasesAtAdd = a.frameAt(add, f).asInstanceOf[AliasingFrame[_]].aliases
     assertEquals(aliasesAtAdd(1).iterator.toList, List(1, 8)) // after i2l the value on the stack is no longer an alias
     assertEquals(aliasesAtAdd(4).iterator.toList, List(4, 6, 10)) // c, d and stack top

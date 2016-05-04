@@ -213,7 +213,9 @@ object CodeGenTools {
   }
 
   def getSingleMethod(classNode: ClassNode, name: String): Method =
-    convertMethod(classNode.methods.asScala.toList.find(_.name == name).get)
+    convertMethod(classNode.methods.asScala.toList.find(_.name == name).getOrElse(
+      throw new NoSuchElementException(s"$name not found in: ${classNode.methods.asScala.toList.map(_.name)}"))
+    )
 
   def findAsmMethods(c: ClassNode, p: String => Boolean) = c.methods.iterator.asScala.filter(m => p(m.name)).toList.sortBy(_.name)
   def findAsmMethod(c: ClassNode, name: String) = findAsmMethods(c, _ == name).head
@@ -227,6 +229,14 @@ object CodeGenTools {
     val instrPart = if (useNext) query.drop(1) else query
     val insns = method.instructions.iterator.asScala.filter(i => textify(i) contains instrPart).toList
     if (useNext) insns.map(_.getNext) else insns
+  }
+
+  def getInstr(method: MethodNode, query: String): AbstractInsnNode = {
+    findInstr(method, query) match {
+      case i :: Nil => i
+      case Nil => throw new AssertionError(s"No instruction matches '$query'. ${method.instructions.iterator.asScala.map(textify).toList}")
+      case xs => throw new AssertionError(s"Too many instructions match '$query'. ${xs.map(textify)}")
+    }
   }
 
   def assertHandlerLabelPostions(h: ExceptionHandler, instructions: List[Instruction], startIndex: Int, endIndex: Int, handlerIndex: Int): Unit = {

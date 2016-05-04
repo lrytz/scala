@@ -2,17 +2,16 @@ package scala.issues
 
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import org.junit.Test
+import org.junit.{AfterClass, Test}
+
 import scala.tools.asm.Opcodes._
 import org.junit.Assert._
 
 import scala.tools.nsc.backend.jvm.{AsmUtils, CodeGenTools}
-
 import CodeGenTools._
 import scala.tools.partest.ASMConverters
 import ASMConverters._
 import AsmUtils._
-
 import scala.tools.testing.ClearAfterClass
 
 object OptimizedBytecodeTest extends ClearAfterClass.Clearable {
@@ -56,9 +55,9 @@ class OptimizedBytecodeTest extends ClearAfterClass {
     val List(c) = compileClasses(compiler)(code)
 
     assertSameSummary(getSingleMethod(c, "t"), List(
-      LDC, ASTORE, ALOAD /*0*/, ALOAD /*1*/, "C$$$anonfun$1", IRETURN))
-    assertSameSummary(getSingleMethod(c, "C$$$anonfun$1"), List(LDC, "C$$$anonfun$2", IRETURN))
-    assertSameSummary(getSingleMethod(c, "C$$$anonfun$2"), List(-1 /*A*/, GOTO /*A*/))
+      LDC, ASTORE, ALOAD /*0*/, ALOAD /*1*/, "$anonfun$t$1", IRETURN))
+    assertSameSummary(getSingleMethod(c, "$anonfun$t$1"), List(ALOAD, IFNONNULL /*8*/, ACONST_NULL, ATHROW, -1 /*8*/, LDC, "$anonfun$t$2", IRETURN))
+    assertSameSummary(getSingleMethod(c, "$anonfun$t$2"), List(-1 /*A*/, GOTO /*A*/))
   }
 
   @Test
@@ -308,9 +307,9 @@ class OptimizedBytecodeTest extends ClearAfterClass {
         |}
       """.stripMargin
     val List(c) = compileClasses(compiler)(code, allowMessage = _.msg.contains("exception handler declared in the inlined method"))
-    assertInvoke(getSingleMethod(c, "f1a"), "C", "C$$$anonfun$1")
+    assertInvoke(getSingleMethod(c, "f1a"), "C", "$anonfun$f1a$1")
     assertInvoke(getSingleMethod(c, "f1b"), "C", "wrapper1")
-    assertInvoke(getSingleMethod(c, "f2a"), "C", "C$$$anonfun$3")
+    assertInvoke(getSingleMethod(c, "f2a"), "C", "$anonfun$f2a$1")
     assertInvoke(getSingleMethod(c, "f2b"), "C", "wrapper2")
   }
 
@@ -344,7 +343,7 @@ class OptimizedBytecodeTest extends ClearAfterClass {
         |class Listt
       """.stripMargin
     val List(c, nil, nilMod, listt) = compileClasses(compiler)(code)
-    assertInvoke(getSingleMethod(c, "t"), "C", "C$$$anonfun$1")
+    assertInvoke(getSingleMethod(c, "t"), "C", "$anonfun$t$1")
   }
 
   @Test
@@ -370,6 +369,6 @@ class OptimizedBytecodeTest extends ClearAfterClass {
   def optimiseEnablesNewOpt(): Unit = {
     val code = """class C { def t = (1 to 10) foreach println }"""
     val List(c) = readAsmClasses(compile(newCompiler(extraArgs = "-optimise -deprecation"))(code, allowMessage = _.msg.contains("is deprecated")))
-    assertInvoke(getSingleMethod(c, "t"), "C", "C$$$anonfun$1") // range-foreach inlined from classpath
+    assertInvoke(getSingleMethod(c, "t"), "C", "$anonfun$t$1") // range-foreach inlined from classpath
   }
 }

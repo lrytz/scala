@@ -104,11 +104,11 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val List(m) = compileMethods(noOptCompiler)("def f(x: Int) = { var a = x; if (a == 0) a = 12; a }")
     val a = new ProdConsAnalyzer(m, "C")
 
-    val List(ret) = findInstr(m, "IRETURN")
+    val ret = getInstr(m, "IRETURN")
     testMultiInsns(a.producersForValueAt(ret, 2), List("ISTORE 2", "ISTORE 2"))
     testMultiInsns(a.initialProducersForValueAt(ret, 2), List("BIPUSH 12", "ParameterProducer"))
 
-    val List(bipush) = findInstr(m, "BIPUSH 12")
+    val bipush = getInstr(m, "BIPUSH 12")
     testSingleInsn(a.consumersOfOutputsFrom(bipush), "ISTORE 2")
     testSingleInsn(a.ultimateConsumersOfValueAt(bipush.getNext, 3), "IRETURN")
   }
@@ -119,7 +119,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val a = new ProdConsAnalyzer(m, "C")
     assert(findInstr(m, "CHECKCAST java/lang/String").length == 1)
 
-    val List(ret) = findInstr(m, "ARETURN")
+    val ret = getInstr(m, "ARETURN")
     testSingleInsn(a.initialProducersForInputsOf(ret), "ParameterProducer(1)")
   }
 
@@ -129,7 +129,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val a = new ProdConsAnalyzer(m, "C")
     assert(findInstr(m, "INSTANCEOF java/lang/String").length == 1)
 
-    val List(ret) = findInstr(m, "IRETURN")
+    val ret = getInstr(m, "IRETURN")
     testSingleInsn(a.initialProducersForInputsOf(ret), "INSTANCEOF")
   }
 
@@ -138,7 +138,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val List(m) = compileMethods(noOptCompiler)("def f(b: Boolean) = { if (b) { var a = 0; println(a) }; 1 }")
     val a = new ProdConsAnalyzer(m, "C")
 
-    val List(store) = findInstr(m, "ISTORE")
+    val store = getInstr(m, "ISTORE")
     val List(call)  = findInstr(m, "INVOKEVIRTUAL")
     val List(ret)   = findInstr(m, "IRETURN")
 
@@ -153,7 +153,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val a = new ProdConsAnalyzer(m, "C")
 
     val List(newO)   = findInstr(m, "NEW")
-    val List(constr) = findInstr(m, "INVOKESPECIAL")
+    val constr = getInstr(m, "INVOKESPECIAL")
 
     testSingleInsn(a.producersForInputsOf(constr), "DUP")
     testSingleInsn(a.initialProducersForInputsOf(constr), "NEW")
@@ -181,7 +181,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val List(dup2)  = findInstr(m, "DUP2")
     val List(add)   = findInstr(m, "IADD")
     val List(swap)  = findInstr(m, "SWAP")
-    val List(store) = findInstr(m, "ISTORE")
+    val store = getInstr(m, "ISTORE")
     val List(ret)   = findInstr(m, "IRETURN")
 
     testMultiInsns(a.producersForInputsOf(dup2), List("ILOAD", "ILOAD"))
@@ -213,9 +213,9 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     m.maxStack = 1
     val a = new ProdConsAnalyzer(m, "C")
 
-    val List(inc) = findInstr(m, "IINC")
-    val List(load) = findInstr(m, "ILOAD")
-    val List(ret) = findInstr(m, "IRETURN")
+    val inc = getInstr(m, "IINC")
+    val load = getInstr(m, "ILOAD")
+    val ret = getInstr(m, "IRETURN")
 
     testSingleInsn(a.producersForInputsOf(inc), "ParameterProducer(1)")
     testSingleInsn(a.consumersOfOutputsFrom(inc), "ILOAD")
@@ -234,7 +234,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     val List(m) = compileMethods(noOptCompiler)("def f = 0l.asInstanceOf[Int]")
     val a = new ProdConsAnalyzer(m, "C")
 
-    val List(cnst) = findInstr(m, "LCONST_0")
+    val cnst = getInstr(m, "LCONST_0")
     val List(l2i)  = findInstr(m, "L2I") // l2i is not a copying instruction
     val List(ret)  = findInstr(m, "IRETURN")
 
@@ -272,7 +272,7 @@ class ProdConsAnalyzerTest extends ClearAfterClass {
     m.maxStack = 2
     val a = new ProdConsAnalyzer(m, "C")
 
-    val List(iadd) = findInstr(m, "IADD")
+    val iadd = getInstr(m, "IADD")
     val firstLoad = iadd.getPrevious.getPrevious
     assert(firstLoad.getOpcode == ILOAD)
     val secondLoad = findInstr(m, "ISTORE").head.getPrevious

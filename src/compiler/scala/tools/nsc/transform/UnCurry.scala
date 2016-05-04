@@ -213,8 +213,10 @@ abstract class UnCurry extends InfoTransform
         // Expand the function body into an anonymous class
         gen.expandFunction(localTyper)(fun, inConstructorFlag)
       } else {
+        val mustExpand = mustExpandFunction(fun)
+        val newNamePrefix = if (mustExpand) nme.DELAMBDAFY_LAMBDA_CLASS_NAME else nme.ANON_FUN_NAME
         // method definition with the same arguments, return type, and body as the original lambda
-        val liftedMethod = gen.mkLiftedFunctionBodyMethod(localTyper)(fun.symbol.owner, fun)
+        val liftedMethod = gen.mkLiftedFunctionBodyMethod(localTyper)(fun.symbol.owner, fun, newNamePrefix)
 
         // new function whose body is just a call to the lifted method
         val newFun = deriveFunction(fun)(_ => localTyper.typedPos(fun.pos)(
@@ -222,10 +224,12 @@ abstract class UnCurry extends InfoTransform
         ))
 
         val typedNewFun = localTyper.typedPos(fun.pos)(Block(liftedMethod, super.transform(newFun)))
-        if (mustExpandFunction(fun)) {
+        if (mustExpand) {
           val Block(stats, expr : Function) = typedNewFun
           treeCopy.Block(typedNewFun, stats, gen.expandFunction(localTyper)(expr, inConstructorFlag))
-        } else typedNewFun
+        } else {
+          typedNewFun
+        }
       }
 
     def transformArgs(pos: Position, fun: Symbol, args: List[Tree], formals: List[Type]) = {
@@ -348,9 +352,13 @@ abstract class UnCurry extends InfoTransform
     /** If an eligible method is entirely wrapped in a call to synchronized
      *  locked on the same instance, remove the synchronized scaffolding and
      *  mark the method symbol SYNCHRONIZED for bytecode generation.
+     *
+     *  Delambdafy targets are deemed ineligible as the Delambdafy phase will
+     *  replace `this.synchronized` with `$this.synchronzed` now that it emits
+     *  all lambda impl methods as static.
      */
     private def translateSynchronized(tree: Tree) = tree match {
-      case dd @ DefDef(_, _, _, _, _, Apply(fn, body :: Nil)) if isSelfSynchronized(dd) =>
+      case dd @ DefDef(_, _, _, _, _, Apply(fn, body :: Nil)) if isSelfSynchronized(dd) && dd.symbol.isDelambdafyFunction =>
         log("Translating " + dd.symbol.defString + " into synchronized method")
         dd.symbol setFlag SYNCHRONIZED
         deriveDefDef(dd)(_ => body)
