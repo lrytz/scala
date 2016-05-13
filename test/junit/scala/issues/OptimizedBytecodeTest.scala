@@ -56,7 +56,7 @@ class OptimizedBytecodeTest extends ClearAfterClass {
 
     assertSameSummary(getSingleMethod(c, "t"), List(
       LDC, ASTORE, ALOAD /*0*/, ALOAD /*1*/, "$anonfun$t$1", IRETURN))
-    assertSameSummary(getSingleMethod(c, "$anonfun$t$1"), List(ALOAD, IFNONNULL /*8*/, ACONST_NULL, ATHROW, -1 /*8*/, LDC, "$anonfun$t$2", IRETURN))
+    assertSameSummary(getSingleMethod(c, "$anonfun$t$1"), List(LDC, "$anonfun$t$2", IRETURN))
     assertSameSummary(getSingleMethod(c, "$anonfun$t$2"), List(-1 /*A*/, GOTO /*A*/))
   }
 
