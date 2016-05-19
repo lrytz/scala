@@ -186,9 +186,7 @@ abstract class ExtensionMethods extends Transform with TypingTransformers {
       tree match {
         case Template(_, _, _) =>
           if (currentOwner.isDerivedValueClass) {
-          /* This is currently redundant since value classes may not
-             wrap over other value classes anyway.
-            checkNonCyclic(currentOwner.pos, Set(), currentOwner) */
+            checkNonCyclic(currentOwner.pos, Set(), currentOwner)
             extensionDefs(currentOwner.companionModule) = new mutable.ListBuffer[Tree]
             currentOwner.primaryConstructor.makeNotPrivate(NoSymbol)
             // SI-7859 make param accessors accessible so the erasure can generate unbox operations.

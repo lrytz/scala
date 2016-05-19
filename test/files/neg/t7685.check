@@ -1,0 +1,4 @@
+t7685.scala:1: error: value class may not unbox to itself
+final class Foo(val value: Foo) extends AnyVal
+            ^
+one error found

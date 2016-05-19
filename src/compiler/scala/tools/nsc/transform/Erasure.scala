@@ -6,6 +6,7 @@
 package scala.tools.nsc
 package transform
 
+import scala.annotation.tailrec
 import scala.reflect.internal.ClassfileConstants._
 import scala.collection.{ mutable, immutable }
 import symtab._
@@ -684,9 +685,14 @@ abstract class Erasure extends AddInterfaces
     override def typed1(tree: Tree, mode: Mode, pt: Type): Tree = {
       val tree1 = try {
         tree match {
-          case InjectDerivedValue(arg) =>
+          case InjectDerivedValue(arg0) =>
             (tree.attachments.get[TypeRefAttachment]: @unchecked) match {
               case Some(itype) =>
+                @tailrec def unwrapInjectDerivedValue(tree: Tree): Tree = tree match {
+                  case InjectDerivedValue(arg) => unwrapInjectDerivedValue(arg)
+                  case _ => tree
+                }
+                val arg = unwrapInjectDerivedValue(arg0)
                 val tref = itype.tpe
                 val argPt = enteringErasure(erasedValueClassArg(tref))
                 log(s"transforming inject $arg -> $tref/$argPt")
