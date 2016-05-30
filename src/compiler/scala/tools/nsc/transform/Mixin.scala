@@ -43,7 +43,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
    *     methods in the impl class (because they can have arbitrary initializers)
    */
   private def isImplementedStatically(sym: Symbol) = (
-    sym.isMethod
+    (sym.isMethod || ((sym hasFlag MODULE) && !sym.isStatic))
     && notDeferred(sym)
     && sym.owner.isTrait
     && (!sym.isModule || sym.hasFlag(PRIVATE | LIFTED))
