@@ -491,9 +491,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
         case dd : DefDef =>
           val sym = dd.symbol
           if (isTraitMethodRequiringStaticImpl(sym)) {
-            // Split concrete methods in traits (including mixin constructors) into a static method
-            // with an explicit this parameter, and a non-static forwarder method.
-            val staticDefDef = global.gen.mkStatic(dd, _.cloneSymbol)
+            val staticDefDef = global.gen.mkStatic(dd, nme.traitImplMethodName(sym), _.cloneSymbol)
             val forwarderDefDef = {
               val forwarderBody = Apply(global.gen.mkAttributedRef(staticDefDef.symbol), This(sym.owner).setType(sym.owner.typeConstructor) :: dd.vparamss.head.map(p => global.gen.mkAttributedIdent(p.symbol))).setType(sym.info.resultType)
               // we don't want to the optimizer to inline the static method into the forwarder. Instead,

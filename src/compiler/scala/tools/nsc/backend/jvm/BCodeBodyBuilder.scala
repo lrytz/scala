@@ -1079,7 +1079,8 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
         case Super   =>
           if (receiverClass.isTrait && method.owner.isTrait && !method.owner.isJavaDefined) {
             val staticDesc = MethodBType(typeToBType(method.owner.info) :: method.info.paramTypes.map(typeToBType), typeToBType(method.info.resultType)).descriptor
-            bc.invokestatic(receiverName, jname, staticDesc, pos)
+            val staticName = nme.traitImplMethodName(method).toString
+            bc.invokestatic(receiverName, staticName, staticDesc, pos)
           } else {
             if (receiverClass.isTraitOrInterface && !cnode.interfaces.contains(receiverName))
               reporter.error(pos, s"Implementation restriction: unable to emit a super call to ${receiverName}.${method.name} from ${cnode.name}. Add $receiverName as a direct parent of ${cnode.name}")

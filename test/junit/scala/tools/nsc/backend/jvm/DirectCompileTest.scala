@@ -64,7 +64,7 @@ class DirectCompileTest extends BytecodeTesting {
       VarOp(ILOAD, 1),
       Op(ICONST_0),
       Jump(IF_ICMPNE,
-        Label(7)),
+      Label(7)),
       Ldc(LDC, "a"),
       Op(ARETURN),
       Label(7),

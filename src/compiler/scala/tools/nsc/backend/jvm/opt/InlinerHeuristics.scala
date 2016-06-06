@@ -92,7 +92,27 @@ class InlinerHeuristics[BT <: BTypes](val bTypes: BT) {
     val callee = callsite.callee.get
     def requestIfCanInline(callsite: Callsite, reason: String): Either[OptimizerWarning, InlineRequest] = inliner.earlyCanInlineCheck(callsite) match {
       case Some(w) => Left(w)
-      case None => Right(InlineRequest(callsite, Nil, reason))
+      case None =>
+        val callee = callsite.callee.get
+        val postInlineRequest: List[InlineRequest] = callee.calleeDeclarationClass.isInterface match {
+          case Right(true) =>
+            // Treat the pair of trait interface method and static method as one for the purposes of inlining:
+            // if we inline invokeinterface, invoke the invokestatic, too.
+            val calls = callee.callee.instructions.iterator().asScala.filter(BytecodeUtils.isCall).take(2).toList
+            calls match {
+              case List(x: MethodInsnNode) if x.getOpcode == Opcodes.INVOKESTATIC && x.name == (callee.callee.name + "$") =>
+                callGraph.addIfMissing(callee.callee, callee.calleeDeclarationClass)
+                val maybeNodeToCallsite1 = callGraph.findCallSite(callee.callee, x)
+                maybeNodeToCallsite1.toList.flatMap(x => requestIfCanInline(x, reason).right.toOption)
+              case _ =>
+                Nil
+
+            }
+          case _ => Nil
+        }
+
+        Right(InlineRequest(callsite, postInlineRequest, reason))
+
     }
 
     compilerSettings.YoptInlineHeuristics.value match {
