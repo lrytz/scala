@@ -395,7 +395,6 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
                           samParamTypes: IntMap[btypes.ClassBType],
                           calleeInfoWarning: Option[CalleeInfoWarning]) {
     override def toString = s"Callee($calleeDeclarationClass.${callee.name})"
-    def textifyCallee = AsmUtils.textify(callee)
   }
 
   /**

@@ -29,8 +29,7 @@ class Inliner[BT <: BTypes](val btypes: BT) {
   var inlineLog: List[InlineLog] = Nil
 
   def runInliner(): Unit = {
-    val orderedRequests = collectAndOrderInlineRequests
-    for (request <- orderedRequests) {
+    for (request <- collectAndOrderInlineRequests) {
       val Right(callee) = request.callsite.callee // collectAndOrderInlineRequests returns callsites with a known callee
 
       // TODO: if the request has downstream requests, create a snapshot to which we could roll back in case some downstream callsite cannot be inlined

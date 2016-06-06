@@ -1076,7 +1076,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
         assert(receiverClass == methodOwner, s"for super call, expecting $receiverClass == $methodOwner")
         if (receiverClass.isTrait && !receiverClass.isJavaDefined) {
           val staticDesc = MethodBType(typeToBType(method.owner.info) :: bmType.argumentTypes, bmType.returnType).descriptor
-          val staticName = nme.traitImplMethodName(method).toString
+          val staticName = traitImplMethodName(method).toString
           bc.invokestatic(receiverName, staticName, staticDesc, isInterface, pos)
         } else {
           if (receiverClass.isTraitOrInterface) {
