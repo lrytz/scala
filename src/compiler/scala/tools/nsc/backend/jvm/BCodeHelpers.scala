@@ -50,8 +50,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
     }
   }
 
-  def isTraitMethodRequiringStaticImpl(sym: Symbol) =
-    sym.hasAttachment[global.mixer.NeedStaticImpl.type]
+  def needsStaticImplMethod(sym: Symbol) = sym.hasAttachment[global.mixer.NeedStaticImpl.type]
 
   /**
    * True if `classSym` is an anonymous class or a local class. I.e., false if `classSym` is a

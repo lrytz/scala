@@ -490,7 +490,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
 
         case dd : DefDef =>
           val sym = dd.symbol
-          if (isTraitMethodRequiringStaticImpl(sym)) {
+          if (needsStaticImplMethod(sym)) {
             val staticDefDef = global.gen.mkStatic(dd, nme.traitImplMethodName(sym), _.cloneSymbol)
             val forwarderDefDef = {
               val forwarderBody = Apply(global.gen.mkAttributedRef(staticDefDef.symbol), This(sym.owner).setType(sym.owner.typeConstructor) :: dd.vparamss.head.map(p => global.gen.mkAttributedIdent(p.symbol))).setType(sym.info.resultType)

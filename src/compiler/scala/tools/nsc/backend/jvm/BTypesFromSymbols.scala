@@ -583,7 +583,7 @@ class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
             annotatedInline   = methodSym.hasAnnotation(ScalaInlineClass),
             annotatedNoInline = methodSym.hasAnnotation(ScalaNoInlineClass))
 
-          if (isTraitMethodRequiringStaticImpl(methodSym)) {
+          if (needsStaticImplMethod(methodSym)) {
             val staticName = nme.traitImplMethodName(methodSym).toString
             val selfParam = methodSym.newSyntheticValueParam(methodSym.owner.typeConstructor, nme.SELF)
             val staticMethodType = methodSym.info match {

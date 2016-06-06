@@ -645,7 +645,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
           val boxType = unboxResultType(fun.symbol)
           generatedType = boxType
           val MethodNameAndType(mname, methodType) = srBoxesRuntimeUnboxToMethods(boxType)
-          bc.invokestatic(srBoxesRunTimeRef.internalName, mname, methodType.descriptor, itf = false app.pos)
+          bc.invokestatic(srBoxesRunTimeRef.internalName, mname, methodType.descriptor, itf = false, app.pos)
 
         case app @ Apply(fun, args) =>
           val sym = fun.symbol

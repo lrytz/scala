@@ -1057,8 +1057,8 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
 
   private def isTraitMethodRequiringStaticImpl(dd: DefDef): Boolean = {
     val sym = dd.symbol
-    sym != null && sym.owner.isTrait && !sym.isDeferred &&
-      (sym.isLazy || !sym.isAccessor) && !sym.isSuperAccessor && !sym.isModule && // these are not deferred, but defDef.rhs.isEmpty
+    dd.rhs.nonEmpty &&
+      sym.owner.isTrait &&
       !sym.isPrivate && // no need to put implementations of private methods into a static method
       !sym.hasFlag(Flags.STATIC)
   }
