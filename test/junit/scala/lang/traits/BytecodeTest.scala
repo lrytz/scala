@@ -20,7 +20,7 @@ class BytecodeTest extends BytecodeTesting {
 
   def checkForwarder(classes: Map[String, ClassNode], clsName: Symbol, target: String) = {
     val f = getMethod(classes(clsName.name), "f")
-    assertSameCode(f, List(VarOp(ALOAD, 0), Invoke(INVOKESTATIC, target, "f$", s"(L$target;)I", false), Op(IRETURN)))
+    assertSameCode(f, List(VarOp(ALOAD, 0), Invoke(INVOKESTATIC, target, "f$", s"(L$target;)I", true), Op(IRETURN)))
   }
 
   @Test
@@ -142,7 +142,7 @@ class BytecodeTest extends BytecodeTesting {
   def invocationReceivers(): Unit = {
     val List(c1, c2, t, u) = compileClasses(invocationReceiversTestCode.definitions("Object"))
     // mixin forwarder in C1
-    assertSameCode(getMethod(c1, "clone"), List(VarOp(ALOAD, 0), Invoke(INVOKESTATIC, "T", "clone$", "(LT;)Ljava/lang/Object;", false), Op(ARETURN)))
+    assertSameCode(getMethod(c1, "clone"), List(VarOp(ALOAD, 0), Invoke(INVOKESTATIC, "T", "clone$", "(LT;)Ljava/lang/Object;", true), Op(ARETURN)))
     assertInvoke(getMethod(c1, "f1"), "T", "clone")
     assertInvoke(getMethod(c1, "f2"), "T", "clone")
     assertInvoke(getMethod(c1, "f3"), "C1", "clone")
