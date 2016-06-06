@@ -1007,6 +1007,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL {
           val parents1 = currentOwner.info.parents map (t => TypeTree(t) setPos tree.pos)
           // mark fields which can be nulled afterward
           lazyValNullables = nullableFields(templ) withDefaultValue Set()
+          // Remove bodies of accessors in traits - TODO: after PR #5141 (fields refactoring), this might be a no-op
           val bodyEmptyAccessors = if (!sym.enclClass.isTrait) body else body mapConserve {
             case dd: DefDef if dd.symbol.isAccessor && !dd.symbol.isLazy =>
               deriveDefDef(dd)(_ => EmptyTree)

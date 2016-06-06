@@ -520,15 +520,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic with BytecodeWriters {
     /**
      * The class internal name for a given class symbol.
      */
-    final def internalName(sym: Symbol): String = {
-      // For each java class, the scala compiler creates a class and a module (thus a module class).
-      // If the `sym` is a java module class, we use the java class instead. This ensures that the
-      // ClassBType is created from the main class (instead of the module class).
-      // The two symbols have the same name, so the resulting internalName is the same.
-      // Phase travel (exitingPickler) required for SI-6613 - linkedCoC is only reliable in early phases (nesting)
-      val classSym = if (sym.isJavaDefined && sym.isModuleClass) exitingPickler(sym.linkedClassOfClass) else sym
-      classBTypeFromSymbol(classSym).internalName
-    }
+    final def internalName(sym: Symbol): String = classBTypeFromSymbol(sym).internalName
   } // end of trait BCInnerClassGen
 
   trait BCAnnotGen extends BCInnerClassGen {

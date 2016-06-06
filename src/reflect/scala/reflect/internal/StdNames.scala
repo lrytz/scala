@@ -502,8 +502,9 @@ trait StdNames {
     def protSetterName(name: Name): TermName = newTermName(PROTECTED_SET_PREFIX + name)
 
     final def traitImplMethodName(sym: Symbol): Name = {
-      if (sym.isMixinConstructor) sym.name
-      else sym.name.append(nme.NAME_JOIN_STRING)
+      val name = sym.javaSimpleName
+      if (sym.isMixinConstructor) name
+      else name.append(nme.NAME_JOIN_STRING)
     }
 
     final val Nil: NameType                 = "Nil"

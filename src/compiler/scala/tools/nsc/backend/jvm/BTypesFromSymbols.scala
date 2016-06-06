@@ -97,11 +97,19 @@ class BTypesFromSymbols[G <: Global](val global: G) extends BTypes {
    * for the Nothing / Null. If used for example as a parameter type, we use the runtime classes
    * in the classfile method signature.
    */
-  final def classBTypeFromSymbol(classSym: Symbol): ClassBType = {
+  final def classBTypeFromSymbol(sym: Symbol): ClassBType = {
+    // For each java class, the scala compiler creates a class and a module (thus a module class).
+    // If the `sym` is a java module class, we use the java class instead. This ensures that the
+    // ClassBType is created from the main class (instead of the module class).
+    // The two symbols have the same name, so the resulting internalName is the same.
+    // Phase travel (exitingPickler) required for SI-6613 - linkedCoC is only reliable in early phases (nesting)
+    val classSym = if (sym.isJavaDefined && sym.isModuleClass) exitingPickler(sym.linkedClassOfClass) else sym
+
     assert(classSym != NoSymbol, "Cannot create ClassBType from NoSymbol")
     assert(classSym.isClass, s"Cannot create ClassBType from non-class symbol $classSym")
     assertClassNotArrayNotPrimitive(classSym)
     assert(!primitiveTypeToBType.contains(classSym) || isCompilingPrimitive, s"Cannot create ClassBType for primitive class symbol $classSym")
+
     if (classSym == NothingClass) srNothingRef
     else if (classSym == NullClass) srNullRef
     else {
