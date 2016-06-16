@@ -53,6 +53,9 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
       classes(pkg).find(_.name == simpleClassName).map(_.file)
     }
 
+    def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] =
+      findClassFile(className).map((_, zipFile.getCanonicalPath))
+
     override private[nsc] def classes(inPackage: String): Seq[ClassFileEntry] = files(inPackage)
 
     override protected def createFileEntry(file: FileZipArchive#Entry): ClassFileEntryImpl = ClassFileEntryImpl(file)
@@ -71,6 +74,9 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
       val (pkg, simpleClassName) = PackageNameUtils.separatePkgAndClassNames(className)
       classes(pkg).find(_.name == simpleClassName).map(_.file)
     }
+
+    def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] =
+      findClassFile(className).map((_, file.file.getCanonicalPath))
 
     override def asClassPathStrings: Seq[String] = Seq(file.path)
 

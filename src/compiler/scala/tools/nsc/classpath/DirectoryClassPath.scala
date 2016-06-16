@@ -114,6 +114,9 @@ case class DirectoryClassPath(dir: File) extends JFileDirectoryLookup[ClassFileE
     } else None
   }
 
+  def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] =
+    findClassFile(className).map((_, dir.getCanonicalPath))
+
   protected def createFileEntry(file: AbstractFile): ClassFileEntryImpl = ClassFileEntryImpl(file)
   protected def isMatchingFile(f: File): Boolean = f.isClass
 

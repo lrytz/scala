@@ -253,7 +253,7 @@ class Inliner[BT <: BTypes](val btypes: BT) {
   def inlineCallsite(callsite: Callsite): Unit = {
     import callsite.{callsiteClass, callsiteMethod, callsiteInstruction, receiverKnownNotNull, callsiteStackHeight}
     val Right(callsiteCallee) = callsite.callee
-    import callsiteCallee.{callee, calleeDeclarationClass, sourceFilePath}
+    import callsiteCallee.{callee, calleeDeclarationClass, calleeOrigin}
 
     // Inlining requires the callee not to have unreachable code, the analyzer used below should not
     // return any `null` frames. Note that inlining a method can create unreachable code. Example:
@@ -268,10 +268,10 @@ class Inliner[BT <: BTypes](val btypes: BT) {
 
     // New labels for the cloned instructions
     val labelsMap = cloneLabels(callee)
-    val sameSourceFile = sourceFilePath match {
-      case Some(calleeSource) => byteCodeRepository.compilingClasses.get(callsiteClass.internalName) match {
-        case Some((_, `calleeSource`)) => true
-        case _ => false
+    val sameSourceFile = calleeOrigin match {
+      case source @ SourceFile(_) => byteCodeRepository.compilingClasses.get(callsiteClass.internalName) match {
+        case Some((_, `source`)) => true
+        case _                   => false
       }
       case _ => false
     }

@@ -27,6 +27,7 @@ class AggregateClassPathTest {
 
     override def list(inPackage: String): ClassPathEntries = unsupported
     override def findClassFile(name: String): Option[AbstractFile] = unsupported
+    override def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] = unsupported
 
     override def asClassPathStrings: Seq[String] = unsupported
     override def asSourcePathString: String = unsupported

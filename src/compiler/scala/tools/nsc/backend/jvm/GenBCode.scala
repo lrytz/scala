@@ -229,10 +229,9 @@ abstract class GenBCode extends BCodeSyncAndTry {
         // look up classes and methods in the code repo.
         if (settings.optAddToBytecodeRepository) q2.asScala foreach {
           case Item2(_, mirror, plain, bean, sourceFilePath, _) =>
-            val someSourceFilePath = Some(sourceFilePath)
-            if (mirror != null) byteCodeRepository.add(mirror, someSourceFilePath)
-            if (plain != null)  byteCodeRepository.add(plain, someSourceFilePath)
-            if (bean != null)   byteCodeRepository.add(bean, someSourceFilePath)
+            if (mirror != null) byteCodeRepository.addCompiled(mirror, sourceFilePath)
+            if (plain != null)  byteCodeRepository.addCompiled(plain, sourceFilePath)
+            if (bean != null)   byteCodeRepository.addCompiled(bean, sourceFilePath)
         }
         if (settings.optBuildCallGraph) q2.asScala foreach { item =>
           // skip call graph for mirror / bean: wd don't inline into tem, and they are not used in the plain class

@@ -44,7 +44,10 @@ trait ClassPath {
 
     foundClassFromClassFiles orElse findClassInSources
   }
+
   def findClassFile(className: String): Option[AbstractFile]
+
+  def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)]
 
   def asClassPathStrings: Seq[String]
 

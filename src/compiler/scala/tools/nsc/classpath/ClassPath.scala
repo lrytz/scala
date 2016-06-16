@@ -56,5 +56,6 @@ private[nsc] trait NoSourcePaths {
 
 private[nsc] trait NoClassPaths {
   def findClassFile(className: String): Option[AbstractFile] = None
+  def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] = None
   private[nsc] def classes(inPackage: String): Seq[ClassFileEntry] = Seq.empty
 }

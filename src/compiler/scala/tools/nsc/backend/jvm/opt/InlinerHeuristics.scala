@@ -22,7 +22,7 @@ class InlinerHeuristics[BT <: BTypes](val bTypes: BT) {
     for (pr <- post) assert(pr.callsite.callsiteMethod == callsite.callee.get.callee, s"Callsite method mismatch: main $callsite - post ${pr.callsite}")
   }
 
-  def canInlineFromSource(sourceFilePath: Option[String]) = compilerSettings.optInlineGlobal || sourceFilePath.isDefined
+  def canInlineFromSource(origin: ClassOrigin): Boolean = compilerSettings.optInlineGlobal || origin.isInstanceOf[SourceFileOrigin]
 
   /**
    * Select callsites from the call graph that should be inlined, grouped by the containing method.

@@ -33,6 +33,9 @@ case class VirtualDirectoryClassPath(dir: VirtualDirectory) extends ClassPath wi
     else None
   }
 
+  def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] =
+    findClassFile(className).map((_, dir.canonicalPath))
+
   private[nsc] def classes(inPackage: String): Seq[ClassFileEntry] = files(inPackage)
 
   protected def createFileEntry(file: AbstractFile): ClassFileEntryImpl = ClassFileEntryImpl(file)

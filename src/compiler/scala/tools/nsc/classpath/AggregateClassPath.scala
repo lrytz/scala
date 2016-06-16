@@ -20,12 +20,24 @@ import scala.tools.nsc.util.ClassRepresentation
  * @param aggregates classpath instances containing entries which this class processes
  */
 case class AggregateClassPath(aggregates: Seq[ClassPath]) extends ClassPath {
-  override def findClassFile(className: String): Option[AbstractFile] = {
+  def findClassFile(className: String): Option[AbstractFile] = {
     @tailrec
     def find(aggregates: Seq[ClassPath]): Option[AbstractFile] =
       if (aggregates.nonEmpty) {
         val classFile = aggregates.head.findClassFile(className)
         if (classFile.isDefined) classFile
+        else find(aggregates.tail)
+      } else None
+
+    find(aggregates)
+  }
+
+  def findClassFileAndClasspathElement(className: String): Option[(AbstractFile, String)] = {
+    @tailrec
+    def find(aggregates: Seq[ClassPath]): Option[(AbstractFile, String)] =
+      if (aggregates.nonEmpty) {
+        val result = aggregates.head.findClassFileAndClasspathElement(className)
+        if (result.isDefined) result
         else find(aggregates.tail)
       } else None
 

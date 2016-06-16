@@ -353,15 +353,15 @@ class ClosureOptimizer[BT <: BTypes](val btypes: BT) {
 
     // the method node is needed for building the call graph entry
     val bodyMethod = byteCodeRepository.methodNode(lambdaBodyHandle.getOwner, lambdaBodyHandle.getName, lambdaBodyHandle.getDesc)
-    val sourceFilePath = byteCodeRepository.compilingClasses.get(lambdaBodyHandle.getOwner).map(_._2)
+    val sourceFileOrigin = byteCodeRepository.compilingClasses.get(lambdaBodyHandle.getOwner).map(_._2).getOrElse(UnknownSourceFile)
     val callee = bodyMethod.map({
       case (bodyMethodNode, bodyMethodDeclClass) =>
         val bodyDeclClassType = classBTypeFromParsedClassfile(bodyMethodDeclClass)
         Callee(
           callee = bodyMethodNode,
           calleeDeclarationClass = bodyDeclClassType,
-          safeToInline = inlinerHeuristics.canInlineFromSource(sourceFilePath),
-          sourceFilePath = sourceFilePath,
+          safeToInline = inlinerHeuristics.canInlineFromSource(sourceFileOrigin),
+          calleeOrigin = sourceFileOrigin,
           annotatedInline = false,
           annotatedNoInline = false,
           samParamTypes = callGraph.samParamTypes(bodyMethodNode, bodyDeclClassType),

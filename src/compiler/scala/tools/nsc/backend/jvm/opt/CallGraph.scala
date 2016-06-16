@@ -127,17 +127,17 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
         methodNode.instructions.iterator.asScala foreach {
           case call: MethodInsnNode if a.frameAt(call) != null => // skips over unreachable code
             val callee: Either[OptimizerWarning, Callee] = for {
-              (method, declarationClass)                   <- byteCodeRepository.methodNode(call.owner, call.name, call.desc): Either[OptimizerWarning, (MethodNode, InternalName)]
-              (declarationClassNode, calleeSourceFilePath) <- byteCodeRepository.classNodeAndSourceFilePath(declarationClass): Either[OptimizerWarning, (ClassNode, Option[String])]
+              (method, declarationClass)     <- byteCodeRepository.methodNode(call.owner, call.name, call.desc): Either[OptimizerWarning, (MethodNode, InternalName)]
+              (declarationClassNode, origin) <- byteCodeRepository.classNodeAndOrigin(declarationClass): Either[OptimizerWarning, (ClassNode, ClassOrigin)]
             } yield {
               val declarationClassBType = classBTypeFromClassNode(declarationClassNode)
-              val info = analyzeCallsite(method, declarationClassBType, call, calleeSourceFilePath)
+              val info = analyzeCallsite(method, declarationClassBType, call, origin)
               import info._
               Callee(
                 callee = method,
                 calleeDeclarationClass = declarationClassBType,
                 safeToInline = safeToInline,
-                sourceFilePath = sourceFilePath,
+                calleeOrigin = calleeOrigin,
                 annotatedInline = annotatedInline,
                 annotatedNoInline = annotatedNoInline,
                 samParamTypes = info.samParamTypes,
@@ -255,7 +255,7 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
   /**
    * Just a named tuple used as return type of `analyzeCallsite`.
    */
-  private case class CallsiteInfo(safeToInline: Boolean, sourceFilePath: Option[String],
+  private case class CallsiteInfo(safeToInline: Boolean, calleeOrigin: ClassOrigin,
                                   annotatedInline: Boolean, annotatedNoInline: Boolean,
                                   samParamTypes: IntMap[ClassBType],
                                   warning: Option[CalleeInfoWarning])
@@ -263,7 +263,7 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
   /**
    * Analyze a callsite and gather meta-data that can be used for inlining decisions.
    */
-  private def analyzeCallsite(calleeMethodNode: MethodNode, calleeDeclarationClassBType: ClassBType, call: MethodInsnNode, calleeSourceFilePath: Option[String]): CallsiteInfo = {
+  private def analyzeCallsite(calleeMethodNode: MethodNode, calleeDeclarationClassBType: ClassBType, call: MethodInsnNode, calleeOrigin: ClassOrigin): CallsiteInfo = {
     val methodSignature = calleeMethodNode.name + calleeMethodNode.desc
 
     try {
@@ -305,26 +305,26 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
           //     static impl method first (safeToRewrite).
           CallsiteInfo(
             safeToInline      =
-              inlinerHeuristics.canInlineFromSource(calleeSourceFilePath) &&
+              inlinerHeuristics.canInlineFromSource(calleeOrigin) &&
                 isStaticallyResolved &&  // (1)
                 !isAbstract &&
                 !BytecodeUtils.isConstructor(calleeMethodNode) &&
                 !BytecodeUtils.isNativeMethod(calleeMethodNode) &&
                 !BytecodeUtils.hasCallerSensitiveAnnotation(calleeMethodNode),
-            sourceFilePath      = calleeSourceFilePath,
-            annotatedInline     = methodInlineInfo.annotatedInline,
-            annotatedNoInline   = methodInlineInfo.annotatedNoInline,
-            samParamTypes       = samParamTypes(calleeMethodNode, receiverType),
-            warning             = warning)
+            calleeOrigin      = calleeOrigin,
+            annotatedInline   = methodInlineInfo.annotatedInline,
+            annotatedNoInline = methodInlineInfo.annotatedNoInline,
+            samParamTypes     = samParamTypes(calleeMethodNode, receiverType),
+            warning           = warning)
 
         case None =>
           val warning = MethodInlineInfoMissing(calleeDeclarationClassBType.internalName, calleeMethodNode.name, calleeMethodNode.desc, calleeDeclarationClassBType.info.orThrow.inlineInfo.warning)
-          CallsiteInfo(false, None, false, false, IntMap.empty, Some(warning))
+          CallsiteInfo(false, UnknownClassFile, false, false, IntMap.empty, Some(warning))
       }
     } catch {
       case Invalid(noInfo: NoClassBTypeInfo) =>
         val warning = MethodInlineInfoError(calleeDeclarationClassBType.internalName, calleeMethodNode.name, calleeMethodNode.desc, noInfo)
-        CallsiteInfo(false, None, false, false, IntMap.empty, Some(warning))
+        CallsiteInfo(false, UnknownClassFile, false, false, IntMap.empty, Some(warning))
     }
   }
 
@@ -386,7 +386,7 @@ class CallGraph[BT <: BTypes](val btypes: BT) {
    *                               gathering the information about this callee.
    */
   final case class Callee(callee: MethodNode, calleeDeclarationClass: btypes.ClassBType,
-                          safeToInline: Boolean, sourceFilePath: Option[String],
+                          safeToInline: Boolean, calleeOrigin: ClassOrigin,
                           annotatedInline: Boolean, annotatedNoInline: Boolean,
                           samParamTypes: IntMap[btypes.ClassBType],
                           calleeInfoWarning: Option[CalleeInfoWarning]) {
