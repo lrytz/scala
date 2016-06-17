@@ -82,9 +82,10 @@ trait Erasure {
     val clazz = tref.sym
     if (valueClassIsParametric(clazz)) {
       val underlying = tref.memberType(clazz.derivedValueClassUnbox).resultType
+      // TODO: probably need special erasure here as well
       boxingErasure(underlying)
     } else {
-      scalaErasure(underlyingOfValueClass(clazz))
+      specialScalaErasure(underlyingOfValueClass(clazz))
     }
   }
 
@@ -281,6 +282,7 @@ trait Erasure {
     }
   }
 
+  // used in erasedValueClassArg
   object boxingErasure extends ScalaErasureMap {
     private var boxPrimitives = true
 
