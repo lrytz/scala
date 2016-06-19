@@ -128,21 +128,39 @@ trait TypeAdaptingTransformer { self: TreeDSL =>
      *  @return     the adapted tree
      */
     @tailrec final def adaptToType(tree: Tree, pt: Type): Tree = {
+//      println(s"adapt to type: $tree -- ${tree.tpe} -- $pt")
       val tpe = tree.tpe
 
-      if ((tpe eq pt) || tpe <:< pt) tree
-      else if (tpe.isInstanceOf[ErasedValueType]) adaptToType(box(tree), pt) // what if pt is an erased value type?
-      else if (pt.isInstanceOf[ErasedValueType])  adaptToType(unbox(tree, pt), pt)
+      // avoid casts when comparing ErasedValueType(class A, String("m")) and ErasedValueType(class A, String)
+      // without that (-Xprint:erasure):
+      //   def t1: A = new A("m")
+      // becomes
+      //   def t1(): ErasedValueType(class A, String) = new p.A("m".$asInstanceOf[String]()).x().$asInstanceOf[ErasedValueType(class A, String)]()
+      // with it:
+      //   def t1(): ErasedValueType(class A, String) = "m"
+      //
+      // it happened to be cleaned up by post-erasure, but the tree was unexpected.
+      def typesMatch(a: Type, b: Type): Boolean = (a eq b) || a <:< b || ((a, b) match {
+        case (ErasedValueType(vcA, uA), ErasedValueType(vcB, uB)) => vcA == vcB && typesMatch(uA, uB)
+        case _ => false
+      })
+
+      if (typesMatch(tpe, pt)) tree
       // See corresponding case in `Eraser`'s `adaptMember`
       // [H] this does not hold here, however: `assert(tree.symbol.isStable)` (when typechecking !(SomeClass.this.bitmap) for single lazy val)
       else if (isMethodTypeWithEmptyParams(tpe))  adaptToType(applyMethodWithEmptyParams(tree), pt)
+      else if (tpe.isInstanceOf[ErasedValueType]) adaptToType(box(tree), pt) // what if pt is an erased value type?
+      else if (pt.isInstanceOf[ErasedValueType])  adaptToType(unbox(tree, pt), pt)
       else {
         val gotPrimitiveVC      = isPrimitiveValueType(tpe)
         val expectedPrimitiveVC = isPrimitiveValueType(pt)
 
         if (gotPrimitiveVC && !expectedPrimitiveVC)      adaptToType(box(tree), pt)
         else if (!gotPrimitiveVC && expectedPrimitiveVC) adaptToType(unbox(tree, pt), pt)
-        else cast(tree, pt)
+        else {
+//          println("  >> cast")
+          cast(tree, pt)
+        }
       }
     }
   }

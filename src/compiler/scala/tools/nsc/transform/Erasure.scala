@@ -8,9 +8,10 @@ package transform
 
 import scala.annotation.tailrec
 import scala.reflect.internal.ClassfileConstants._
-import scala.collection.{ mutable, immutable }
+import scala.collection.{immutable, mutable}
 import symtab._
 import Flags._
+import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.Mode._
 
 abstract class Erasure extends AddInterfaces
@@ -685,22 +686,24 @@ abstract class Erasure extends AddInterfaces
     override def typed1(tree: Tree, mode: Mode, pt: Type): Tree = {
       val tree1 = try {
         tree match {
-          case InjectDerivedValue(arg0) =>
-            (tree.attachments.get[TypeRefAttachment]: @unchecked) match {
-              case Some(itype) =>
-                @tailrec def unwrapInjectDerivedValue(tree: Tree): Tree = tree match {
-                  case InjectDerivedValue(arg) => unwrapInjectDerivedValue(arg)
-                  case _ => tree
-                }
-                val arg = unwrapInjectDerivedValue(arg0)
-                val tref = itype.tpe
-                val argPt = enteringErasure(erasedValueClassArg(tref))
-                log(s"transforming inject $arg -> $tref/$argPt")
-                val result = typed(arg, mode, argPt)
-                log(s"transformed inject $arg -> $tref/$argPt = $result:${result.tpe}")
-                return result setType ErasedValueType(tref.sym, result.tpe)
+          case InjectDerivedValue(_) =>
+            def attachedType(t: Tree) = t.attachments.get[TypeRefAttachment].get.tpe
 
+            @tailrec def unwrap(t: Tree, tps: ListBuffer[TypeRef]): (List[TypeRef], Tree, Type) = t match {
+              case InjectDerivedValue(a: InjectDerivedValue) =>
+                unwrap(a, tps += attachedType(t))
+
+              case InjectDerivedValue(a) =>
+                val valueClassRef = attachedType(t)
+                ((tps += valueClassRef).toList, a, enteringErasure(erasedValueClassArg(valueClassRef)))
             }
+            val (instantiatedValueClasses, arg, argPt) = unwrap(tree, ListBuffer.empty)
+
+            val result = typed(arg, mode, argPt)
+            val erasedValueType = instantiatedValueClasses.foldRight(result.tpe)((valueClass, res) => ErasedValueType(valueClass.sym, res))
+            println(s"new $instantiatedValueClasses -- $result -- $erasedValueType -- $pt")
+            return result setType erasedValueType
+
           case _ =>
             super.typed1(adaptMember(tree), mode, pt)
         }

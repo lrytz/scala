@@ -8,6 +8,9 @@ import scala.ref.WeakReference
 
 @RunWith(classOf[JUnit4])
 class ListTest {
+
+  (1 to 100).par.map(x => x)
+
   /**
    * Test that empty iterator does not hold reference
    * to complete List

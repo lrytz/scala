@@ -85,6 +85,7 @@ trait Erasure {
       // TODO: probably need special erasure here as well
       boxingErasure(underlying)
     } else {
+      // TODO: check why we still need this; erasure trees change if we use full erasure here
       specialScalaErasure(underlyingOfValueClass(clazz))
     }
   }
