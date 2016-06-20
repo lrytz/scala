@@ -42,7 +42,10 @@ trait TypeAdaptingTransformer { self: TreeDSL =>
         ldef setType ldef.rhs.tpe
       case _ =>
         val tree1 = tree.tpe match {
-          case ErasedValueType(clazz, _) => New(clazz, cast(tree, underlyingOfValueClass(clazz)))
+          case ErasedValueType(clazz, _) =>
+            // TODO: maybe instead of `cast` we could `adapt`? in many cases the cast is not needed.
+            // for nested generic value classes, a box might need to be introduced.
+            New(clazz, cast(tree, underlyingOfValueClass(clazz)))
           case _ => tree.tpe.typeSymbol match {
             case UnitClass =>
               if (treeInfo isExprSafeToInline tree) REF(BoxedUnit_UNIT)

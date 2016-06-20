@@ -267,8 +267,11 @@ trait Erasure {
    *  are then later unwrapped to the underlying parameter type in phase posterasure.
    */
   object specialScalaErasure extends ScalaErasureMap {
-    override def eraseDerivedValueClassRef(tref: TypeRef): Type =
-      ErasedValueType(tref.sym, erasedValueClassArg(tref))
+    override def eraseDerivedValueClassRef(tref: TypeRef): Type = {
+      val r = ErasedValueType(tref.sym, erasedValueClassArg(tref))
+//      println(s"erasure of $tref -- $r")
+      r
+    }
   }
 
   object javaErasure extends JavaErasureMap
@@ -284,6 +287,7 @@ trait Erasure {
   }
 
   // used in erasedValueClassArg
+  // TODO doc, what does it do? keep value class boxes within arrays?
   object boxingErasure extends ScalaErasureMap {
     private var boxPrimitives = true
 
@@ -297,8 +301,10 @@ trait Erasure {
     override def eraseNormalClassRef(tref: TypeRef) =
       if (boxPrimitives && isPrimitiveValueClass(tref.sym)) boxedClass(tref.sym).tpe
       else super.eraseNormalClassRef(tref)
+
     override def eraseDerivedValueClassRef(tref: TypeRef) =
-      super.eraseNormalClassRef(tref)
+      specialScalaErasure.eraseDerivedValueClassRef(tref)
+//      super.eraseNormalClassRef(tref)
   }
 
   /** The intersection dominator (SLS 3.7) of a list of types is computed as follows.

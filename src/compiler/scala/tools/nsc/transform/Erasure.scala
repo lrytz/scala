@@ -701,7 +701,7 @@ abstract class Erasure extends AddInterfaces
 
             val result = typed(arg, mode, argPt)
             val erasedValueType = instantiatedValueClasses.foldRight(result.tpe)((valueClass, res) => ErasedValueType(valueClass.sym, res))
-            println(s"new $instantiatedValueClasses -- $result -- $erasedValueType -- $pt")
+//            println(s"new $instantiatedValueClasses -- $result -- $erasedValueType -- $pt")
             return result setType erasedValueType
 
           case _ =>
