@@ -191,7 +191,7 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
   }
 
 
-  // TODO: clean up. localLazyVal is always false
+  // TODO: clean up. localLazyVal is always false, extraFlags default is not used
   private def newLazyVarSymbol(owner: Symbol, member: Symbol, tp: Type, extraFlags: Long = 0, localLazyVal: Boolean = false): TermSymbol = {
     val flags = member.flags | extraFlags
     val name = member.name.toTermName
@@ -621,7 +621,7 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
       // fails it initializes the lazy val within the synchronization block (slow path).
       //
       // This way the inliner should optimize the fast path because the method body is small enough.
-      val slowPathDef = mkLazySlowPathDef(statSym, transformedRhs)
+      val slowPathDef = mkLazySlowPathDef(statSym, transformedRhs, moduleVarOf(statSym))
 
       val rhsWithAssign = gen.mkAssignAndReturn(moduleVarOf(statSym), transformedRhs)
 

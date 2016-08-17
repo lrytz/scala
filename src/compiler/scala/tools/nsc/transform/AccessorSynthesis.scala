@@ -265,30 +265,20 @@ trait AccessorSynthesis extends Transform with ast.TreeDSL {
         *
         * Private fields used only in this initializer are subsequently set to null.
         */
-      def mkLazySlowPathDef(lzyVal: Symbol, rhs: Tree): DefDef = {
-        val (init, retVal) =
-          rhs match {
-            case rhs if isUnitGetter(lzyVal) => (List(rhs), UNIT)
-            case Block(stats, res) => (stats, Select(thisRef, res.symbol))
-            case _ => (null, null)
-          }
+      def mkLazySlowPathDef(lzyVal: Symbol, rhs: Tree, moduleVar: Symbol): DefDef = {
+        def nullify(sym: Symbol) = Select(thisRef, sym.accessedOrSelf) === LIT(null)
+        val nulls = lazyValNullables.getOrElse(lzyVal, Nil) map nullify
 
-        if (init == null) null
-        else {
-          def nullify(sym: Symbol) = Select(thisRef, sym.accessedOrSelf) === LIT(null)
-          val nulls = lazyValNullables.getOrElse(lzyVal, Nil) map nullify
+        if (nulls.nonEmpty) log("nulling fields inside " + lzyVal + ": " + nulls)
 
-          if (nulls.nonEmpty)
-            log("nulling fields inside " + lzyVal + ": " + nulls)
+        val init = Assign(thisRef DOT moduleVar, rhs)
+        val statsToSynch = List(init, mkSetFlag(lzyVal), UNIT)
+        val synchedRhs = gen.mkSynchronizedCheck(thisRef, mkTest(lzyVal), statsToSynch, nulls)
 
-          val statsToSynch = init ::: List(mkSetFlag(lzyVal), UNIT)
-          val synchedRhs = gen.mkSynchronizedCheck(thisRef, mkTest(lzyVal), statsToSynch, nulls)
+        val slowPathSym = slowPathFor(lzyVal)
 
-          val slowPathSym = slowPathFor(lzyVal)
-
-          // TODO: this code used to run after classes were flattened -- do we have all the needed owner changes?
-          DefDef(slowPathSym, Block(List(synchedRhs.changeOwner(lzyVal -> slowPathSym)), retVal))
-        }
+        // TODO: this code used to run after classes were flattened -- do we have all the needed owner changes?
+        DefDef(slowPathSym, Block(List(synchedRhs.changeOwner(lzyVal -> slowPathSym)), thisRef DOT moduleVar))
       }
 
       /** Map lazy values to the fields they should null after initialization. */
