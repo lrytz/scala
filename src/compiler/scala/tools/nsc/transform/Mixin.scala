@@ -345,7 +345,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL with AccessorSynthes
   protected def newTransformer(unit: CompilationUnit): Transformer =
     new MixinTransformer(unit)
 
-  class MixinTransformer(unit : CompilationUnit) extends Transformer with InitializationTransformation {
+  class MixinTransformer(unit : CompilationUnit) extends Transformer with AccessorSynthTransformation {
     /** The typer */
     private var localTyper: erasure.Typer = _
     protected def typedPos(pos: Position)(tree: Tree): Tree = localTyper.typedPos(pos)(tree)
@@ -394,10 +394,8 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL with AccessorSynthes
       * @param clazz The class to which definitions are added
       */
     private def addNewDefs(clazz: Symbol, stats: List[Tree]): List[Tree] = {
-      val accessorInit = accessorInitialization(clazz, stats)
+      val accessorInit = new AccessorSynth(clazz)
       import accessorInit._
-
-      val statsWithInitChecks = deriveStatsWithInitChecks(stats)
 
       // for all symbols `sym` in the class definition, which are mixed in by mixinTraitMembers
       for (sym <- clazz.info.decls ; if sym hasFlag MIXEDIN) {
@@ -419,10 +417,10 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL with AccessorSynthes
         }
       }
 
-      val addedStatsWithInitBitsAndChecks = implementWithNewDefs(statsWithInitChecks)
+      val implementedAccessors = implementWithNewDefs(stats)
 
       if (clazz.isTrait)
-        addedStatsWithInitBitsAndChecks filter {
+        implementedAccessors filter {
           case vd: ValDef => assert(vd.symbol.hasFlag(PRESUPER | PARAMACCESSOR), s"unexpected valdef $vd in trait $clazz"); false
           case _ => true
         }
@@ -444,7 +442,7 @@ abstract class Mixin extends InfoTransform with ast.TreeDSL with AccessorSynthes
             stat
         }
 
-        addedStatsWithInitBitsAndChecks map completeSuperAccessor
+        implementedAccessors map completeSuperAccessor
       }
     }
 
