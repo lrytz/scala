@@ -224,10 +224,15 @@ trait AccessorSynthesis extends Transform with ast.TreeDSL {
         val bitmap = bitmapFor(valSym)
         def x = thisRef DOT bitmap.symbol
 
-        // NOTE: bitwise or (`|`) on two bytes yields and Int (TODO: why was this not a problem when this ran during mixins?)
         Assign(x,
           if (bitmap.storageClass == BooleanClass) TRUE
-          else Apply(Select(x, getMember(bitmap.storageClass, nme.OR)), List(bitmap.mask))
+          else {
+            val or = Apply(Select(x, getMember(bitmap.storageClass, nme.OR)), List(bitmap.mask))
+            // NOTE: bitwise or (`|`) on two bytes yields and Int (TODO: why was this not a problem when this ran during mixins?)
+            // TODO: need this to make it type check -- is there another way??
+            if (bitmap.storageClass != LongClass) Apply(Select(or, newTermName("to" + bitmap.storageClass.name)), Nil)
+            else or
+          }
         )
 
       }

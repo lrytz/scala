@@ -546,6 +546,7 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
 
     def expandLazy(statSym: Symbol, transformedRhs: Tree): Tree = {
       val lazies = accessorInit
+      assert(lazies != null, s"oops $currentOwner / $statSym")
       import lazies.{mkLazySlowPathDef, rhsWithInitCheck}
 
       // Add double-checked locking to the lazy val's rhs (which already has the assignment if the lazy val is stored)
@@ -650,8 +651,6 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
 
       if (currentOwner.isClass && !(currentOwner.isPackageClass || currentOwner.isTrait))
         accessorInit = accessorInitialization(currentOwner, stats)
-      else
-        accessorInit = null
 
       val newStats =
         stats mapConserve (if (exprOwner != currentOwner) transformTermsAtExprOwner(exprOwner) else transform)
