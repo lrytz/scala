@@ -75,7 +75,7 @@ abstract class BCodeSyncAndTry extends BCodeBodyBuilder {
        *            Protected by whatever protects the whole synchronized expression.
        * ------
        */
-      protect(startProtected, endProtected, currProgramPoint(), jlThrowableRef)
+      protect(startProtected, endProtected, currProgramPoint(), null)
       locals.load(monitor)
       emit(asm.Opcodes.MONITOREXIT)
       emit(asm.Opcodes.ATHROW)
