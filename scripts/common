@@ -19,7 +19,7 @@ mkdir -p $IVY_CACHE
 rm -rf $IVY_CACHE/cache/org.scala-lang
 
 SBT_CMD=${sbtCmd-sbt}
-SBT_CMD="$SBT_CMD -sbt-version 0.13.12"
+SBT_CMD="$SBT_CMD -sbt-version 0.13.12 -J-XX:+UnlockDiagnosticVMOptions -J-XX:+PrintCompilation -J-XX:CompileCommand=print,scala/tools/nsc/transform/patmat/MatchTranslation\$MatchTranslator\$BoundTree.typeTest\$1 -J-XX:CompileCommand=print,scala/tools/nsc/transform/patmat/MatchTranslation\$MatchTranslator\$BoundTree.extraction\$1 -J-XX:CompileCommand=print,scala/tools/nsc/transform/patmat/MatchTranslation\$MatchTranslator\$BoundTree.extractorStep -J-XX:CompileCommand=print,scala/tools/nsc/transform/patmat/MatchTranslation\$MatchTranslator\$BoundTree.typeTest\$lzycompute\$1"
 
 # temp dir where all 'non-build' operation are performed
 TMP_ROOT_DIR=$(mktemp -d -t pr-scala.XXXX)

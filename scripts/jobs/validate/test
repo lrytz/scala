@@ -4,6 +4,8 @@ baseDir=${WORKSPACE-`pwd`}
 scriptsDir="$baseDir/scripts"
 . $scriptsDir/common
 
+jvmSelect openjdk 8
+
 case $prDryRun in
 
   yep)

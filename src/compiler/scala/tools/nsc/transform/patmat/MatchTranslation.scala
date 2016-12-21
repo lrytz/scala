@@ -116,7 +116,15 @@ trait MatchTranslation {
         // it tests the type, checks the outer pointer and casts to the expected type
         // TODO: the outer check is mandated by the spec for case classes, but we do it for user-defined unapplies as well [SPEC]
         // (the prefix of the argument passed to the unapply must equal the prefix of the type of the binder)
-        lazy val typeTest = TypeTestTreeMaker(binder, binder, paramType, paramType)(pos, extractorArgTypeTest = true)
+        var eval = 0
+        lazy val typeTest = {
+          eval += 1
+          if (eval > 1) {
+            println(s"eval $eval of typeTest")
+            new Exception().printStackTrace(System.out)
+          }
+          TypeTestTreeMaker(binder, binder, paramType, paramType)(pos, extractorArgTypeTest = true)
+        }
         // check whether typetest implies binder is not null,
         // even though the eventual null check will be on typeTest.nextBinder
         // it'll be equal to binder casted to paramType anyway (and the type test is on binder)
