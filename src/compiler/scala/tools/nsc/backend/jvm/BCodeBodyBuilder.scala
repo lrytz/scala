@@ -482,6 +482,16 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       val saveReturnValue = (returnType != UNIT)
       lineNumber(r)
 
+      /**
+       * Note: it is OK to continue emitting bytecode after the `xRETURN` (or GOTO, if there's a
+       * cleanup block): the unreachable code will be ignored by any asm Analyzer, and the asm
+       * ClassWriter replaces unreachable code by `nop; nop; ... nop; athrow` (if it's not
+       * eliminated until then). See comments in [[adapt]]. Example:
+       *   println(if (..) return else "")
+       * the return is emitted as `GOTO EARLY_RETURN_FINALLY`. There's no argument value on the
+       * stack for the subsequent println invocation, but this code won't reach the classfile.
+       */
+
       cleanups match {
         case Nil =>
           // not an assertion: !shouldEmitCleanup (at least not yet, pendingCleanups() may still have to run, and reset `shouldEmitCleanup`.
