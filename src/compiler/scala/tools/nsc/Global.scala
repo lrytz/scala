@@ -1409,10 +1409,25 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       globalPhase = fromPhase
       val profiler = profile.Profiler(settings)
 
+      while(true) {
+        def s5 = Thread.sleep(5*1000)
+        profile.Profiler.compilerPhaseMBean.setEnterPhase("parser")
+        s5
+        profile.Profiler.compilerPhaseMBean.setExitPhase("parser")
+        profile.Profiler.compilerPhaseMBean.setEnterPhase("namer")
+        s5
+        profile.Profiler.compilerPhaseMBean.setExitPhase("namer")
+        profile.Profiler.compilerPhaseMBean.setEnterPhase("typer")
+        s5
+        profile.Profiler.compilerPhaseMBean.setExitPhase("typer")
+        profile.Profiler.compilerPhaseMBean.setEnterPhase("refchecks")
+        s5
+        profile.Profiler.compilerPhaseMBean.setExitPhase("refchecks")
+      }
       while (globalPhase.hasNext && !reporter.hasErrors) {
         val startTime = currentTime
         phase = globalPhase
-        val profileBefore=profiler.before(phase)
+        val profileBefore = profiler.before(phase)
         globalPhase.run()
         profiler.after(phase, profileBefore)
 

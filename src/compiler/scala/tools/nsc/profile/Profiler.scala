@@ -3,13 +3,16 @@ package scala.tools.nsc.profile
 import java.io.{FileWriter, PrintWriter}
 import java.lang.management.ManagementFactory
 import java.util.concurrent.atomic.AtomicInteger
+import javax.management.ObjectName
 
 import scala.tools.nsc.{Phase, Settings}
 
 object Profiler {
+  lazy val compilerPhaseMBean = new CompilerPhase
   def apply(settings: Settings): Profiler =
     if (!settings.YprofileEnabled) NoOpProfiler
     else {
+      ManagementFactory.getPlatformMBeanServer.registerMBean(compilerPhaseMBean, new ObjectName("scala.tools.nsc:type=CompilerPhase"))
       val reporter = if (settings.YprofileDestination.isSetByUser)
         new StreamProfileReporter(new PrintWriter(new FileWriter(settings.YprofileDestination.value, true)))
       else ConsoleProfileReporter
@@ -100,6 +103,7 @@ private[profile] class RealProfiler(reporter: ProfileReporter, val settings: Set
     if (settings.YprofileExternalTool.containsPhase(phase)) {
       println("Profile hook stop")
       ExternalToolHook.after()
+      Profiler.compilerPhaseMBean.setExitPhase(phase.name)
     }
     val finalSnap = if (settings.YprofileRunGcBetweenPhases.containsPhase(phase)) {
       doGC()
@@ -113,6 +117,7 @@ private[profile] class RealProfiler(reporter: ProfileReporter, val settings: Set
     if (settings.YprofileExternalTool.containsPhase(phase)) {
       println("Profile hook start")
       ExternalToolHook.before()
+      Profiler.compilerPhaseMBean.setEnterPhase(phase.name)
     }
 
     snap
