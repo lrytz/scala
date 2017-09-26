@@ -20,7 +20,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
   import statistics._
 
   protected var ids = 0
-  def getSymbolId: Int = ids
+  def getCurrentSymbolIdCount: Int = ids
 
   protected def nextId() = { ids += 1; ids }
 
@@ -3741,7 +3741,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 trait SymbolsStats {
   self: Statistics =>
   val symbolTable: SymbolTable
-  val symbolsCount        = newView("#symbols")(symbolTable.getSymbolId)
+  val symbolsCount        = newView("#symbols")(symbolTable.getCurrentSymbolIdCount)
   val typeSymbolCount     = newCounter("#type symbols")
   val classSymbolCount    = newCounter("#class symbols")
   val flagsCount          = newCounter("#flags ops")

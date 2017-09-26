@@ -1570,7 +1570,7 @@ class Global(var currentSettings: Settings, var reporter: Reporter)
       if (!pclazz.isRoot) resetPackageClass(pclazz.owner)
     }
 
-    private final val parserStats = {
+    private val parserStats = {
       import statistics._
       Seq(treeNodeCount, nodeByType, retainedCount, retainedByType)
     }
