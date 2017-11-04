@@ -840,22 +840,21 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         if (context.reporter.hasErrors)
           setError(tree)
         else
-          withCondConstrTyper(treeInfo.isSelfOrSuperConstrCall(tree))(typer1 =>
-            if (original != EmptyTree && pt != WildcardType) (
+          withCondConstrTyper(treeInfo.isSelfOrSuperConstrCall(tree)) { typer1 =>
+            if (original != EmptyTree && pt != WildcardType) {
               typer1 silent { tpr =>
                 val withImplicitArgs = tpr.applyImplicitArgs(tree)
                 if (tpr.context.reporter.hasErrors) tree // silent will wrap it in SilentTypeError anyway
                 else tpr.typed(withImplicitArgs, mode, pt)
-              }
-              orElse { _ =>
+              } orElse { _ =>
                 val resetTree = resetAttrs(original)
                 resetTree match {
-                  case treeInfo.Applied(fun, targs, args) =>
+                  case treeInfo.Applied(fun, _, _) =>
+                    // scala/bug#9041 Without this, we leak error symbols past the typer!
+                    // because the fallback typechecking notices the error-symbol,
+                    // refuses to re-attempt typechecking, and presumes that someone
+                    // else was responsible for issuing the related type error!
                     if (fun.symbol != null && fun.symbol.isError)
-                      // scala/bug#9041 Without this, we leak error symbols past the typer!
-                      // because the fallback typechecking notices the error-symbol,
-                      // refuses to re-attempt typechecking, and presumes that someone
-                      // else was responsible for issuing the related type error!
                       fun.setSymbol(NoSymbol)
                   case _ =>
                 }
@@ -879,9 +878,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                   if (tree1.isEmpty) tree1 else typer1.adapt(tree1, mode, pt, EmptyTree)
                 }
               }
-            )
-            else {
-              if(tree.symbol != null && !tree.symbol.isConstructor) {
+            } else {
+              if (tree.symbol != null && !tree.symbol.isConstructor) {
                 def stabilizeQual(tree: Tree): Option[(Tree, ValDef)] = tree match {
                   case Select(qual, name) if qual.tpe.isStable => None
                   case Select(qual, name) =>
@@ -891,7 +889,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                     val newQual = Ident(vsym).setType(qual.tpe)
                     val newSelect0 = atPos(tree.pos)(treeCopy.Select(tree, newQual, name))
                     val newSelect = makeAccessible(newSelect0, tree.symbol, singleType(NoPrefix, vsym), newQual)._1
-                    if(newSelect.tpe.contains(vsym))
+                    if (newSelect.tpe.contains(vsym))
                       Some((newSelect, vdef))
                     else None
                   case Apply(lhs, args) =>
@@ -924,7 +922,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               } else
                 typer1.typed(typer1.applyImplicitArgs(tree), mode, pt)
             }
-          )
+          }
       }
 
       def instantiateToMethodType(mt: MethodType): Tree = {
