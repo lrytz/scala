@@ -45,7 +45,6 @@ object PostProcessorFrontendAccess {
     def target: String
 
     def outputDirectories : Settings#OutputDirs
-    def syncFileIO: Boolean
     def jarCompressionLevel: Int
 
     def optAddToBytecodeRepository: Boolean
@@ -81,6 +80,7 @@ object PostProcessorFrontendAccess {
   trait BackendReporting {
     def inlinerWarning(pos: Position, message: String): Unit
     def error(pos: Position, message: String): Unit
+    def warning(pos: Position, message: String): Unit
     def inform(message: String): Unit
     def log(message: String): Unit
   }
@@ -104,7 +104,6 @@ object PostProcessorFrontendAccess {
 
       val target: String = s.target.value
       val outputDirectories = s.outputDirs
-      val syncFileIO: Boolean = s.YsyncFileIO
       val jarCompressionLevel: Int = s.YjarCompressionLevel.value
 
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
@@ -159,6 +158,9 @@ object PostProcessorFrontendAccess {
       }
       def error(pos: Position, message: String): Unit = frontendSynch {
         reporter.error(pos, message)
+      }
+      def warning(pos: Position, message: String): Unit = frontendSynch {
+        global.warning(pos, message)
       }
       def inform(message: String): Unit = frontendSynch {
         global.inform(message)
