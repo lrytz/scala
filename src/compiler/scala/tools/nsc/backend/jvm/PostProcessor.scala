@@ -35,6 +35,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
     super.initialize()
     backendUtils.initialize()
     inlinerHeuristics.initialize()
+    byteCodeRepository.initialize()
   }
 
   def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
