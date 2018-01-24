@@ -21,7 +21,7 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
     def genClassDef(cd: ClassDef): Unit = try {
       val sym = cd.symbol
       val position = sym.pos
-      val fullSymbolName = sym.fullName
+      val fullSymbolName = sym.javaClassName
       val mainClassNode = genClass(cd, unit)
       processor.startProcess(GeneratedClass(mainClassNode, fullSymbolName, position, sourceFile, isArtifact = false))
       if (bTypes.isTopLevelModuleClass(sym)) {

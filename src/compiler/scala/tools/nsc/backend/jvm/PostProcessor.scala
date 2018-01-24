@@ -34,7 +34,6 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   override def initialize(): Unit = {
     super.initialize()
     backendUtils.initialize()
-    byteCodeRepository.initialize()
     inlinerHeuristics.initialize()
   }
 
@@ -42,9 +41,9 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
 
     val classNode = clazz.classNode
     val internalName = classNode.name
-    warnCaseInsensitiveOverwrite(clazz)
     val bytes = try {
       if (!clazz.isArtifact) {
+        warnCaseInsensitiveOverwrite(clazz)
         localOptimizations(classNode)
         backendUtils.onIndyLambdaImplMethodIfPresent(internalName) {
           methods => if (methods.nonEmpty) backendUtils.addLambdaDeserialize(classNode, methods)

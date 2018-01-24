@@ -178,9 +178,9 @@ object PostProcessorFrontendAccess {
     def getEntryPoints: List[String] = frontendSynch(cleanup.getEntryPoints)
 
     def javaDefinedClasses: Set[InternalName] = frontendSynch {
-      currentRun.symSource.collect({
-        case (sym, _) if sym.isJavaDefined => sym.javaBinaryNameString
-      }).toSet
+      currentRun.symSource.keys.collect{
+        case sym if sym.isJavaDefined => sym.javaBinaryNameString
+      }(scala.collection.breakOut)
     }
 
 

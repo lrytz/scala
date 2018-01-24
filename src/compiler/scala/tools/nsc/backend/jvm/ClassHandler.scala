@@ -1,20 +1,16 @@
 package scala.tools.nsc.backend.jvm
 
-import java.io.IOException
-import java.nio.channels.{AsynchronousFileChannel, CompletionHandler}
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
 import java.util.concurrent._
-import java.util.concurrent.atomic.AtomicInteger
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.concurrent.{Await, ExecutionContextExecutor, ExecutionContext, Future, Promise}
 import scala.reflect.internal.util.{NoPosition, Position, SourceFile}
-import scala.tools.nsc.{Global, Settings}
+import scala.tools.nsc.Settings
 import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.BackendReporting
 import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.profile.AsyncHelper
-import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
 
 private[jvm] sealed trait ClassHandler {
@@ -26,7 +22,7 @@ private[jvm] sealed trait ClassHandler {
 
   def startProcess(clazz: GeneratedClass): Unit
 
-  def initialise() = ()
+  def initialise(): Unit = ()
 
   val postProcessor:PostProcessor
 }
@@ -39,17 +35,13 @@ private[jvm] object ClassHandler {
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
     val writer = settings.YaddBackendThreads.value match {
-      case 0 => new SyncWritingClassHandler(true, unitInfoLookup, postProcessor, cfWriter)
-      case -1 => new SyncWritingClassHandler(false, unitInfoLookup, postProcessor, cfWriter)
+      case 0 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
       case maxThreads =>
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers
-        val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2 + 2
         // when the queue is full, the main thread will no some background work
         // so this provides back-pressure
-        val queue = new ArrayBlockingQueue[Runnable](queueSize)
-        // we assign a higher priority to the background workers as they are removing load from the system
-        // and they cannot block the main thread indefinitely
+        val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2 + 2
         val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, queueSize, new CallerRunsPolicy, "non-ast")
         val execInfo = ExecutorServiceInfo(maxThreads, javaExecutor, javaExecutor.getQueue)
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)
@@ -128,9 +120,9 @@ private[jvm] object ClassHandler {
       pendingBuilder += unitProcess
     }
 
-    protected implicit val executionContext = ExecutionContext.fromExecutor(javaExecutor)
+    protected implicit val executionContext: ExecutionContextExecutor = ExecutionContext.fromExecutor(javaExecutor)
 
-    protected def postProcessUnit(unitProcess: UnitResult): Unit = {
+    final def postProcessUnit(unitProcess: UnitResult): Unit = {
       unitProcess.task = Future {
         // we 'take' classes to reduce the memory pressure
         // as soon as the class is consumed and written, we release its data
@@ -173,17 +165,11 @@ private[jvm] object ClassHandler {
     }
     def tryStealing:Option[Runnable]
   }
-  private final class SyncWritingClassHandler(
-                val syncUnit:Boolean, val unitInfoLookup: UnitInfoLookup,
+  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
                 val postProcessor: PostProcessor, val cfWriter: ClassfileWriter)
     extends WritingClassHandler((r) => r.run()) {
 
-    override protected def postProcessUnit(unitProcess: UnitResult): Unit = {
-      super.postProcessUnit(unitProcess)
-      if (syncUnit) Await.ready(unitProcess.result.future, Duration.Inf)
-    }
-
-    override def toString: String = s"SyncWriting wait:$syncUnit [$cfWriter]"
+    override def toString: String = s"SyncWriting [$cfWriter]"
 
     override def tryStealing: Option[Runnable] = None
   }
@@ -218,13 +204,11 @@ final class LookupUnitInfo(val frontendAccess: PostProcessorFrontendAccess) exte
   lazy val outputDirectories = frontendAccess.compilerSettings.outputDirectories
   override def outputDir(source: AbstractFile) = outputDirectories.outputDirFor(source)
 }
-sealed trait SourceUnit extends CompletionHandler[Integer, (AsynchronousFileChannel, String)]{
+sealed trait SourceUnit {
   def withBufferedReporter[T](fn: => T): T
 
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
-  def addOperation(): Unit
-  def endOperation(result: Try[Unit]): Unit
   def sourceFile:AbstractFile
 
 }
@@ -251,35 +235,9 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
     * this allows the use of async completions */
   val result = Promise[Unit]()
 
-  private val pendingOperations = new AtomicInteger(1)
+  def completedUnit(): Unit = result.trySuccess(())
 
-  override def failed(exc: Throwable, channelInfo: (AsynchronousFileChannel, String)) = result.tryFailure(exc)
-
-  override def completed(x: Integer, channelInfo: (AsynchronousFileChannel, String)) = {
-    try channelInfo._1.close()
-    catch {
-      case e: IOException =>
-        if (unitInfoLookup.frontendAccess.compilerSettings.debug)
-          e.printStackTrace()
-        unitInfoLookup.frontendAccess.backendReporting.error(NoPosition, s"error closing file for ${channelInfo._2}: ${e.getMessage}")
-    } finally {
-      if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
-    }
-  }
-
-  def addOperation(): Unit = pendingOperations.incrementAndGet()
-
-  def completedUnit(): Unit = endOperation(Success())
-
-  def endOperation(opResult: Try[Unit]): Unit = opResult match {
-    case _: Success[_] =>
-      if (pendingOperations.decrementAndGet() == 0) result.trySuccess(())
-    case Failure(f) =>
-      result.tryFailure(f)
-      pendingOperations.decrementAndGet()
-  }
-
-  def relayReports(backendReporting: BackendReporting) = this.synchronized {
+  def relayReports(backendReporting: BackendReporting): Unit = this.synchronized {
     if (bufferedReports nonEmpty) {
       for (report: Report <- bufferedReports.reverse) {
         report.relay(backendReporting)
