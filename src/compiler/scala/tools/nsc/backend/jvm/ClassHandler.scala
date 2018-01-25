@@ -35,15 +35,16 @@ private[jvm] object ClassHandler {
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
     val writer = settings.YaddBackendThreads.value match {
-      case 0 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
+      case 1 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
       case maxThreads =>
+        val additionalThreads = maxThreads -1
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers
         // when the queue is full, the main thread will no some background work
         // so this provides back-pressure
-        val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2 + 2
-        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(maxThreads, queueSize, new CallerRunsPolicy, "non-ast")
-        val execInfo = ExecutorServiceInfo(maxThreads, javaExecutor, javaExecutor.getQueue)
+        val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2
+        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
+        val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)
     }
 
