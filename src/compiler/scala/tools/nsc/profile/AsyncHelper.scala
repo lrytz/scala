@@ -1,9 +1,8 @@
 package scala.tools.nsc.profile
 
-import java.util.Collections
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy
 import java.util.concurrent._
-import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
+import java.util.concurrent.atomic.AtomicInteger
 
 import scala.tools.nsc.{Global, Phase}
 
@@ -20,11 +19,11 @@ sealed trait AsyncHelper {
 
 object AsyncHelper {
   def apply(global: Global, phase: Phase): AsyncHelper = global.currentRun.profiler match {
-    case NoOpProfiler => new BasicAsyncHelper(global, phase)
-    case r: RealProfiler => new ProfilingAsyncHelper(global, phase, r)
+    case NoOpProfiler => new BasicAsyncHelper(phase)
+    case r: RealProfiler => new ProfilingAsyncHelper(phase, r)
   }
 
-  private abstract class BaseAsyncHelper(global: Global, phase: Phase) extends AsyncHelper {
+  private abstract class BaseAsyncHelper(phase: Phase) extends AsyncHelper {
     val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
     private def childGroup(name: String) = new ThreadGroup(baseGroup, name)
 
@@ -47,7 +46,7 @@ object AsyncHelper {
     }
   }
 
-  private final class BasicAsyncHelper(global: Global, phase: Phase) extends BaseAsyncHelper(global, phase) {
+  private final class BasicAsyncHelper(phase: Phase) extends BaseAsyncHelper(phase) {
 
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
@@ -64,7 +63,7 @@ object AsyncHelper {
     override protected def wrapRunnable(r: Runnable, shortId:String): Runnable = r
   }
 
-  private class ProfilingAsyncHelper(global: Global, phase: Phase, private val profiler: RealProfiler) extends BaseAsyncHelper(global, phase) {
+  private class ProfilingAsyncHelper(phase: Phase, private val profiler: RealProfiler) extends BaseAsyncHelper(phase) {
 
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)

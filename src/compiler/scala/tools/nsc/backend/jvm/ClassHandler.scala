@@ -92,7 +92,7 @@ private[jvm] object ClassHandler {
     override def toString: String = s"GloballyOptimising[$underlying]"
   }
 
-  sealed abstract class WritingClassHandler(val javaExecutor :Executor) extends ClassHandler{
+  sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends ClassHandler {
     val unitInfoLookup: UnitInfoLookup
     val cfWriter: ClassfileWriter
 

@@ -35,7 +35,8 @@ abstract class GenBCode extends SubComponent {
 
     override val erasedTypes = true
 
-    private var generatedHandler:ClassHandler = _
+    private var generatedHandler: ClassHandler = _
+
     def apply(unit: CompilationUnit): Unit = {
       codeGen.genUnit(statistics, unit, generatedHandler)
     }
@@ -46,9 +47,6 @@ abstract class GenBCode extends SubComponent {
           initialize()
           super.run() // invokes `apply` for each compilation unit
           generatedHandler.complete()
-        } catch {
-          case t:Throwable =>
-            t.printStackTrace()
         } finally {
           // When writing to a jar, we need to close the jarWriter.
           generatedHandler.close()
@@ -67,8 +65,8 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      val asyncHelper = AsyncHelper(global, this)
-      val cfWriter = ClassfileWriter(asyncHelper, global.cleanup, settings, statistics, postProcessorFrontendAccess )
+      val asyncHelper = AsyncHelper(global, this) // TODO phase -- just pass the name and id (?)
+      val cfWriter = ClassfileWriter(global)
       generatedHandler = ClassHandler(asyncHelper, cfWriter, settings, postProcessor)
       statistics.stopTimer(statistics.bcodeInitTimer, initStart)
     }

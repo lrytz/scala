@@ -8,63 +8,41 @@ import java.nio.file.attribute.FileAttribute
 import java.nio.file.{FileAlreadyExistsException, Files, Path, Paths, StandardOpenOption}
 import java.util
 import java.util.concurrent.ConcurrentHashMap
-import java.util.jar.Attributes.Name
-import java.util.jar.JarOutputStream
 import java.util.zip.{CRC32, Deflater, ZipEntry, ZipOutputStream}
 
 import scala.reflect.internal.util.{NoPosition, Statistics}
-import scala.tools.nsc.Settings
+import scala.tools.nsc.Global
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
 import scala.tools.nsc.io.AbstractFile
-import scala.tools.nsc.profile.AsyncHelper
-import scala.tools.nsc.transform.CleanUp
 
 object ClassfileWriter {
   private def getDirectory(dir: String): Path = Paths.get(dir)
 
-  def apply(asyncHelper: AsyncHelper, cleanup:CleanUp, settings:Settings,
-            statistics: Statistics with BackendStats,
-            frontendAccess: PostProcessorFrontendAccess): ClassfileWriter = {
-    import frontendAccess.backendReporting
+  def apply(global: Global): ClassfileWriter = {
+    //Note dont import global._ - its too easy to leak non threadsafe structures
+    import global.{cleanup, genBCode, log, settings, statistics}
+    def jarManifestMainClass: Option[String] = settings.mainClass.valueSetByUser.orElse {
+      cleanup.getEntryPoints match {
+        case List(name) => Some(name)
+        case es =>
+          if (es.isEmpty) log("No Main-Class designated or discovered.")
+          else log(s"No Main-Class due to multiple entry points:\n  ${es.mkString("\n  ")}")
+          None
+      }
+    }
 
     def singleWriter(file: AbstractFile): UnderlyingClassfileWriter = {
       if (file hasExtension "jar") {
-        import java.util.jar._
-        // If no main class was specified, see if there's only one
-        // entry point among the classes going into the jar.
-        val mainClass = settings.mainClass.valueSetByUser match {
-          case c@Some(m) =>
-            backendReporting.log(s"Main-Class was specified: $m")
-            c
-
-          case None => cleanup.getEntryPoints match {
-            case Nil =>
-              backendReporting.log("No Main-Class designated or discovered.")
-              None
-            case name :: Nil =>
-              backendReporting.log(s"Unique entry point: setting Main-Class to $name")
-              Some(name)
-            case names =>
-              backendReporting.log(s"No Main-Class due to multiple entry points:\n  ${names.mkString("\n  ")}")
-              None
-          }
-        }
-        val manifest = new Manifest()
-        mainClass foreach {c => manifest.getMainAttributes.put(Name.MAIN_CLASS, c)}
-        val jar = new JarOutputStream(new BufferedOutputStream(new FileOutputStream(file.file), 64000), manifest)
-        val level = frontendAccess.compilerSettings.jarCompressionLevel
-        jar.setLevel(level)
-        val storeOnly = level == Deflater.NO_COMPRESSION
-        if (storeOnly) jar.setMethod(ZipOutputStream.STORED)
-        new JarClassWriter(storeOnly, jar)
+        new JarClassWriter(file, jarManifestMainClass, settings.YjarCompressionLevel.value)
       } else if (file.isVirtual) {
         new VirtualClassWriter()
       } else if (file.isDirectory) {
-        new DirClassWriter(frontendAccess)
+        new DirClassWriter(genBCode.postProcessorFrontendAccess)
       } else {
         throw new IllegalStateException(s"don't know how to handle an output of $file [${file.getClass}]")
       }
     }
+
     val basicClassWriter = settings.outputDirs.getSingleOutput match {
       case Some(dest) => singleWriter(dest)
       case None =>
@@ -72,19 +50,33 @@ object ClassfileWriter {
         if (distinctOutputs.size == 1) singleWriter(distinctOutputs.head)
         else new MultiClassWriter(distinctOutputs.map{output:AbstractFile => output ->  singleWriter(output)}(scala.collection.breakOut))
     }
+
     val withAdditionalFormats = if (settings.Ygenasmp.valueSetByUser.isEmpty && settings.Ydumpclasses.valueSetByUser.isEmpty) basicClassWriter else {
-      val asmp = settings.Ygenasmp.valueSetByUser map {dir:String => new AsmClassWriter(getDirectory(dir), frontendAccess)}
-      val dump = settings.Ydumpclasses.valueSetByUser map {dir:String => new DumpClassWriter(getDirectory(dir), frontendAccess)}
+      val asmp = settings.Ygenasmp.valueSetByUser map {dir: String => new AsmClassWriter(getDirectory(dir), genBCode.postProcessorFrontendAccess)}
+      val dump = settings.Ydumpclasses.valueSetByUser map {dir: String => new DumpClassWriter(getDirectory(dir), genBCode.postProcessorFrontendAccess)}
       new AllClassWriter(basicClassWriter, asmp, dump)
     }
 
     if (statistics.enabled) new WithStatsWriter(statistics, withAdditionalFormats) else withAdditionalFormats
-
   }
-  private final class JarClassWriter(storeOnly:Boolean, jarWriter:JarOutputStream) extends UnderlyingClassfileWriter {
+
+  private final class JarClassWriter(file: AbstractFile, mainClass: Option[String], compressionLevel: Int) extends UnderlyingClassfileWriter {
+    import java.util.jar.Attributes.Name
+    import java.util.jar.{JarOutputStream, Manifest}
+    val storeOnly = compressionLevel == Deflater.NO_COMPRESSION
+
+    val jarWriter: JarOutputStream = {
+      val manifest = new Manifest()
+      mainClass foreach {c => manifest.getMainAttributes.put(Name.MAIN_CLASS, c)}
+      val jar = new JarOutputStream(new BufferedOutputStream(new FileOutputStream(file.file), 64000), manifest)
+      jar.setLevel(compressionLevel)
+      if (storeOnly) jar.setMethod(ZipOutputStream.STORED)
+      jar
+    }
 
     lazy val crc = new CRC32
-    override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = this.synchronized{
+
+    override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = this.synchronized {
       val path = className + ".class"
       val entry = new ZipEntry(path)
       if (storeOnly) {
@@ -96,20 +88,21 @@ object ClassfileWriter {
       try jarWriter.write(bytes, 0, bytes.length)
       finally jarWriter.flush()
     }
+
     override def close(): Unit = this.synchronized(jarWriter.close())
   }
 
   private sealed class DirClassWriter(frontendAccess: PostProcessorFrontendAccess) extends UnderlyingClassfileWriter {
-
     val builtPaths = new ConcurrentHashMap[Path, java.lang.Boolean]()
     val noAttributes = Array.empty[FileAttribute[_]]
-    def ensureDirForPath(baseDir:Path, filePath: Path): Unit = {
+
+    def ensureDirForPath(baseDir: Path, filePath: Path): Unit = {
       import java.lang.Boolean.TRUE
       val parent = filePath.getParent
       if (!builtPaths.containsKey(parent)) {
         try Files.createDirectories(parent, noAttributes :_*)
         catch { case e: FileAlreadyExistsException =>
-            throw new FileConflictException(s"Can't create directory $parent", e)
+            throw new FileConflictException(s"Can't create directory $parent; there is an existing (non-directory) file in its path", e)
         }
         builtPaths.put(baseDir, TRUE)
         var current = parent
@@ -161,14 +154,15 @@ object ClassfileWriter {
     override protected def formatData(rawBytes: Array[Byte]) = AsmUtils.textify(AsmUtils.readClass(rawBytes)).getBytes(StandardCharsets.UTF_8)
     override protected def qualifier:String = " [for asmp]"
   }
+
   private final class DumpClassWriter(val dumpOutputPath:Path,
                                       frontendAccess: PostProcessorFrontendAccess)
     extends DirClassWriter(frontendAccess) {
     override protected def getPath(unit: SourceUnit, className: InternalName) =  dumpOutputPath.resolve(className+".class")
     override protected def qualifier:String = " [for dump]"
   }
-  private final class VirtualClassWriter() extends UnderlyingClassfileWriter {
 
+  private final class VirtualClassWriter() extends UnderlyingClassfileWriter {
     private def getFile(base: AbstractFile, clsName: String, suffix: String): AbstractFile = {
       def ensureDirectory(dir: AbstractFile): AbstractFile =
         if (dir.isDirectory) dir
@@ -186,15 +180,15 @@ object ClassfileWriter {
       finally out.close()
     }
 
-
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = {
       val outFile = getFile(unit.outputDir, className, ".class")
       writeBytes(outFile, bytes)
     }
+
     override def close(): Unit = ()
   }
-  private final class MultiClassWriter(underlying: Map [AbstractFile, UnderlyingClassfileWriter]) extends ClassfileWriter {
 
+  private final class MultiClassWriter(underlying: Map [AbstractFile, UnderlyingClassfileWriter]) extends ClassfileWriter {
     private def getUnderlying(unit: SourceUnit) = underlying.getOrElse(unit.outputDir, {
       throw new Exception(s"Cannot determine output directory for ${unit.sourceFile} with output ${unit.outputDir}. Configured outputs are ${underlying.keySet}")
     })
@@ -202,23 +196,25 @@ object ClassfileWriter {
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = {
       getUnderlying(unit).write(unit, clazz, className, bytes)
     }
+
     override def close(): Unit = underlying.values.foreach(_.close())
   }
-  private final class AllClassWriter(basic: ClassfileWriter, asmp: Option[UnderlyingClassfileWriter], dump: Option[UnderlyingClassfileWriter]) extends ClassfileWriter {
 
+  private final class AllClassWriter(basic: ClassfileWriter, asmp: Option[UnderlyingClassfileWriter], dump: Option[UnderlyingClassfileWriter]) extends ClassfileWriter {
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = {
       basic.write(unit, clazz, className, bytes)
       asmp.foreach(_.write(unit, clazz, className, bytes))
       dump.foreach(_.write(unit, clazz, className, bytes))
     }
+
     override def close(): Unit = {
       basic.close()
       asmp.foreach(_.close())
       dump.foreach(_.close())
     }
   }
-  private final class WithStatsWriter(statistics: Statistics with BackendStats, underlying: ClassfileWriter) extends ClassfileWriter {
 
+  private final class WithStatsWriter(statistics: Statistics with BackendStats, underlying: ClassfileWriter) extends ClassfileWriter {
     override def write(unit: SourceUnit, clazz: GeneratedClass, className: InternalName, bytes: Array[Byte]): Unit = {
       val snap = statistics.startTimer(statistics.bcodeWriteTimer)
       underlying.write(unit, clazz, className, bytes)
