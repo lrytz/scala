@@ -8,7 +8,6 @@ package backend
 package jvm
 
 import scala.tools.asm.Opcodes
-import scala.tools.nsc.profile.AsyncHelper
 
 abstract class GenBCode extends SubComponent {
   self =>
@@ -21,9 +20,10 @@ abstract class GenBCode extends SubComponent {
 
   val codeGen: CodeGen[global.type] = new { val bTypes: self.bTypes.type = self.bTypes } with CodeGen[global.type](global)
 
-  val postProcessor: PostProcessor { val bTypes: self.bTypes.type } = new {
-    val bTypes: self.bTypes.type = self.bTypes
-  } with PostProcessor(statistics) // TODO: statistics are not thread-safe, synchronize through `postProcessorFrontendAccess`
+  val postProcessor: PostProcessor { val bTypes: self.bTypes.type } = new { val bTypes: self.bTypes.type = self.bTypes } with PostProcessor(statistics)
+
+  // re-initialized per run, as it depends on compiler settings that may change
+  var generatedClassHandler: GeneratedClassHandler = _
 
   val phaseName = "jvm"
 
@@ -34,21 +34,17 @@ abstract class GenBCode extends SubComponent {
 
     override val erasedTypes = true
 
-    private var generatedHandler: GeneratedClassHandler = _
-
-    def apply(unit: CompilationUnit): Unit = {
-      codeGen.genUnit(statistics, unit, generatedHandler)
-    }
+    def apply(unit: CompilationUnit): Unit = codeGen.genUnit(unit)
 
     override def run(): Unit = {
       statistics.timed(bcodeTimer) {
         try {
           initialize()
           super.run() // invokes `apply` for each compilation unit
-          generatedHandler.complete()
+          generatedClassHandler.complete()
         } finally {
           // When writing to a jar, we need to close the jarWriter.
-          generatedHandler.close()
+          generatedClassHandler.close()
         }
       }
     }
@@ -64,7 +60,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler = GeneratedClassHandler(global)
+      generatedClassHandler = GeneratedClassHandler(global)
       statistics.stopTimer(statistics.bcodeInitTimer, initStart)
     }
   }

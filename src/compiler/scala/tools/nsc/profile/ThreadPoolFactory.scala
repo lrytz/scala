@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import scala.tools.nsc.{Global, Phase}
 
-sealed trait AsyncHelper {
+sealed trait ThreadPoolFactory {
   def newUnboundedQueueFixedThreadPool(
       nThreads: Int,
       shortId: String,
@@ -20,13 +20,13 @@ sealed trait AsyncHelper {
       priority: Int = Thread.NORM_PRIORITY): ThreadPoolExecutor
 }
 
-object AsyncHelper {
-  def apply(global: Global, phase: Phase): AsyncHelper = global.currentRun.profiler match {
-    case NoOpProfiler => new BasicAsyncHelper(phase)
-    case r: RealProfiler => new ProfilingAsyncHelper(phase, r)
+object ThreadPoolFactory {
+  def apply(global: Global, phase: Phase): ThreadPoolFactory = global.currentRun.profiler match {
+    case NoOpProfiler => new BasicThreadPoolFactory(phase)
+    case r: RealProfiler => new ProfilingThreadPoolFactory(phase, r)
   }
 
-  private abstract class BaseAsyncHelper(phase: Phase) extends AsyncHelper {
+  private abstract class BaseThreadPoolFactory(phase: Phase) extends ThreadPoolFactory {
     val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
 
     private def childGroup(name: String) = new ThreadGroup(baseGroup, name)
@@ -55,7 +55,7 @@ object AsyncHelper {
     }
   }
 
-  private final class BasicAsyncHelper(phase: Phase) extends BaseAsyncHelper(phase) {
+  private final class BasicThreadPoolFactory(phase: Phase) extends BaseThreadPoolFactory(phase) {
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
@@ -69,7 +69,7 @@ object AsyncHelper {
     }
   }
 
-  private class ProfilingAsyncHelper(phase: Phase, profiler: RealProfiler) extends BaseAsyncHelper(phase) {
+  private class ProfilingThreadPoolFactory(phase: Phase, profiler: RealProfiler) extends BaseThreadPoolFactory(phase) {
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool

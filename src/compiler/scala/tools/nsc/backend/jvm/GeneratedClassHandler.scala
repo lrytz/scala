@@ -10,20 +10,20 @@ import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Futu
 import scala.reflect.internal.util.{NoPosition, Position, SourceFile}
 import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.BackendReporting
 import scala.tools.nsc.io.AbstractFile
-import scala.tools.nsc.profile.AsyncHelper
+import scala.tools.nsc.profile.ThreadPoolFactory
 import scala.util.control.NonFatal
 
 /**
- * Interface to handle post-processing (see [[PostProcessor]]) of generated classes, potentially
- * in parallel.
+ * Interface to handle post-processing (see [[PostProcessor]]) and classfile writing of generated
+ * classes, potentially in parallel.
  */
 private[jvm] sealed trait GeneratedClassHandler {
   val postProcessor: PostProcessor
 
   /**
-   * Invoked at the end of the jvm phase
-   */
-  def close(): Unit
+    * Pass the result of code generation for a compilation unit to this handler for post-processing
+    */
+  def process(unit: GeneratedCompilationUnit)
 
   /**
    * If running in parallel, block until all generated classes are handled
@@ -31,17 +31,9 @@ private[jvm] sealed trait GeneratedClassHandler {
   def complete(): Unit
 
   /**
-   * Notify this handler that code generation for a compilation unit has finished
-   */
-  def endUnit(unit: SourceFile)
-
-  /**
-   * Add a generated class to this handler for post-processing
-   */
-  def startProcess(clazz: GeneratedClass): Unit
-
-  // TODO: currently not invoked
-  def initialize(): Unit = ()
+    * Invoked at the end of the jvm phase
+    */
+  def close(): Unit
 }
 
 private[jvm] object GeneratedClassHandler {
@@ -66,8 +58,8 @@ private[jvm] object GeneratedClassHandler {
         // when the queue is full, the main thread will no some background work
         // so this provides back-pressure
         val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2
-        val asyncHelper = AsyncHelper(global, currentRun.jvmPhase)
-        val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
+        val threadPoolFactory = ThreadPoolFactory(global, currentRun.jvmPhase)
+        val javaExecutor = threadPoolFactory.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
         val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)
     }
@@ -77,41 +69,24 @@ private[jvm] object GeneratedClassHandler {
     else handler
   }
 
-  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends GeneratedClassHandler {
-    private val bufferBuilder = List.newBuilder[GeneratedClass]
+  private class GlobalOptimisingGeneratedClassHandler(
+      val postProcessor: PostProcessor,
+      underlying: WritingClassHandler)
+    extends GeneratedClassHandler {
 
-    override def close(): Unit = underlying.close()
+    private val generatedUnits = ListBuffer.empty[GeneratedCompilationUnit]
 
-    override def startProcess(clazz: GeneratedClass): Unit = bufferBuilder += clazz
+    def process(unit: GeneratedCompilationUnit): Unit = generatedUnits += unit
 
-    override def complete(): Unit = {
-      globalOptimise()
+    def complete(): Unit = {
+      val allGeneratedUnits = generatedUnits.result()
+      generatedUnits.clear()
+      postProcessor.runGlobalOptimizations(allGeneratedUnits)
+      allGeneratedUnits.foreach(underlying.process)
       underlying.complete()
     }
 
-    override def endUnit(unit: SourceFile): Unit = ()
-
-    private def globalOptimise(): Unit = {
-      val allClasses = bufferBuilder.result()
-      postProcessor.runGlobalOptimizations(allClasses)
-
-      //replay the units to underlying
-      var current = allClasses.head
-      underlying.startProcess(current)
-      for (next <- allClasses.tail) {
-        if (next.sourceFile ne current.sourceFile) {
-          underlying.endUnit(current.sourceFile)
-        }
-        underlying.startProcess(next)
-        current = next
-      }
-      underlying.endUnit(current.sourceFile)
-    }
-
-    override def initialize(): Unit = {
-      bufferBuilder.clear()
-      underlying.initialize()
-    }
+    def close(): Unit = underlying.close()
 
     override def toString: String = s"GloballyOptimising[$underlying]"
   }
@@ -120,29 +95,14 @@ private[jvm] object GeneratedClassHandler {
     val unitInfoLookup: UnitInfoLookup
     val cfWriter: ClassfileWriter
 
-    protected val pendingBuilder = List.newBuilder[UnitResult]
-    private val inUnit = ListBuffer.empty[GeneratedClass]
+    def tryStealing: Option[Runnable]
 
-    override def startProcess(clazz: GeneratedClass): Unit = {
-      inUnit += clazz
-    }
+    private val processingUnits = ListBuffer.empty[UnitResult]
 
-    protected def pending(): List[UnitResult] = {
-      val result = pendingBuilder.result()
-      pendingBuilder.clear()
-      result
-    }
-    override def initialize(): Unit = {
-      super.initialize()
-      pendingBuilder.clear()
-    }
-
-    override def endUnit(unit:SourceFile): Unit = {
-      val unitProcess = new UnitResult(unitInfoLookup, inUnit.result, unit)
-      inUnit.clear()
+    def process(unit: GeneratedCompilationUnit): Unit = {
+      val unitProcess = new UnitResult(unitInfoLookup, unit.classes, unit.sourceFile)
       postProcessUnit(unitProcess)
-
-      pendingBuilder += unitProcess
+      processingUnits += unitProcess
     }
 
     protected implicit val executionContext: ExecutionContextExecutor = ExecutionContext.fromExecutor(javaExecutor)
@@ -158,38 +118,44 @@ private[jvm] object GeneratedClassHandler {
       }
     }
 
-    override def close(): Unit = cfWriter.close()
+    protected def getAndClearProcessingUnits(): List[UnitResult] = {
+      val result = processingUnits.result()
+      processingUnits.clear()
+      result
+    }
 
     override def complete(): Unit = {
       val directBackendReporting = postProcessor.bTypes.frontendAccess.directBackendReporting
+
       def stealWhileWaiting(unitResult: UnitResult, fut: Future[Unit]): Unit = {
         while (!fut.isCompleted)
           tryStealing match {
-            case Some(r:Runnable) => r.run()
+            case Some(r) => r.run()
             case None => Await.ready(fut, Duration.Inf)
         }
         //we know that they are complete by we need to check for exception
         //but first get any reports
         unitResult.relayReports(directBackendReporting)
-        fut.value.get.get
+        fut.value.get.get // throw the exception if the future completed with a failure
       }
 
       // This way it is easier to test, as the results are deterministic
       // the the loss of potential performance is probably minimal
-      pending().foreach {
-        unitResult: UnitResult =>
-          try {
-            stealWhileWaiting(unitResult, unitResult.task)
-            stealWhileWaiting(unitResult, unitResult.result.future)
-          } catch {
-            case NonFatal(t) =>
-              t.printStackTrace()
-              postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.source} $t")
-          }
+      getAndClearProcessingUnits().foreach { unitResult =>
+        try {
+          stealWhileWaiting(unitResult, unitResult.task)
+          stealWhileWaiting(unitResult, unitResult.result.future)
+        } catch {
+          case NonFatal(t) =>
+            t.printStackTrace()
+            postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.sourceFile} $t")
+        }
       }
     }
-    def tryStealing:Option[Runnable]
+
+    def close(): Unit = cfWriter.close()
   }
+
   private final class SyncWritingClassHandler(
       val unitInfoLookup: UnitInfoLookup,
       val postProcessor: PostProcessor,
@@ -238,15 +204,13 @@ sealed trait SourceUnit {
   val outputDir: AbstractFile
   val outputPath: java.nio.file.Path
   def sourceFile:AbstractFile
-
 }
-final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[GeneratedClass], val source:SourceFile) extends SourceUnit with BackendReporting {
-  lazy val outputDir = unitInfoLookup.outputDir(source.file)
 
-  override def sourceFile = source.file
-
+final class UnitResult(unitInfoLookup: UnitInfoLookup, _classes : List[GeneratedClass], val sourceFile: AbstractFile) extends SourceUnit with BackendReporting {
+  lazy val outputDir = unitInfoLookup.outputDir(sourceFile)
   lazy val outputPath = outputDir.file.toPath
-  private var classes: List[GeneratedClass] = classes_
+
+  private var classes: List[GeneratedClass] = _classes
 
   def copyClasses = classes
 
@@ -271,8 +235,13 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
         report.relay(backendReporting)
       }
     }
+    bufferedReports = Nil
   }
 
+  // We optimise access to the buffered reports for the common case - that there are no warning/errors to report
+  // We could use a listBuffer etc - but that would be extra allocation in the common case
+  // Note - all access is externally synchronized, as this allow the reports to be generated in on thread and
+  // consumed in another
   private var bufferedReports = List.empty[Report]
 
   override def withBufferedReporter[T](fn: => T) = unitInfoLookup.frontendAccess.withLocalReporter(this)(fn)
@@ -320,6 +289,4 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, classes_ : List[Generated
     override def relay(reporting: BackendReporting): Unit =
       reporting.log(message)
   }
-
 }
-

@@ -21,7 +21,7 @@ sealed abstract class PostProcessorFrontendAccess {
 
   def compilerSettings: CompilerSettings
 
-  def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T
+  def withLocalReporter[T](reporter: BackendReporting)(fn: => T): T
   def backendReporting: BackendReporting
   def directBackendReporting: BackendReporting
 
@@ -136,19 +136,22 @@ object PostProcessorFrontendAccess {
       val optLogInline: Option[String] = s.YoptLogInline.valueSetByUser
       val optTrace: Option[String] = s.YoptTrace.valueSetByUser
     }
+
     private lazy val localReporter = perRunLazy(this)(new ThreadLocal[BackendReporting])
 
-    override def withLocalReporter[T](reporter: BackendReporting) (fn : => T): T = {
+    override def withLocalReporter[T](reporter: BackendReporting)(fn: => T): T = {
       val threadLocal = localReporter.get
       val old = threadLocal.get()
       threadLocal.set(reporter)
       try fn finally
         if (old eq null) threadLocal.remove() else threadLocal.set(old)
     }
-    override def backendReporting : BackendReporting = {
+
+    override def backendReporting: BackendReporting = {
       val local = localReporter.get.get()
       if (local eq null) directBackendReporting else local
     }
+
     object directBackendReporting extends BackendReporting {
       //TODO backend reporting should not be locked, it should be buffered and flushed when we consume the result
       def inlinerWarning(pos: Position, message: String): Unit = frontendSynch {

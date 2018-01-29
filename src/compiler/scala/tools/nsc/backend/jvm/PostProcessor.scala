@@ -4,6 +4,7 @@ package backend.jvm
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.reflect.internal.util.{NoPosition, Position, SourceFile, Statistics}
+import scala.reflect.io.AbstractFile
 import scala.tools.asm.ClassWriter
 import scala.tools.asm.tree.ClassNode
 import scala.tools.nsc.backend.jvm.analysis.BackendUtils
@@ -67,7 +68,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
       if (AsmUtils.traceSerializedClassEnabled && internalName.contains(AsmUtils.traceSerializedClassPattern))
         AsmUtils.traceClass(bytes)
 
-      writer.write(unit, clazz, internalName, bytes)
+      writer.write(unit, internalName, bytes)
     }
   }
   private def warnCaseInsensitiveOverwrite(clazz: GeneratedClass): Unit = {
@@ -85,14 +86,14 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
     }
   }
 
-  def runGlobalOptimizations(classes: Traversable[GeneratedClass]): Unit = {
+  def runGlobalOptimizations(generatedUnits: Traversable[GeneratedCompilationUnit]): Unit = {
     // add classes to the bytecode repo before building the call graph: the latter needs to
     // look up classes and methods in the code repo.
     if (compilerSettings.optAddToBytecodeRepository) {
-      for (c <- classes) {
-        byteCodeRepository.add(c.classNode, Some(c.sourceFile.file.canonicalPath))
+      for (u <- generatedUnits; c <- u.classes) {
+        byteCodeRepository.add(c.classNode, Some(u.sourceFile.canonicalPath))
       }
-      if (compilerSettings.optBuildCallGraph) for (c <- classes if !c.isArtifact) {
+      if (compilerSettings.optBuildCallGraph) for (u <- generatedUnits; c <- u.classes if !c.isArtifact) {
         // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
         callGraph.addClass(c.classNode)
       }
@@ -145,3 +146,4 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
  * The result of code generation. [[isArtifact]] is `true` for mirror and bean-info classes.
  */
 case class GeneratedClass(classNode: ClassNode, sourceClassName: String, position: Position, sourceFile: SourceFile, isArtifact: Boolean)
+case class GeneratedCompilationUnit(sourceFile: AbstractFile, classes: List[GeneratedClass])
