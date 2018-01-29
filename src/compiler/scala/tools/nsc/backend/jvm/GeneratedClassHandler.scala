@@ -52,6 +52,8 @@ private[jvm] object GeneratedClassHandler {
         new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
 
       case maxThreads =>
+        if (global.statistics.enabled)
+          global.reporter.warning(global.NoPosition, "jvm statistics are not reliable with multi-threaded jvm class writing")
         val additionalThreads = maxThreads -1
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
         // run that it takes to exhaust the queue for the backend workers
