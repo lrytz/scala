@@ -109,12 +109,13 @@ private[jvm] object GeneratedClassHandler {
 
     final def postProcessUnit(unitProcess: UnitResult): Unit = {
       unitProcess.task = Future {
-        // we 'take' classes to reduce the memory pressure
-        // as soon as the class is consumed and written, we release its data
-        unitProcess.takeClasses foreach {
-          postProcessor.sendToDisk(unitProcess, _, cfWriter)
+        unitProcess.withBufferedReporter {
+          // we 'take' classes to reduce the memory pressure
+          // as soon as the class is consumed and written, we release its data
+          unitProcess.takeClasses foreach {
+            postProcessor.sendToDisk(unitProcess, _, cfWriter)
+          }
         }
-        unitProcess.completedUnit()
       }
     }
 
@@ -144,7 +145,6 @@ private[jvm] object GeneratedClassHandler {
       getAndClearProcessingUnits().foreach { unitResult =>
         try {
           stealWhileWaiting(unitResult, unitResult.task)
-          stealWhileWaiting(unitResult, unitResult.result.future)
         } catch {
           case NonFatal(t) =>
             t.printStackTrace()
@@ -222,12 +222,6 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, _classes : List[Generated
 
   /** the main async task submitted onto the scheduler */
   var task: Future[Unit] = _
-
-  /** the final completion which may occur after the task completes
-    * this allows the use of async completions */
-  val result = Promise[Unit]()
-
-  def completedUnit(): Unit = result.trySuccess(())
 
   def relayReports(backendReporting: BackendReporting): Unit = this.synchronized {
     if (bufferedReports nonEmpty) {
