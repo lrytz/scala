@@ -7,14 +7,17 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.tools.nsc.{Global, Phase}
 
 sealed trait AsyncHelper {
+  def newUnboundedQueueFixedThreadPool(
+      nThreads: Int,
+      shortId: String,
+      priority: Int = Thread.NORM_PRIORITY): ThreadPoolExecutor
 
-  def newUnboundedQueueFixedThreadPool
-  (nThreads: Int,
-   shortId: String, priority : Int = Thread.NORM_PRIORITY) : ThreadPoolExecutor
-  def newBoundedQueueFixedThreadPool
-  (nThreads: Int, maxQueueSize: Int, rejectHandler: RejectedExecutionHandler,
-   shortId: String, priority : Int = Thread.NORM_PRIORITY) : ThreadPoolExecutor
-
+  def newBoundedQueueFixedThreadPool(
+      nThreads: Int,
+      maxQueueSize: Int,
+      rejectHandler: RejectedExecutionHandler,
+      shortId: String,
+      priority: Int = Thread.NORM_PRIORITY): ThreadPoolExecutor
 }
 
 object AsyncHelper {
@@ -25,19 +28,25 @@ object AsyncHelper {
 
   private abstract class BaseAsyncHelper(phase: Phase) extends AsyncHelper {
     val baseGroup = new ThreadGroup(s"scalac-${phase.name}")
+
     private def childGroup(name: String) = new ThreadGroup(baseGroup, name)
 
-    protected def wrapRunnable(r: Runnable, shortId:String): Runnable
+    // Invoked when a new `Worker` is created, see `CommonThreadFactory.newThread`
+    protected def wrapWorker(worker: Runnable, shortId: String): Runnable = worker
 
-    protected class CommonThreadFactory(shortId: String,
-                                        daemon: Boolean = true,
-                                        priority: Int) extends ThreadFactory {
+    protected final class CommonThreadFactory(
+        shortId: String,
+        daemon: Boolean = true,
+        priority: Int) extends ThreadFactory {
       private val group: ThreadGroup = childGroup(shortId)
       private val threadNumber: AtomicInteger = new AtomicInteger(1)
       private val namePrefix = s"${baseGroup.getName}-$shortId-"
 
-      override def newThread(r: Runnable): Thread = {
-        val wrapped = wrapRunnable(r, shortId)
+      // Invoked by the `ThreadPoolExecutor` when creating a new worker thread. The argument
+      // runnable is the `Worker` (which extends `Runnable`). Its `run` method gets tasks from
+      // the thread pool and executes them (on the thread created here).
+      override def newThread(worker: Runnable): Thread = {
+        val wrapped = wrapWorker(worker, shortId)
         val t: Thread = new Thread(group, wrapped, namePrefix + threadNumber.getAndIncrement, 0)
         if (t.isDaemon != daemon) t.setDaemon(daemon)
         if (t.getPriority != priority) t.setPriority(priority)
@@ -47,7 +56,6 @@ object AsyncHelper {
   }
 
   private final class BasicAsyncHelper(phase: Phase) extends BaseAsyncHelper(phase) {
-
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
@@ -59,12 +67,9 @@ object AsyncHelper {
       //like Executors.newFixedThreadPool
       new ThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)
     }
-
-    override protected def wrapRunnable(r: Runnable, shortId:String): Runnable = r
   }
 
-  private class ProfilingAsyncHelper(phase: Phase, private val profiler: RealProfiler) extends BaseAsyncHelper(phase) {
-
+  private class ProfilingAsyncHelper(phase: Phase, profiler: RealProfiler) extends BaseAsyncHelper(phase) {
     override def newUnboundedQueueFixedThreadPool(nThreads: Int, shortId: String, priority: Int): ThreadPoolExecutor = {
       val threadFactory = new CommonThreadFactory(shortId, priority = priority)
       //like Executors.newFixedThreadPool
@@ -77,12 +82,12 @@ object AsyncHelper {
       new SinglePhaseInstrumentedThreadPoolExecutor(nThreads, nThreads, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue[Runnable](maxQueueSize), threadFactory, rejectHandler)
     }
 
-    override protected def wrapRunnable(r: Runnable, shortId:String): Runnable = () => {
+    override protected def wrapWorker(worker: Runnable, shortId: String): Runnable = () => {
       val data = new ThreadProfileData
       localData.set(data)
 
       val profileStart = profiler.snapThread(0)
-      try r.run finally {
+      try worker.run finally {
         val snap = profiler.snapThread(data.idleNs)
         val threadRange = ProfileRange(profileStart, snap, phase, shortId, data.taskCount, Thread.currentThread())
         profiler.completeBackground(threadRange)
@@ -105,10 +110,10 @@ object AsyncHelper {
 
     val localData = new ThreadLocal[ThreadProfileData]
 
-    private class SinglePhaseInstrumentedThreadPoolExecutor
-        (   corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
-            workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler
-    ) extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler) {
+    private class SinglePhaseInstrumentedThreadPoolExecutor(
+        corePoolSize: Int, maximumPoolSize: Int, keepAliveTime: Long, unit: TimeUnit,
+        workQueue: BlockingQueue[Runnable], threadFactory: ThreadFactory, handler: RejectedExecutionHandler)
+      extends ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler) {
 
       override def beforeExecute(t: Thread, r: Runnable): Unit = {
         val data = localData.get
@@ -132,7 +137,6 @@ object AsyncHelper {
 
         super.afterExecute(r, t)
       }
-
     }
   }
 }

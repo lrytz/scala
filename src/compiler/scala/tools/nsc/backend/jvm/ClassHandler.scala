@@ -1,13 +1,13 @@
-package scala.tools.nsc.backend.jvm
+package scala.tools.nsc
+package backend.jvm
 
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
 import java.util.concurrent._
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContextExecutor, ExecutionContext, Future, Promise}
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future, Promise}
 import scala.reflect.internal.util.{NoPosition, Position, SourceFile}
-import scala.tools.nsc.Settings
 import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.BackendReporting
 import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.profile.AsyncHelper
@@ -28,8 +28,12 @@ private[jvm] sealed trait ClassHandler {
 }
 
 private[jvm] object ClassHandler {
+  def apply(global: Global) = {
+    import global._
+    import genBCode.postProcessor
 
-  def apply(asyncHelper: AsyncHelper, cfWriter: ClassfileWriter, settings:Settings, postProcessor: PostProcessor) = {
+    val cfWriter = ClassfileWriter(global)
+
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
       case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
@@ -43,6 +47,7 @@ private[jvm] object ClassHandler {
         // when the queue is full, the main thread will no some background work
         // so this provides back-pressure
         val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2
+        val asyncHelper = AsyncHelper(global, currentRun.jvmPhase)
         val javaExecutor = asyncHelper.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
         val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
         new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)

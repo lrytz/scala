@@ -29,7 +29,6 @@ abstract class GenBCode extends SubComponent {
 
   override def newPhase(prev: Phase) = new BCodePhase(prev)
 
-
   class BCodePhase(prev: Phase) extends StdPhase(prev) {
     override def description = "Generate bytecode from ASTs using the ASM library"
 
@@ -65,9 +64,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      val asyncHelper = AsyncHelper(global, this) // TODO phase -- just pass the name and id (?)
-      val cfWriter = ClassfileWriter(global)
-      generatedHandler = ClassHandler(asyncHelper, cfWriter, settings, postProcessor)
+      generatedHandler = ClassHandler(global)
       statistics.stopTimer(statistics.bcodeInitTimer, initStart)
     }
   }
