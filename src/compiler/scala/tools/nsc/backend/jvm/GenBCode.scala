@@ -23,7 +23,7 @@ abstract class GenBCode extends SubComponent {
 
   val postProcessor: PostProcessor { val bTypes: self.bTypes.type } = new {
     val bTypes: self.bTypes.type = self.bTypes
-  } with PostProcessor(statistics)
+  } with PostProcessor(statistics) // TODO: statistics are not thread-safe, synchronize through `postProcessorFrontendAccess`
 
   val phaseName = "jvm"
 
@@ -34,7 +34,7 @@ abstract class GenBCode extends SubComponent {
 
     override val erasedTypes = true
 
-    private var generatedHandler: ClassHandler = _
+    private var generatedHandler: GeneratedClassHandler = _
 
     def apply(unit: CompilationUnit): Unit = {
       codeGen.genUnit(statistics, unit, generatedHandler)
@@ -64,7 +64,7 @@ abstract class GenBCode extends SubComponent {
       codeGen.initialize()
       postProcessorFrontendAccess.initialize()
       postProcessor.initialize()
-      generatedHandler = ClassHandler(global)
+      generatedHandler = GeneratedClassHandler(global)
       statistics.stopTimer(statistics.bcodeInitTimer, initStart)
     }
   }

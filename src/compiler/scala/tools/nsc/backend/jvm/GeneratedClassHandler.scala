@@ -13,22 +13,39 @@ import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.profile.AsyncHelper
 import scala.util.control.NonFatal
 
-private[jvm] sealed trait ClassHandler {
+/**
+ * Interface to handle post-processing (see [[PostProcessor]]) of generated classes, potentially
+ * in parallel.
+ */
+private[jvm] sealed trait GeneratedClassHandler {
+  val postProcessor: PostProcessor
+
+  /**
+   * Invoked at the end of the jvm phase
+   */
   def close(): Unit
 
+  /**
+   * If running in parallel, block until all generated classes are handled
+   */
   def complete(): Unit
 
-  def endUnit(unit:SourceFile)
+  /**
+   * Notify this handler that code generation for a compilation unit has finished
+   */
+  def endUnit(unit: SourceFile)
 
+  /**
+   * Add a generated class to this handler for post-processing
+   */
   def startProcess(clazz: GeneratedClass): Unit
 
-  def initialise(): Unit = ()
-
-  val postProcessor:PostProcessor
+  // TODO: currently not invoked
+  def initialize(): Unit = ()
 }
 
-private[jvm] object ClassHandler {
-  def apply(global: Global) = {
+private[jvm] object GeneratedClassHandler {
+  def apply(global: Global): GeneratedClassHandler = {
     import global._
     import genBCode.postProcessor
 
@@ -38,8 +55,10 @@ private[jvm] object ClassHandler {
       case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
-    val writer = settings.YaddBackendThreads.value match {
-      case 1 => new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
+    val handler = settings.YaddBackendThreads.value match {
+      case 1 =>
+        new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
+
       case maxThreads =>
         val additionalThreads = maxThreads -1
         // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
@@ -54,11 +73,11 @@ private[jvm] object ClassHandler {
     }
 
     if (settings.optInlinerEnabled || settings.optClosureInvocations)
-      new GlobalOptimisingGeneratedClassHandler(postProcessor, writer)
-    else writer
+      new GlobalOptimisingGeneratedClassHandler(postProcessor, handler)
+    else handler
   }
 
-  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends ClassHandler {
+  private class GlobalOptimisingGeneratedClassHandler(val postProcessor: PostProcessor, val underlying: WritingClassHandler) extends GeneratedClassHandler {
     private val bufferBuilder = List.newBuilder[GeneratedClass]
 
     override def close(): Unit = underlying.close()
@@ -89,15 +108,15 @@ private[jvm] object ClassHandler {
       underlying.endUnit(current.sourceFile)
     }
 
-    override def initialise(): Unit = {
+    override def initialize(): Unit = {
       bufferBuilder.clear()
-      underlying.initialise()
+      underlying.initialize()
     }
 
     override def toString: String = s"GloballyOptimising[$underlying]"
   }
 
-  sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends ClassHandler {
+  sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends GeneratedClassHandler {
     val unitInfoLookup: UnitInfoLookup
     val cfWriter: ClassfileWriter
 
@@ -113,8 +132,8 @@ private[jvm] object ClassHandler {
       pendingBuilder.clear()
       result
     }
-    override def initialise(): Unit = {
-      super.initialise()
+    override def initialize(): Unit = {
+      super.initialize()
       pendingBuilder.clear()
     }
 
@@ -171,15 +190,18 @@ private[jvm] object ClassHandler {
     }
     def tryStealing:Option[Runnable]
   }
-  private final class SyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
-                val postProcessor: PostProcessor, val cfWriter: ClassfileWriter)
+  private final class SyncWritingClassHandler(
+      val unitInfoLookup: UnitInfoLookup,
+      val postProcessor: PostProcessor,
+      val cfWriter: ClassfileWriter)
     extends WritingClassHandler((r) => r.run()) {
 
     override def toString: String = s"SyncWriting [$cfWriter]"
 
     override def tryStealing: Option[Runnable] = None
   }
-  private final case class ExecutorServiceInfo( maxThreads:Int, javaExecutor : ExecutorService, queue:BlockingQueue[Runnable])
+
+  private final case class ExecutorServiceInfo(maxThreads: Int, javaExecutor: ExecutorService, queue: BlockingQueue[Runnable])
 
   private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
                                                val postProcessor: PostProcessor,

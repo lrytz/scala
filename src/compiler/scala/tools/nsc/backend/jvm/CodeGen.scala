@@ -15,7 +15,7 @@ abstract class CodeGen[G <: Global](val global: G) extends PerRunInit {
 
   private[this] lazy val beanInfoCodeGen: LazyVar[CodeGenImpl.JBeanInfoBuilder] = perRunLazy(this)(new CodeGenImpl.JBeanInfoBuilder())
 
-  def genUnit(statistics: Statistics with BackendStats, unit: CompilationUnit, processor: ClassHandler) = {
+  def genUnit(statistics: Statistics with BackendStats, unit: CompilationUnit, processor: GeneratedClassHandler) = {
     val sourceFile = unit.source
 
     def genClassDef(cd: ClassDef): Unit = try {

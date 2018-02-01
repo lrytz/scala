@@ -39,7 +39,6 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   }
 
   def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
-
     val classNode = clazz.classNode
     val internalName = classNode.name
     val bytes = try {
