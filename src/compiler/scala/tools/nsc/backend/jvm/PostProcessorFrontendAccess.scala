@@ -153,7 +153,6 @@ object PostProcessorFrontendAccess {
     }
 
     object directBackendReporting extends BackendReporting {
-      //TODO backend reporting should not be locked, it should be buffered and flushed when we consume the result
       def inlinerWarning(pos: Position, message: String): Unit = frontendSynch {
         currentRun.reporting.inlinerWarning(pos, message)
       }

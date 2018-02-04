@@ -142,8 +142,15 @@ private[jvm] object GeneratedClassHandler {
         fut.value.get.get // throw the exception if the future completed with a failure
       }
 
-      // This way it is easier to test, as the results are deterministic
-      // the the loss of potential performance is probably minimal
+
+      /** We could consume the results when yey are ready, via use of a [[java.util.concurrent.CompletionService]]
+        * or something similar, but that would lead to non deterministic reports from backend threads, as the
+        * compilation unit could complete in a different order that when they were submitted, and thus the relayed
+        * reports would be in a different order.
+        * To avoid that non-determinism we read the result in order or submission, with a potential minimal performance
+        * loss, do to the memory being retained longer for tasks that it might otherwise.
+        * Most of the memory in the UnitResult is reclaimable anyway as the classes are deferenced after use
+        */
       getAndClearProcessingUnits().foreach { unitResult =>
         try {
           stealWhileWaiting(unitResult, unitResult.task)
