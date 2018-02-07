@@ -41,13 +41,9 @@ private[jvm] object GeneratedClassHandler {
     import global._
     import genBCode.postProcessor
 
-    val unitInfoLookup = settings.outputDirs.getSingleOutput match {
-      case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
-      case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
-    }
     val handler = settings.YaddBackendThreads.value match {
       case 1 =>
-        new SyncWritingClassHandler(unitInfoLookup, postProcessor)
+        new SyncWritingClassHandler(postProcessor)
 
       case maxThreads =>
         if (global.statistics.enabled)
@@ -61,7 +57,7 @@ private[jvm] object GeneratedClassHandler {
         val threadPoolFactory = ThreadPoolFactory(global, currentRun.jvmPhase)
         val javaExecutor = threadPoolFactory.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
         val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
-        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, execInfo)
+        new AsyncWritingClassHandler(postProcessor, execInfo)
     }
 
     if (settings.optInlinerEnabled || settings.optClosureInvocations)
@@ -92,14 +88,12 @@ private[jvm] object GeneratedClassHandler {
   }
 
   sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends GeneratedClassHandler {
-    val unitInfoLookup: UnitInfoLookup
-
     def tryStealing: Option[Runnable]
 
     private val processingUnits = ListBuffer.empty[UnitResult]
 
     def process(unit: GeneratedCompilationUnit): Unit = {
-      val unitProcess = new UnitResult(unitInfoLookup, unit.classes, unit.sourceFile)
+      val unitProcess = new UnitResult(unit.sourceFile, unit.classes, postProcessor.bTypes.frontendAccess)
       postProcessUnit(unitProcess)
       processingUnits += unitProcess
     }
@@ -160,10 +154,7 @@ private[jvm] object GeneratedClassHandler {
     }
   }
 
-  private final class SyncWritingClassHandler(
-      val unitInfoLookup: UnitInfoLookup,
-      val postProcessor: PostProcessor)
-    extends WritingClassHandler((r) => r.run()) {
+  private final class SyncWritingClassHandler(val postProcessor: PostProcessor) extends WritingClassHandler((r) => r.run()) {
 
     override def toString: String = s"SyncWriting"
 
@@ -172,8 +163,7 @@ private[jvm] object GeneratedClassHandler {
 
   private final case class ExecutorServiceInfo(maxThreads: Int, javaExecutor: ExecutorService, queue: BlockingQueue[Runnable])
 
-  private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
-                                               val postProcessor: PostProcessor,
+  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor,
                                                val executorServiceInfo: ExecutorServiceInfo)
     extends WritingClassHandler(executorServiceInfo.javaExecutor) {
 
@@ -188,18 +178,7 @@ private[jvm] object GeneratedClassHandler {
   }
 
 }
-//we avoid the lock on frontendSync for the common case, when compiling to a single target
-sealed trait UnitInfoLookup {
-  def outputDir(source:AbstractFile) : AbstractFile
-  val frontendAccess: PostProcessorFrontendAccess
-}
-final class SingleUnitInfo(val frontendAccess: PostProcessorFrontendAccess, constantOutputDir:AbstractFile) extends UnitInfoLookup {
-  override def outputDir(source: AbstractFile) = constantOutputDir
-}
-final class LookupUnitInfo(val frontendAccess: PostProcessorFrontendAccess) extends UnitInfoLookup {
-  lazy val outputDirectories = frontendAccess.compilerSettings.outputDirectories
-  override def outputDir(source: AbstractFile) = outputDirectories.outputDirFor(source)
-}
+
 sealed trait SourceUnit {
   def withBufferedReporter[T](fn: => T): T
 
@@ -208,8 +187,11 @@ sealed trait SourceUnit {
   def sourceFile:AbstractFile
 }
 
-final class UnitResult(unitInfoLookup: UnitInfoLookup, _classes : List[GeneratedClass], val sourceFile: AbstractFile) extends SourceUnit with BackendReporting {
-  lazy val outputDir = unitInfoLookup.outputDir(sourceFile)
+final class UnitResult(val sourceFile: AbstractFile, _classes : List[GeneratedClass], frontendAccess: PostProcessorFrontendAccess)
+  extends SourceUnit with BackendReporting {
+
+  val outputDir: AbstractFile = frontendAccess.compilerSettings.outputDirectory(sourceFile)
+
   lazy val outputPath = outputDir.file.toPath
 
   private var classes: List[GeneratedClass] = _classes
@@ -240,7 +222,7 @@ final class UnitResult(unitInfoLookup: UnitInfoLookup, _classes : List[Generated
   // consumed in another
   private var bufferedReports = List.empty[Report]
 
-  override def withBufferedReporter[T](fn: => T) = unitInfoLookup.frontendAccess.withLocalReporter(this)(fn)
+  override def withBufferedReporter[T](fn: => T) = frontendAccess.withLocalReporter(this)(fn)
 
   override def inlinerWarning(pos: Position, message: String): Unit =
     this.synchronized(bufferedReports ::= new ReportInlinerWarning(pos, message))
