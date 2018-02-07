@@ -49,16 +49,15 @@ private[jvm] object GeneratedClassHandler {
       case maxThreads =>
         if (global.statistics.enabled)
           global.reporter.warning(global.NoPosition, "jvm statistics are not reliable with multi-threaded jvm class writing")
-        val additionalThreads = maxThreads -1
-        // the queue size is taken to be large enough to ensure that the a 'CallerRun' will not take longer to
-        // run that it takes to exhaust the queue for the backend workers
-        // when the queue is full, the main thread will no some background work
-        // so this provides back-pressure
+        val additionalThreads = maxThreads - 1
+        // The thread pool queue is limited in size. When it's full, the `CallerRunsPolicy` causes
+        // a new task to be executed on the main thread, which provides back-pressure.
+        // The queue size is large enough to ensure that running a task on the main thread does
+        // not take longer than to exhaust the queue for the backend workers.
         val queueSize = if (settings.YmaxQueue.isSetByUser) settings.YmaxQueue.value else maxThreads * 2
         val threadPoolFactory = ThreadPoolFactory(global, currentRun.jvmPhase)
         val javaExecutor = threadPoolFactory.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
-        val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
-        new AsyncWritingClassHandler(postProcessor, execInfo)
+        new AsyncWritingClassHandler(postProcessor, javaExecutor)
     }
 
     if (settings.optInlinerEnabled || settings.optClosureInvocations)
@@ -88,8 +87,10 @@ private[jvm] object GeneratedClassHandler {
     override def toString: String = s"GloballyOptimising[$underlying]"
   }
 
-  sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends GeneratedClassHandler {
+  sealed abstract class WritingClassHandler extends GeneratedClassHandler {
     import postProcessor.bTypes.frontendAccess
+
+    val javaExecutor: Executor
 
     def tryStealing: Option[Runnable]
 
@@ -116,39 +117,43 @@ private[jvm] object GeneratedClassHandler {
       }
     }
 
-    protected def getAndClearProcessingUnits(): List[CompilationUnitInPostProcess] = {
+    protected def takeProcessingUnits(): List[CompilationUnitInPostProcess] = {
       val result = processingUnits.result()
       processingUnits.clear()
       result
     }
 
-    override def complete(): Unit = {
+    final def complete(): Unit = {
       import frontendAccess.directBackendReporting
 
-      def stealWhileWaiting(unitInPostProcess: CompilationUnitInPostProcess, fut: Future[Unit]): Unit = {
-        while (!fut.isCompleted)
+      def stealWhileWaiting(unitInPostProcess: CompilationUnitInPostProcess): Unit = {
+        val task = unitInPostProcess.task
+        while (!task.isCompleted)
           tryStealing match {
             case Some(r) => r.run()
-            case None => Await.ready(fut, Duration.Inf)
-        }
-        //we know that they are complete by we need to check for exception
-        //but first get any reports
-        unitInPostProcess.bufferedReporting.relayReports(directBackendReporting)
-        fut.value.get.get // throw the exception if the future completed with a failure
+            case None => Await.ready(task, Duration.Inf)
+          }
       }
 
-
-      /** We could consume the results when yey are ready, via use of a [[java.util.concurrent.CompletionService]]
-        * or something similar, but that would lead to non deterministic reports from backend threads, as the
-        * compilation unit could complete in a different order that when they were submitted, and thus the relayed
-        * reports would be in a different order.
-        * To avoid that non-determinism we read the result in order or submission, with a potential minimal performance
-        * loss, do to the memory being retained longer for tasks that it might otherwise.
-        * Most of the memory in the CompilationUnitInPostProcess is reclaimable anyway as the classes are deferenced after use
-        */
-      getAndClearProcessingUnits().foreach { unitInPostProcess =>
+      /**
+       * Go through each task in submission order, wait for it to finish and report its messages.
+       * When finding task that has not completed, steal work from the executor's queue and run
+       * it on the main thread (which we are on here), until the task is done.
+       *
+       * We could consume the results when they are ready, via use of a [[java.util.concurrent.CompletionService]]
+       * or something similar, but that would lead to non deterministic reports from backend threads, as the
+       * compilation unit could complete in a different order than when they were submitted, and thus the relayed
+       * reports would be in a different order.
+       * To avoid that non-determinism we read the result in order of submission, with a potential minimal performance
+       * loss, due to the memory being retained longer for tasks than it might otherwise.
+       * Most of the memory in the CompilationUnitInPostProcess is reclaimable anyway as the classes are dereferenced after use.
+       */
+      takeProcessingUnits().foreach { unitInPostProcess =>
         try {
-          stealWhileWaiting(unitInPostProcess, unitInPostProcess.task)
+          stealWhileWaiting(unitInPostProcess)
+          unitInPostProcess.bufferedReporting.relayReports(directBackendReporting)
+          // We know the future is complete, throw the exception if it completed with a failure
+          unitInPostProcess.task.value.get.get
         } catch {
           case NonFatal(t) =>
             t.printStackTrace()
@@ -158,26 +163,25 @@ private[jvm] object GeneratedClassHandler {
     }
   }
 
-  private final class SyncWritingClassHandler(val postProcessor: PostProcessor) extends WritingClassHandler((r) => r.run()) {
+  private final class SyncWritingClassHandler(val postProcessor: PostProcessor) extends WritingClassHandler {
+    val javaExecutor: Executor = (r) => r.run()
+
     override def toString: String = s"SyncWriting"
 
-    override def tryStealing: Option[Runnable] = None
+    def tryStealing: Option[Runnable] = None
   }
 
-  private final case class ExecutorServiceInfo(maxThreads: Int, javaExecutor: ExecutorService, queue: BlockingQueue[Runnable])
+  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor, val javaExecutor: ThreadPoolExecutor)
+    extends WritingClassHandler {
 
-  private final class AsyncWritingClassHandler(val postProcessor: PostProcessor,
-                                               val executorServiceInfo: ExecutorServiceInfo)
-    extends WritingClassHandler(executorServiceInfo.javaExecutor) {
-
-    override def toString: String = s"AsyncWriting[additional threads:${executorServiceInfo.maxThreads}]"
+    override def toString: String = s"AsyncWriting[additional threads:${javaExecutor.getMaximumPoolSize}]"
 
     override def close(): Unit = {
       super.close()
-      executorServiceInfo.javaExecutor.shutdownNow()
+      javaExecutor.shutdownNow()
     }
 
-    override def tryStealing: Option[Runnable] = Option(executorServiceInfo.queue.poll())
+    def tryStealing: Option[Runnable] = Option(javaExecutor.getQueue.poll())
   }
 
 }
