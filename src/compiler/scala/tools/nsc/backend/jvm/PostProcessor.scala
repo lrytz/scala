@@ -3,7 +3,7 @@ package backend.jvm
 
 import java.util.concurrent.ConcurrentHashMap
 
-import scala.reflect.internal.util.{NoPosition, Position, SourceFile, Statistics}
+import scala.reflect.internal.util.{NoPosition, Position}
 import scala.reflect.io.AbstractFile
 import scala.tools.asm.ClassWriter
 import scala.tools.asm.tree.ClassNode
@@ -14,7 +14,7 @@ import scala.tools.nsc.backend.jvm.opt._
  * Implements late stages of the backend that don't depend on a Global instance, i.e.,
  * optimizations, post-processing and classfile serialization and writing.
  */
-abstract class PostProcessor(statistics: Statistics with BackendStats) extends PerRunInit {
+abstract class PostProcessor extends PerRunInit {
   self =>
   val bTypes: BTypes
 
@@ -29,8 +29,9 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   val closureOptimizer    : ClosureOptimizer    { val postProcessor: self.type } = new { val postProcessor: self.type = self } with ClosureOptimizer
   val callGraph           : CallGraph           { val postProcessor: self.type } = new { val postProcessor: self.type = self } with CallGraph
   val bTypesFromClassfile : BTypesFromClassfile { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BTypesFromClassfile
+  val classfileWriters    : ClassfileWriters    { val postProcessor: self.type } = new { val postProcessor: self.type = self } with ClassfileWriters
 
-  var classfileWriter: ClassfileWriter = _
+  var classfileWriter: classfileWriters.ClassfileWriter = _
 
   private val caseInsensitively = recordPerRunJavaMapCache(new ConcurrentHashMap[String, String])
 
@@ -39,7 +40,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
     backendUtils.initialize()
     inlinerHeuristics.initialize()
     byteCodeRepository.initialize()
-    classfileWriter = ClassfileWriter(global)
+    classfileWriter = classfileWriters.ClassfileWriter(global)
   }
 
   def sendToDisk(clazz: GeneratedClass, paths: CompilationUnitPaths): Unit = {
@@ -108,7 +109,12 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   }
 
   def localOptimizations(classNode: ClassNode): Unit = {
-    statistics.timed(statistics.methodOptTimer)(localOpt.methodOptimizations(classNode))
+    if (frontendAccess.compilerSettings.backendThreads > 1)
+      localOpt.methodOptimizations(classNode)
+    else {
+      val stats = frontendAccess.unsafeStatistics
+      stats.timed(stats.methodOptTimer)(localOpt.methodOptimizations(classNode))
+    }
   }
 
   def setInnerClasses(classNode: ClassNode): Unit = {

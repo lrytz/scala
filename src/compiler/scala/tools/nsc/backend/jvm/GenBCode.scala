@@ -51,7 +51,7 @@ abstract class GenBCode extends SubComponent {
 
   val codeGen: CodeGen[global.type] = new { val bTypes: self.bTypes.type = self.bTypes } with CodeGen[global.type](global)
 
-  val postProcessor: PostProcessor { val bTypes: self.bTypes.type } = new { val bTypes: self.bTypes.type = self.bTypes } with PostProcessor(statistics)
+  val postProcessor: PostProcessor { val bTypes: self.bTypes.type } = new { val bTypes: self.bTypes.type = self.bTypes } with PostProcessor
 
   var generatedClassHandler: GeneratedClassHandler = _
 

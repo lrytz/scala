@@ -2,7 +2,7 @@ package scala.tools.nsc
 package backend.jvm
 
 import scala.collection.generic.Clearable
-import scala.reflect.internal.util.{JavaClearable, Position}
+import scala.reflect.internal.util.{JavaClearable, Position, Statistics}
 import scala.reflect.io.AbstractFile
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
 import java.util.{Collection => JCollection, Map => JMap}
@@ -25,6 +25,11 @@ sealed abstract class PostProcessorFrontendAccess {
   def backendReporting: BackendReporting
   def directBackendReporting: BackendReporting
 
+  /**
+   * Statistics are not thread-safe, they can only be used if `compilerSettings.backendThreads == 1`
+   */
+  def unsafeStatistics: Statistics with BackendStats
+
   def backendClassPath: BackendClassPath
 
   def getEntryPoints: List[String]
@@ -45,6 +50,8 @@ object PostProcessorFrontendAccess {
     def target: String
 
     def outputDirectory(source: AbstractFile): AbstractFile
+
+    def backendThreads: Int
 
     def optAddToBytecodeRepository: Boolean
     def optBuildCallGraph: Boolean
@@ -166,6 +173,8 @@ object PostProcessorFrontendAccess {
       // the call to `outputDirFor` should be frontendSynch'd, but we assume that the setting is not mutated during the backend
       def outputDirectory(source: AbstractFile): AbstractFile = singleOutDir.getOrElse(s.outputDirs.outputDirFor(source))
 
+      val backendThreads: Int = s.YaddBackendThreads.value
+
       val optAddToBytecodeRepository: Boolean = s.optAddToBytecodeRepository
       val optBuildCallGraph: Boolean = s.optBuildCallGraph
 
@@ -235,6 +244,8 @@ object PostProcessorFrontendAccess {
         global.log(message)
       }
     }
+
+    def unsafeStatistics: Statistics with BackendStats = global.statistics
 
     private lazy val cp = perRunLazy(this)(frontendSynch(optimizerClassPath(classPath)))
     object backendClassPath extends BackendClassPath {
