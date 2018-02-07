@@ -30,16 +30,19 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
   val callGraph           : CallGraph           { val postProcessor: self.type } = new { val postProcessor: self.type = self } with CallGraph
   val bTypesFromClassfile : BTypesFromClassfile { val postProcessor: self.type } = new { val postProcessor: self.type = self } with BTypesFromClassfile
 
+  var classfileWriter: ClassfileWriter = _
+
   private val caseInsensitively = recordPerRunJavaMapCache(new ConcurrentHashMap[String, String])
 
-  override def initialize(): Unit = {
-    super.initialize()
+  def initialize(global: Global): Unit = {
+    this.initialize()
     backendUtils.initialize()
     inlinerHeuristics.initialize()
     byteCodeRepository.initialize()
+    classfileWriter = ClassfileWriter(global)
   }
 
-  def sendToDisk(unit:SourceUnit, clazz: GeneratedClass, writer: ClassfileWriter): Unit = {
+  def sendToDisk(unit: SourceUnit, clazz: GeneratedClass): Unit = {
     val classNode = clazz.classNode
     val internalName = classNode.name
     val bytes = try {
@@ -68,7 +71,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
       if (AsmUtils.traceSerializedClassEnabled && internalName.contains(AsmUtils.traceSerializedClassPattern))
         AsmUtils.traceClass(bytes)
 
-      writer.write(unit, internalName, bytes)
+      classfileWriter.write(unit, internalName, bytes)
     }
   }
   private def warnCaseInsensitiveOverwrite(clazz: GeneratedClass): Unit = {

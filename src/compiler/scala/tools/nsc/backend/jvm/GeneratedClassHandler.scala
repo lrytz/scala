@@ -33,7 +33,7 @@ private[jvm] sealed trait GeneratedClassHandler {
   /**
     * Invoked at the end of the jvm phase
     */
-  def close(): Unit
+  def close(): Unit = ()
 }
 
 private[jvm] object GeneratedClassHandler {
@@ -41,15 +41,13 @@ private[jvm] object GeneratedClassHandler {
     import global._
     import genBCode.postProcessor
 
-    val cfWriter = ClassfileWriter(global)
-
     val unitInfoLookup = settings.outputDirs.getSingleOutput match {
       case Some(dir) => new SingleUnitInfo(postProcessor.bTypes.frontendAccess, dir)
       case None => new LookupUnitInfo(postProcessor.bTypes.frontendAccess)
     }
     val handler = settings.YaddBackendThreads.value match {
       case 1 =>
-        new SyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter)
+        new SyncWritingClassHandler(unitInfoLookup, postProcessor)
 
       case maxThreads =>
         if (global.statistics.enabled)
@@ -63,7 +61,7 @@ private[jvm] object GeneratedClassHandler {
         val threadPoolFactory = ThreadPoolFactory(global, currentRun.jvmPhase)
         val javaExecutor = threadPoolFactory.newBoundedQueueFixedThreadPool(additionalThreads, queueSize, new CallerRunsPolicy, "non-ast")
         val execInfo = ExecutorServiceInfo(additionalThreads, javaExecutor, javaExecutor.getQueue)
-        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, cfWriter, execInfo)
+        new AsyncWritingClassHandler(unitInfoLookup, postProcessor, execInfo)
     }
 
     if (settings.optInlinerEnabled || settings.optClosureInvocations)
@@ -88,14 +86,13 @@ private[jvm] object GeneratedClassHandler {
       underlying.complete()
     }
 
-    def close(): Unit = underlying.close()
+    override def close(): Unit = underlying.close()
 
     override def toString: String = s"GloballyOptimising[$underlying]"
   }
 
   sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends GeneratedClassHandler {
     val unitInfoLookup: UnitInfoLookup
-    val cfWriter: ClassfileWriter
 
     def tryStealing: Option[Runnable]
 
@@ -115,7 +112,7 @@ private[jvm] object GeneratedClassHandler {
           // we 'take' classes to reduce the memory pressure
           // as soon as the class is consumed and written, we release its data
           unitProcess.takeClasses foreach {
-            postProcessor.sendToDisk(unitProcess, _, cfWriter)
+            postProcessor.sendToDisk(unitProcess, _)
           }
         }
       }
@@ -161,17 +158,14 @@ private[jvm] object GeneratedClassHandler {
         }
       }
     }
-
-    def close(): Unit = cfWriter.close()
   }
 
   private final class SyncWritingClassHandler(
       val unitInfoLookup: UnitInfoLookup,
-      val postProcessor: PostProcessor,
-      val cfWriter: ClassfileWriter)
+      val postProcessor: PostProcessor)
     extends WritingClassHandler((r) => r.run()) {
 
-    override def toString: String = s"SyncWriting [$cfWriter]"
+    override def toString: String = s"SyncWriting"
 
     override def tryStealing: Option[Runnable] = None
   }
@@ -180,11 +174,10 @@ private[jvm] object GeneratedClassHandler {
 
   private final class AsyncWritingClassHandler(val unitInfoLookup: UnitInfoLookup,
                                                val postProcessor: PostProcessor,
-                                               val cfWriter: ClassfileWriter,
                                                val executorServiceInfo: ExecutorServiceInfo)
     extends WritingClassHandler(executorServiceInfo.javaExecutor) {
 
-    override def toString: String = s"AsyncWriting[additional threads:${executorServiceInfo.maxThreads} writer:$cfWriter]"
+    override def toString: String = s"AsyncWriting[additional threads:${executorServiceInfo.maxThreads}]"
 
     override def close(): Unit = {
       super.close()
