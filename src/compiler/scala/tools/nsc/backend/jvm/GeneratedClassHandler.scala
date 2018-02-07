@@ -1,20 +1,21 @@
 package scala.tools.nsc
 package backend.jvm
 
+import java.nio.file.Path
 import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy
 import java.util.concurrent._
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future, Promise}
-import scala.reflect.internal.util.{NoPosition, Position, SourceFile}
-import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.BackendReporting
+import scala.concurrent.{Await, ExecutionContext, ExecutionContextExecutor, Future}
+import scala.reflect.internal.util.NoPosition
+import scala.tools.nsc.backend.jvm.PostProcessorFrontendAccess.{BackendReporting, BufferingBackendReporting}
 import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.profile.ThreadPoolFactory
 import scala.util.control.NonFatal
 
 /**
- * Interface to handle post-processing (see [[PostProcessor]]) and classfile writing of generated
+ * Interface to handle post-processing and classfile writing (see [[PostProcessor]]) of generated
  * classes, potentially in parallel.
  */
 private[jvm] sealed trait GeneratedClassHandler {
@@ -88,40 +89,43 @@ private[jvm] object GeneratedClassHandler {
   }
 
   sealed abstract class WritingClassHandler(val javaExecutor: Executor) extends GeneratedClassHandler {
+    import postProcessor.bTypes.frontendAccess
+
     def tryStealing: Option[Runnable]
 
-    private val processingUnits = ListBuffer.empty[UnitResult]
+    private val processingUnits = ListBuffer.empty[CompilationUnitInPostProcess]
 
     def process(unit: GeneratedCompilationUnit): Unit = {
-      val unitProcess = new UnitResult(unit.sourceFile, unit.classes, postProcessor.bTypes.frontendAccess)
-      postProcessUnit(unitProcess)
-      processingUnits += unitProcess
+      val paths = CompilationUnitPaths(unit.sourceFile, frontendAccess.compilerSettings.outputDirectory(unit.sourceFile))
+      val unitInPostProcess = new CompilationUnitInPostProcess(unit.classes, paths)
+      postProcessUnit(unitInPostProcess)
+      processingUnits += unitInPostProcess
     }
 
     protected implicit val executionContext: ExecutionContextExecutor = ExecutionContext.fromExecutor(javaExecutor)
 
-    final def postProcessUnit(unitProcess: UnitResult): Unit = {
-      unitProcess.task = Future {
-        unitProcess.withBufferedReporter {
+    final def postProcessUnit(unitInPostProcess: CompilationUnitInPostProcess): Unit = {
+      unitInPostProcess.task = Future {
+        frontendAccess.withThreadLocalReporter(unitInPostProcess.bufferedReporting) {
           // we 'take' classes to reduce the memory pressure
           // as soon as the class is consumed and written, we release its data
-          unitProcess.takeClasses foreach {
-            postProcessor.sendToDisk(unitProcess, _)
+          unitInPostProcess.takeClasses() foreach {
+            postProcessor.sendToDisk(_, unitInPostProcess.paths)
           }
         }
       }
     }
 
-    protected def getAndClearProcessingUnits(): List[UnitResult] = {
+    protected def getAndClearProcessingUnits(): List[CompilationUnitInPostProcess] = {
       val result = processingUnits.result()
       processingUnits.clear()
       result
     }
 
     override def complete(): Unit = {
-      val directBackendReporting = postProcessor.bTypes.frontendAccess.directBackendReporting
+      import frontendAccess.directBackendReporting
 
-      def stealWhileWaiting(unitResult: UnitResult, fut: Future[Unit]): Unit = {
+      def stealWhileWaiting(unitInPostProcess: CompilationUnitInPostProcess, fut: Future[Unit]): Unit = {
         while (!fut.isCompleted)
           tryStealing match {
             case Some(r) => r.run()
@@ -129,7 +133,7 @@ private[jvm] object GeneratedClassHandler {
         }
         //we know that they are complete by we need to check for exception
         //but first get any reports
-        unitResult.relayReports(directBackendReporting)
+        unitInPostProcess.bufferedReporting.relayReports(directBackendReporting)
         fut.value.get.get // throw the exception if the future completed with a failure
       }
 
@@ -140,22 +144,21 @@ private[jvm] object GeneratedClassHandler {
         * reports would be in a different order.
         * To avoid that non-determinism we read the result in order or submission, with a potential minimal performance
         * loss, do to the memory being retained longer for tasks that it might otherwise.
-        * Most of the memory in the UnitResult is reclaimable anyway as the classes are deferenced after use
+        * Most of the memory in the CompilationUnitInPostProcess is reclaimable anyway as the classes are deferenced after use
         */
-      getAndClearProcessingUnits().foreach { unitResult =>
+      getAndClearProcessingUnits().foreach { unitInPostProcess =>
         try {
-          stealWhileWaiting(unitResult, unitResult.task)
+          stealWhileWaiting(unitInPostProcess, unitInPostProcess.task)
         } catch {
           case NonFatal(t) =>
             t.printStackTrace()
-            postProcessor.bTypes.frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitResult.sourceFile} $t")
+            frontendAccess.backendReporting.error(NoPosition, s"unable to write ${unitInPostProcess.paths.sourceFile} $t")
         }
       }
     }
   }
 
   private final class SyncWritingClassHandler(val postProcessor: PostProcessor) extends WritingClassHandler((r) => r.run()) {
-
     override def toString: String = s"SyncWriting"
 
     override def tryStealing: Option[Runnable] = None
@@ -179,25 +182,18 @@ private[jvm] object GeneratedClassHandler {
 
 }
 
-sealed trait SourceUnit {
-  def withBufferedReporter[T](fn: => T): T
-
-  val outputDir: AbstractFile
-  val outputPath: java.nio.file.Path
-  def sourceFile:AbstractFile
+/** Paths for a compilation unit, used during classfile writing */
+final case class CompilationUnitPaths(sourceFile: AbstractFile, outputDir: AbstractFile) {
+  def outputPath: Path = outputDir.file.toPath // `toPath` caches its result
 }
 
-final class UnitResult(val sourceFile: AbstractFile, _classes : List[GeneratedClass], frontendAccess: PostProcessorFrontendAccess)
-  extends SourceUnit with BackendReporting {
-
-  val outputDir: AbstractFile = frontendAccess.compilerSettings.outputDirectory(sourceFile)
-
-  lazy val outputPath = outputDir.file.toPath
-
-  private var classes: List[GeneratedClass] = _classes
-
-  def copyClasses = classes
-
+/**
+ * State for a compilation unit being post-processed.
+ *   - Holds the classes to post-process (released for GC when no longer used)
+ *   - Keeps a reference to the future that runs the post-processor
+ *   - Buffers messages reported during post-processing
+ */
+final class CompilationUnitInPostProcess(private var classes: List[GeneratedClass], val paths: CompilationUnitPaths) {
   def takeClasses(): List[GeneratedClass] = {
     val c = classes
     classes = Nil
@@ -207,64 +203,5 @@ final class UnitResult(val sourceFile: AbstractFile, _classes : List[GeneratedCl
   /** the main async task submitted onto the scheduler */
   var task: Future[Unit] = _
 
-  def relayReports(backendReporting: BackendReporting): Unit = this.synchronized {
-    if (bufferedReports nonEmpty) {
-      for (report: Report <- bufferedReports.reverse) {
-        report.relay(backendReporting)
-      }
-    }
-    bufferedReports = Nil
-  }
-
-  // We optimise access to the buffered reports for the common case - that there are no warning/errors to report
-  // We could use a listBuffer etc - but that would be extra allocation in the common case
-  // Note - all access is externally synchronized, as this allow the reports to be generated in on thread and
-  // consumed in another
-  private var bufferedReports = List.empty[Report]
-
-  override def withBufferedReporter[T](fn: => T) = frontendAccess.withLocalReporter(this)(fn)
-
-  override def inlinerWarning(pos: Position, message: String): Unit =
-    this.synchronized(bufferedReports ::= new ReportInlinerWarning(pos, message))
-
-  override def error(pos: Position, message: String): Unit =
-    this.synchronized(bufferedReports ::= new ReportError(pos, message))
-
-  override def warning(pos: Position, message: String): Unit =
-    this.synchronized(bufferedReports ::= new ReportWarning(pos, message))
-
-  override def inform(message: String): Unit =
-    this.synchronized(bufferedReports ::= new ReportInform(message))
-
-  override def log(message: String): Unit =
-    this.synchronized(bufferedReports ::= new ReportLog(message))
-
-  private sealed trait Report {
-    def relay(backendReporting: BackendReporting): Unit
-  }
-
-  private class ReportInlinerWarning(pos: Position, message: String) extends Report {
-    override def relay(reporting: BackendReporting): Unit =
-      reporting.inlinerWarning(pos, message)
-  }
-
-  private class ReportError(pos: Position, message: String) extends Report {
-    override def relay(reporting: BackendReporting): Unit =
-      reporting.error(pos, message)
-  }
-
-  private class ReportWarning(pos: Position, message: String) extends Report {
-    override def relay(reporting: BackendReporting): Unit =
-      reporting.warning(pos, message)
-  }
-
-  private class ReportInform(message: String) extends Report {
-    override def relay(reporting: BackendReporting): Unit =
-      reporting.inform(message)
-  }
-
-  private class ReportLog(message: String) extends Report {
-    override def relay(reporting: BackendReporting): Unit =
-      reporting.log(message)
-  }
+  val bufferedReporting = new BufferingBackendReporting
 }

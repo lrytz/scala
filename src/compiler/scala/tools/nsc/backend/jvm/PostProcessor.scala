@@ -42,7 +42,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
     classfileWriter = ClassfileWriter(global)
   }
 
-  def sendToDisk(unit: SourceUnit, clazz: GeneratedClass): Unit = {
+  def sendToDisk(clazz: GeneratedClass, paths: CompilationUnitPaths): Unit = {
     val classNode = clazz.classNode
     val internalName = classNode.name
     val bytes = try {
@@ -71,7 +71,7 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
       if (AsmUtils.traceSerializedClassEnabled && internalName.contains(AsmUtils.traceSerializedClassPattern))
         AsmUtils.traceClass(bytes)
 
-      classfileWriter.write(unit, internalName, bytes)
+      classfileWriter.write(internalName, bytes, paths)
     }
   }
   private def warnCaseInsensitiveOverwrite(clazz: GeneratedClass): Unit = {
@@ -148,5 +148,5 @@ abstract class PostProcessor(statistics: Statistics with BackendStats) extends P
 /**
  * The result of code generation. [[isArtifact]] is `true` for mirror and bean-info classes.
  */
-case class GeneratedClass(classNode: ClassNode, sourceClassName: String, position: Position, sourceFile: SourceFile, isArtifact: Boolean)
+case class GeneratedClass(classNode: ClassNode, sourceClassName: String, position: Position, isArtifact: Boolean)
 case class GeneratedCompilationUnit(sourceFile: AbstractFile, classes: List[GeneratedClass])

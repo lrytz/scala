@@ -28,12 +28,12 @@ sealed trait ClassfileWriter {
   /**
    * Write a classfile
    */
-  def write(unit: SourceUnit, name: InternalName, bytes: Array[Byte])
+  def write(name: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths)
 
   /**
    * Close the writer. Behavior is undefined after a call to `close`.
    */
-  def close() : Unit
+  def close(): Unit
 }
 
 object ClassfileWriter {
@@ -103,7 +103,7 @@ object ClassfileWriter {
 
     lazy val crc = new CRC32
 
-    override def write(unit: SourceUnit, className: InternalName, bytes: Array[Byte]): Unit = this.synchronized {
+    override def write(className: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths): Unit = this.synchronized {
       val path = className + ".class"
       val entry = new ZipEntry(path)
       if (storeOnly) {
@@ -140,7 +140,7 @@ object ClassfileWriter {
       }
     }
 
-    protected def getPath(unit: SourceUnit, className: InternalName) = unit.outputPath.resolve(className + ".class")
+    protected def getPath(className: InternalName, paths: CompilationUnitPaths) = paths.outputPath.resolve(className + ".class")
 
     protected def formatData(rawBytes: Array[Byte]) = rawBytes
 
@@ -154,10 +154,10 @@ object ClassfileWriter {
     private val fastOpenOptions = util.EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
     private val fallbackOpenOptions = util.EnumSet.of(StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
 
-    override def write(unit: SourceUnit, className: InternalName, rawBytes: Array[Byte]): Unit = try {
-      val path = getPath(unit, className)
+    override def write(className: InternalName, rawBytes: Array[Byte], paths: CompilationUnitPaths): Unit = try {
+      val path = getPath(className, paths)
       val bytes = formatData(rawBytes)
-      ensureDirForPath(unit.outputPath, path)
+      ensureDirForPath(paths.outputPath, path)
       val os = try FileChannel.open(path, fastOpenOptions)
       catch {
         case _: FileAlreadyExistsException => FileChannel.open(path, fallbackOpenOptions)
@@ -181,7 +181,7 @@ object ClassfileWriter {
       asmOutputPath: Path,
       frontendAccess: PostProcessorFrontendAccess)
     extends DirClassWriter(frontendAccess) {
-    override protected def getPath(unit: SourceUnit, className: InternalName) = asmOutputPath.resolve(className + ".asmp")
+    override protected def getPath(className: InternalName, paths: CompilationUnitPaths) = asmOutputPath.resolve(className + ".asmp")
 
     override protected def formatData(rawBytes: Array[Byte]) = AsmUtils.textify(AsmUtils.readClass(rawBytes)).getBytes(StandardCharsets.UTF_8)
 
@@ -192,7 +192,7 @@ object ClassfileWriter {
       dumpOutputPath: Path,
       frontendAccess: PostProcessorFrontendAccess)
     extends DirClassWriter(frontendAccess) {
-    override protected def getPath(unit: SourceUnit, className: InternalName) = dumpOutputPath.resolve(className + ".class")
+    override protected def getPath(className: InternalName, paths: CompilationUnitPaths) = dumpOutputPath.resolve(className + ".class")
 
     override protected def qualifier: String = " [for dump]"
   }
@@ -215,8 +215,8 @@ object ClassfileWriter {
       finally out.close()
     }
 
-    override def write(unit: SourceUnit, className: InternalName, bytes: Array[Byte]): Unit = {
-      val outFile = getFile(unit.outputDir, className, ".class")
+    override def write(className: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths): Unit = {
+      val outFile = getFile(paths.outputDir, className, ".class")
       writeBytes(outFile, bytes)
     }
 
@@ -224,22 +224,22 @@ object ClassfileWriter {
   }
 
   private final class MultiClassWriter(underlying: Map[AbstractFile, UnderlyingClassfileWriter]) extends ClassfileWriter {
-    private def getUnderlying(unit: SourceUnit) = underlying.getOrElse(unit.outputDir, {
-      throw new Exception(s"Cannot determine output directory for ${unit.sourceFile} with output ${unit.outputDir}. Configured outputs are ${underlying.keySet}")
+    private def getUnderlying(paths: CompilationUnitPaths) = underlying.getOrElse(paths.outputDir, {
+      throw new Exception(s"Cannot determine output directory for ${paths.sourceFile} with output ${paths.outputDir}. Configured outputs are ${underlying.keySet}")
     })
 
-    override def write(unit: SourceUnit, className: InternalName, bytes: Array[Byte]): Unit = {
-      getUnderlying(unit).write(unit, className, bytes)
+    override def write(className: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths): Unit = {
+      getUnderlying(paths).write(className, bytes, paths)
     }
 
     override def close(): Unit = underlying.values.foreach(_.close())
   }
 
   private final class AllClassWriter(basic: ClassfileWriter, asmp: Option[UnderlyingClassfileWriter], dump: Option[UnderlyingClassfileWriter]) extends ClassfileWriter {
-    override def write(unit: SourceUnit, className: InternalName, bytes: Array[Byte]): Unit = {
-      basic.write(unit, className, bytes)
-      asmp.foreach(_.write(unit, className, bytes))
-      dump.foreach(_.write(unit, className, bytes))
+    override def write(className: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths): Unit = {
+      basic.write(className, bytes, paths)
+      asmp.foreach(_.write(className, bytes, paths))
+      dump.foreach(_.write(className, bytes, paths))
     }
 
     override def close(): Unit = {
@@ -250,9 +250,9 @@ object ClassfileWriter {
   }
 
   private final class WithStatsWriter(statistics: Statistics with BackendStats, underlying: ClassfileWriter) extends ClassfileWriter {
-    override def write(unit: SourceUnit, className: InternalName, bytes: Array[Byte]): Unit = {
+    override def write(className: InternalName, bytes: Array[Byte], paths: CompilationUnitPaths): Unit = {
       val snap = statistics.startTimer(statistics.bcodeWriteTimer)
-      underlying.write(unit, className, bytes)
+      underlying.write(className, bytes, paths)
       statistics.stopTimer(statistics.bcodeWriteTimer, snap)
     }
 
