@@ -113,6 +113,13 @@ abstract class ClassfileWriters {
         val path = className + ".class"
         val entry = new ZipEntry(path)
         if (storeOnly) {
+          // When using compression method `STORED`, the ZIP spec requires the CRC and compressed/
+          // uncompressed sizes to be written before the data. The JarOutputStream could compute the
+          // values while writing the data, but not patch them into the stream after the fact. So we
+          // need to pre-compute them here. The compressed size is taken from size.
+          // https://stackoverflow.com/questions/1206970/how-to-create-uncompressed-zip-archive-in-java/5868403
+          // With compression method `DEFLATED` JarOutputStream computes and sets the values.
+          entry.setSize(bytes.length)
           crc.reset()
           crc.update(bytes)
           entry.setCrc(crc.getValue)
