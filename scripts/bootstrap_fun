@@ -354,7 +354,7 @@ buildStarr() {
     cd $STARR_DIR
     git checkout $STARR_REF
     travis_fold_start starr "Building starr"
-    $SBT_CMD -no-colors $sbtArgs "setupBootstrapStarr \"$BOOTSTRAP_REPO_DIR\" $STARR_VER" $clean publish
+    $SBT_CMD -no-colors $sbtArgs "setupBootstrapStarr \"$BOOTSTRAP_REPO_DIR\" $STARR_VER" $clean $publishPrivateTask
     travis_fold_end starr
   )
   SET_STARR=-Dstarr.version=$STARR_VER
@@ -378,7 +378,7 @@ buildLocker() {
     $SET_STARR \
     ${updatedModuleVersions[@]} \
     "setupBootstrapLocker \"$BOOTSTRAP_REPO_DIR\" $SCALA_VER" \
-    $clean publish
+    $clean $publishPrivateTask
   travis_fold_end locker
 
   buildModules locker
@@ -415,7 +415,7 @@ buildQuick() {
       "setupBootstrapPublish \"$BOOTSTRAP_REPO_DIR\" $SCALA_VER" \
       $clean $publishSonatypeTaskCore
   else
-    invokeQuick $clean publish
+    invokeQuick $clean $publishPrivateTask
   fi
 
   buildModules quick

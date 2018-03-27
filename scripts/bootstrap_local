@@ -1,0 +1,46 @@
+#!/bin/bash -e
+
+WORKSPACE="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
+cd "$WORKSPACE"
+
+logPrefix="$WORKSPACE/build/bootstrap"
+withLog() {
+  logFile="$logPrefix-$1.log"
+  shift
+  echo "----------------------------------"
+  echo "Running $@"
+  echo "Output in $logFile"
+  "$@" > "$logFile" 2>&1
+  tail -n 5 "$logFile"
+  echo "----------------------------------"
+}
+
+source scripts/common
+source scripts/bootstrap_fun
+
+travis_fold_start() { :; }
+travis_fold_end() { :; }
+
+IVY2_DIR="$HOME/.ivy2"
+
+SCALA_VER_BASE="" # ensure the scala version is computed (not given)
+withLog determineScalaVersion determineScalaVersion
+deriveModuleVersions
+
+if [ ! -z "$STARR_REF" ]; then
+  withLog starr buildStarr
+fi
+
+withLog locker buildLocker
+
+publishPrivateTask="publishLocal"
+withLog quick buildQuick
+
+# Remove the cached copy of the locker build
+rm -rf $IVY2_DIR/cache/org.scala-lang $IVY2_DIR/cache/org.scala-lang.modules
+
+# clean up
+rm -rf "$WORKSPACE/scala-starr"
+rm "$WORKSPACE/buildcharacter.properties.sh"
+rm "$WORKSPACE/versions.properties.sh"
+rm -rf "$WORKSPACE/resolutionScratch_"
