@@ -28,6 +28,10 @@ trait Definitions extends api.StandardDefinitions {
    */
   private type PolyMethodCreator = List[Symbol] => (Option[List[Type]], Type)
 
+  private def newClass(owner: Symbol, name: TypeName, parents: List[Type], flags: Long = 0L): ClassSymbol = {
+    val clazz = owner.newClassSymbol(name, NoPosition, flags)
+    clazz setInfo ClassInfoType(parents, newScope, clazz) markAllCompleted
+  }
   private def enterNewClass(owner: Symbol, name: TypeName, parents: List[Type], flags: Long = 0L): ClassSymbol = {
     val clazz = owner.newClassSymbol(name, NoPosition, flags)
     clazz setInfoAndEnter ClassInfoType(parents, newScope, clazz) markAllCompleted
@@ -261,9 +265,9 @@ trait Definitions extends api.StandardDefinitions {
     }
 
     // top types
-    lazy val AnyClass    = enterNewClass(ScalaPackageClass, tpnme.Any, Nil, ABSTRACT) markAllCompleted
+    lazy val AnyClass    = newClass(ScalaPackageClass, tpnme.Any, Nil, ABSTRACT) markAllCompleted
     lazy val AnyRefClass = newAlias(ScalaPackageClass, tpnme.AnyRef, ObjectTpe) markAllCompleted
-    lazy val ObjectClass = getRequiredClass(sn.Object.toString)
+    lazy val ObjectClass = { getRequiredClass(sn.Object.toString) }
 
     // Cached types for core monomorphic classes
     lazy val AnyRefTpe       = AnyRefClass.tpe
@@ -297,7 +301,8 @@ trait Definitions extends api.StandardDefinitions {
     sealed abstract class BottomClassSymbol(name: TypeName, parent: Symbol) extends ClassSymbol(ScalaPackageClass, NoPosition, name) {
       locally {
         this initFlags ABSTRACT | FINAL
-        this setInfoAndEnter ClassInfoType(List(parent.tpe), newScope, this)
+        // TODO doc why not enter
+        this setInfo ClassInfoType(List(parent.tpe), newScope, this)
         this markAllCompleted
       }
       final override def isBottomClass = true
@@ -1299,7 +1304,7 @@ trait Definitions extends api.StandardDefinitions {
       owner.info.nonPrivateDecl(name)
 
     private def newAlias(owner: Symbol, name: TypeName, alias: Type): AliasTypeSymbol =
-      owner.newAliasType(name) setInfoAndEnter alias
+      owner.newAliasType(name) setInfo alias
 
     private def specialPolyClass(name: TypeName, flags: Long)(parentFn: Symbol => Type): ClassSymbol = {
       val clazz   = enterNewClass(ScalaPackageClass, name, Nil)
@@ -1331,6 +1336,11 @@ trait Definitions extends api.StandardDefinitions {
 
     /** Is symbol a phantom class for which no runtime representation exists? */
     lazy val isPhantomClass = Set[Symbol](AnyClass, AnyValClass, NullClass, NothingClass)
+
+    lazy val enterDuringCompletion = Map(
+      "scala" -> List(() => AnyClass, () => AnyRefClass, () => NothingClass, () => NullClass)
+    )
+
     /** Lists core classes that don't have underlying bytecode, but are synthesized on-the-fly in every reflection universe */
     lazy val syntheticCoreClasses = List(
       AnnotationDefaultAttr, // #2264
@@ -1344,6 +1354,7 @@ trait Definitions extends api.StandardDefinitions {
       NothingClass,
       SingletonClass
     )
+
     /** Lists core methods that don't have underlying bytecode, but are synthesized on-the-fly in every reflection universe */
     lazy val syntheticCoreMethods = List(
       Any_==,
@@ -1365,11 +1376,13 @@ trait Definitions extends api.StandardDefinitions {
       Object_asInstanceOf,
       String_+
     )
+
     /** Lists core classes that do have underlying bytecode, but are adjusted on-the-fly in every reflection universe */
     lazy val hijackedCoreClasses = List(
       ComparableClass,
       JavaSerializableClass
     )
+
     /** Lists symbols that are synthesized or hijacked by the compiler.
      *
      *  Such symbols either don't have any underlying bytecode at all ("synthesized")

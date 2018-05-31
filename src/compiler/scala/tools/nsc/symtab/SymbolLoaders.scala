@@ -266,7 +266,11 @@ abstract class SymbolLoaders {
 
     protected def doComplete(root: Symbol): Unit = {
       assert(root.isPackageClass, root)
-      root.setInfo(new PackageClassInfoType(newScope, root))
+      val decls = newScope
+      root.setInfo(new PackageClassInfoType(decls, root))
+
+      if (!root.isRoot)
+        definitions.enterDuringCompletion.getOrElse(root.fullNameString, Nil).foreach(f => decls.enter(f()))
 
       val classPathEntries = classPath.list(packageName)
 

@@ -136,7 +136,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
 
     val compiler = new Global(compilerSettings, startupReporter) with ReplGlobal
 
-    try {
+//    try {
       // if this crashes, REPL will hang its head in shame
       val run = new compiler.Run()
       assert(run.typerPhase != NoPhase, "REPL requires a typer phase.")
@@ -149,8 +149,8 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
       compiler.reporter = reporter
       _initializeComplete = true
       compiler
-    }
-    catch AbstractOrMissingHandler()
+//    }
+//    catch AbstractOrMissingHandler()
   }
 
   import global._

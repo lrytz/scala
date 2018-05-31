@@ -762,7 +762,7 @@ object Stream extends LazyListFactory[Stream] {
 
   protected def newCons[T](hd: => T, tl: => Stream[T]): Stream[T] = new Stream.Cons(hd, tl)
 
-  //@SerialVersionUID(3L) //TODO Putting an annotation on Stream.empty causes a cyclic dependency in unpickling
+  @SerialVersionUID(3L) //TODO Putting an annotation on Stream.empty causes a cyclic dependency in unpickling
   object Empty extends Stream[Nothing] {
     override def isEmpty: Boolean = true
     override def head: Nothing = throw new NoSuchElementException("head of empty lazy list")

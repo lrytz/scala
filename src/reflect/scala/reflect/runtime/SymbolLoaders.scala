@@ -66,7 +66,10 @@ private[reflect] trait SymbolLoaders { self: SymbolTable =>
       // creates a module symbol and invokes invokes `companionModule` while the `infos` field is
       // still null. This calls `isModuleNotMethod`, which forces the `info` if run after refchecks.
       slowButSafeEnteringPhaseNotLaterThan(picklerPhase) {
-        sym setInfo new ClassInfoType(List(), new PackageScope(sym), sym)
+        val decls = new PackageScope(sym)
+        sym setInfo new ClassInfoType(List(), decls, sym)
+        if (!sym.isRoot)
+          definitions.enterDuringCompletion.getOrElse(sym.fullNameString, Nil).foreach(f => decls.enter(f()))
         // override def safeToString = pkgClass.toString
         openPackageModule(sym)
         markAllCompleted(sym)
