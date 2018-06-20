@@ -569,12 +569,14 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
       }
 
       val isNative         = methSymbol.hasAnnotation(definitions.NativeAttr)
+      val isSynthetic      = methSymbol.hasAnnotation(definitions.SyntheticClass)
       val isAbstractMethod = rhs == EmptyTree
       val flags =
         javaFlags(methSymbol) |
         (if (isAbstractMethod)        asm.Opcodes.ACC_ABSTRACT   else 0) |
         (if (methSymbol.isStrictFP)   asm.Opcodes.ACC_STRICT     else 0) |
-        (if (isNative)                asm.Opcodes.ACC_NATIVE     else 0)  // native methods of objects are generated in mirror classes
+        (if (isNative)                asm.Opcodes.ACC_NATIVE     else 0) | // native methods of objects are generated in mirror classes
+        (if (isSynthetic)             asm.Opcodes.ACC_SYNTHETIC  else 0)
 
 
       initJMethod(flags, params.map(_.symbol))
