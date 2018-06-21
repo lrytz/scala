@@ -112,7 +112,10 @@ abstract class BackendUtils extends PerRunInit {
     def sizeOKForSourceValue(method: MethodNode): Boolean = size(method) < sourceValueSizeLimit
   }
 
-  class ProdConsAnalyzer(val methodNode: MethodNode, classInternalName: InternalName) extends AsmAnalyzer(methodNode, classInternalName, new Analyzer(new InitialProducerSourceInterpreter)) with ProdConsAnalyzerImpl
+  class ProdConsAnalyzer(val methodNode: MethodNode, classInternalName: InternalName) extends AsmAnalyzer(methodNode, classInternalName, new Analyzer(new InitialProducerSourceInterpreter) {
+    override def newFrame(nLocals: Int, nStack: Int): Frame[SourceValue] = new VanillaAsmFrame(nLocals, nStack)
+    override def newFrame(frame: Frame[_ <: SourceValue]): Frame[SourceValue] = new VanillaAsmFrame(frame)
+  }) with ProdConsAnalyzerImpl
 
   class NonLubbingTypeFlowAnalyzer(val methodNode: MethodNode, classInternalName: InternalName) extends AsmAnalyzer(methodNode, classInternalName, new Analyzer(new NonLubbingTypeFlowInterpreter))
 
