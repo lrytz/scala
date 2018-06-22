@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="JAVA_MODULE" version="4">
   <component name="NewModuleRootManager">
-    <output url="file://$MODULE_DIR$/../../build/quick/classes/scalap" />
-    <output-test url="file://$MODULE_DIR$/../../out/test/scalap" />
+    <output url="file://$MODULE_IML_DIR$/../../build/quick/classes/scalap" />
+    <output-test url="file://$MODULE_IML_DIR$/../../out/test/scalap" />
     <exclude-output />
-    <content url="file://$MODULE_DIR$/../scalap">
-      <sourceFolder url="file://$MODULE_DIR$/../scalap" isTestSource="false" />
+    <content url="file://$MODULE_IML_DIR$/../scalap">
+      <sourceFolder url="file://$MODULE_IML_DIR$/../scalap" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

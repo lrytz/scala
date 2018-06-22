@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="JAVA_MODULE" version="4">
   <component name="NewModuleRootManager">
-    <output url="file://$MODULE_DIR$/../../build/quick/classes/scalacheckLib" />
-    <output-test url="file://$MODULE_DIR$/../../out/test/scalacheck" />
+    <output url="file://$MODULE_IML_DIR$/../../build/quick/classes/scalacheckLib" />
+    <output-test url="file://$MODULE_IML_DIR$/../../out/test/scalacheck" />
     <exclude-output />
-    <content url="file://$MODULE_DIR$/../scalacheck">
-      <sourceFolder url="file://$MODULE_DIR$/../scalacheck" isTestSource="false" />
+    <content url="file://$MODULE_IML_DIR$/../scalacheck">
+      <sourceFolder url="file://$MODULE_IML_DIR$/../scalacheck" isTestSource="false" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
