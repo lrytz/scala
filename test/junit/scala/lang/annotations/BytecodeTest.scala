@@ -16,6 +16,22 @@ class BytecodeTest extends BytecodeTesting {
   import compiler._
 
   @Test
+  def bridgeFlag(): Unit = {
+    val code =
+      """ A { def f: Object = null }
+        |object B extends A { override def f: String = "b" }
+      """.stripMargin
+    for (base <- List("trait", "class")) {
+      val List(a, bMirror, bModule) = compileClasses(base + code)
+      assertEquals("B", bMirror.name)
+      assertEquals(List("f()Ljava/lang/String;0x9", "f()Ljava/lang/Object;0x49"),
+        bMirror.methods.asScala
+          .filter(_.name == "f")
+          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList)
+    }
+  }
+
+  @Test
   def t8731(): Unit = {
     val code =
       """class C {

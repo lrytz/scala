@@ -790,7 +790,12 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
      *
      * must-single-thread
      */
-    private def addForwarder(isRemoteClass: Boolean, jclass: asm.ClassVisitor, moduleClass: Symbol, m: Symbol): Unit = {
+    private def addForwarder(
+        isRemoteClass: Boolean,
+        isBridge: Boolean,
+        jclass: asm.ClassVisitor,
+        moduleClass: Symbol,
+        m: Symbol): Unit = {
       def staticForwarderGenericSignature: String = {
         // scala/bug#3452 Static forwarder generation uses the same erased signature as the method if forwards to.
         // By rights, it should use the signature as-seen-from the module class, and add suitable
@@ -814,8 +819,8 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
        *  and we don't know what classes might be subclassing the companion class.  See scala/bug#4827.
        */
       // TODO: evaluate the other flags we might be dropping on the floor here.
-      // TODO: ACC_SYNTHETIC ?
       val flags = GenBCode.PublicStatic |
+        (if (isBridge) asm.Opcodes.ACC_BRIDGE else 0) |
         (if (m.isVarargsMethod) asm.Opcodes.ACC_VARARGS else 0) |
         (if (m.isDeprecated) asm.Opcodes.ACC_DEPRECATED else 0)
 
@@ -876,7 +881,16 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
       }
       debuglog(s"Potentially conflicting names for forwarders: $conflictingNames")
 
-      for (m <- moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)) {
+      // Before erasure * to exclude bridge methods. Excluding them by flag doesn't work, because then
+      // the the method from the base class that the bridge overrides is included (scala/bug#10812).
+      // * using `exitingPickler` (not `enteringErasure`) because erasure enters bridges in traversal,
+      //   not in the InfoTransform, so it actually modifies the type from the previous phase.
+      //
+      // To keep binary compatibility with 2.12, we will still emit bridge methods, but with BRIDGE flag.
+      // Without it, Java 11 finds them to be ambiguous. (scala/bug#11061)
+      val membersAfterPickler = exitingPickler(moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)).toList
+      val members = moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)
+      for (m <- members) {
         if (m.isType || m.isDeferred || (m.owner eq definitions.ObjectClass) || m.isConstructor)
           debuglog(s"No forwarder for '$m' from $jclassName to '$moduleClass': ${m.isType} || ${m.isDeferred} || ${m.owner eq definitions.ObjectClass} || ${m.isConstructor}")
         else if (conflictingNames(m.name))
@@ -885,7 +899,11 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
           log(s"No forwarder for non-public member $m")
         else {
           log(s"Adding static forwarder for '$m' from $jclassName to '$moduleClass'")
-          addForwarder(isRemoteClass, jclass, moduleClass, m)
+          addForwarder(isRemoteClass,
+            isBridge = !membersAfterPickler.contains[Symbol](m),
+            jclass,
+            moduleClass,
+            m)
         }
       }
     }
