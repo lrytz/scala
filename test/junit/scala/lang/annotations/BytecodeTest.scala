@@ -32,6 +32,26 @@ class BytecodeTest extends BytecodeTesting {
   }
 
   @Test
+  def varArg(): Unit = {
+    val code =
+      """ A { @annotation.varargs def f(i: Int*): Object = null }
+        |object B extends A { @annotation.varargs override def f(i: Int*): String = "b" }
+      """.stripMargin
+    for (base <- List("trait", "class")) {
+      val List(a, bMirror, bModule) = compileClasses(base + code)
+      assertEquals("B", bMirror.name)
+      assertEquals(List(
+        "f([I)Ljava/lang/String;0xc9",
+        "f(Lscala/collection/Seq;)Ljava/lang/String;0x9",
+        "f([I)Ljava/lang/Object;0xc9",
+        "f(Lscala/collection/Seq;)Ljava/lang/Object;0x49"),
+        bMirror.methods.asScala
+          .filter(_.name == "f")
+          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList)
+    }
+  }
+
+  @Test
   def t8731(): Unit = {
     val code =
       """class C {

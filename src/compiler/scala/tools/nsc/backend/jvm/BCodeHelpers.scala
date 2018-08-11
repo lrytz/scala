@@ -883,12 +883,13 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
 
       // Before erasure * to exclude bridge methods. Excluding them by flag doesn't work, because then
       // the the method from the base class that the bridge overrides is included (scala/bug#10812).
-      // * using `exitingPickler` (not `enteringErasure`) because erasure enters bridges in traversal,
+      // * using `exitingUncurry` (not `enteringErasure`) because erasure enters bridges in traversal,
       //   not in the InfoTransform, so it actually modifies the type from the previous phase.
+      //   Uncurry adds java varargs, which need to be included in the mirror class.
       //
       // To keep binary compatibility with 2.12, we will still emit bridge methods, but with BRIDGE flag.
       // Without it, Java 11 finds them to be ambiguous. (scala/bug#11061)
-      val membersAfterPickler = exitingPickler(moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)).toList
+      val membersAfterUncurry = exitingPickler(moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)).toList
       val members = moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)
       for (m <- members) {
         if (m.isType || m.isDeferred || (m.owner eq definitions.ObjectClass) || m.isConstructor)
@@ -900,7 +901,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
         else {
           log(s"Adding static forwarder for '$m' from $jclassName to '$moduleClass'")
           addForwarder(isRemoteClass,
-            isBridge = !membersAfterPickler.contains[Symbol](m),
+            isBridge = !membersAfterUncurry.contains[Symbol](m),
             jclass,
             moduleClass,
             m)
