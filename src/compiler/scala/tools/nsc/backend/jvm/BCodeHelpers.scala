@@ -881,17 +881,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
       }
       debuglog(s"Potentially conflicting names for forwarders: $conflictingNames")
 
-      // Before erasure * to exclude bridge methods. Excluding them by flag doesn't work, because then
-      // the the method from the base class that the bridge overrides is included (scala/bug#10812).
-      // * using `exitingUncurry` (not `enteringErasure`) because erasure enters bridges in traversal,
-      //   not in the InfoTransform, so it actually modifies the type from the previous phase.
-      //   Uncurry adds java varargs, which need to be included in the mirror class.
-      //
-      // To keep binary compatibility with 2.12, we will still emit bridge methods, but with BRIDGE flag.
-      // Without it, Java 11 finds them to be ambiguous. (scala/bug#11061)
-      val membersAfterUncurry = exitingPickler(moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)).toList
-      val members = moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)
-      for (m <- members) {
+      for (m <- moduleClass.info.membersBasedOnFlags(BCodeHelpers.ExcludedForwarderFlags, symtab.Flags.METHOD)) {
         if (m.isType || m.isDeferred || (m.owner eq definitions.ObjectClass) || m.isConstructor)
           debuglog(s"No forwarder for '$m' from $jclassName to '$moduleClass': ${m.isType} || ${m.isDeferred} || ${m.owner eq definitions.ObjectClass} || ${m.isConstructor}")
         else if (conflictingNames(m.name))
@@ -901,7 +891,7 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
         else {
           log(s"Adding static forwarder for '$m' from $jclassName to '$moduleClass'")
           addForwarder(isRemoteClass,
-            isBridge = !membersAfterUncurry.contains[Symbol](m),
+            isBridge = m.isBridge,
             jclass,
             moduleClass,
             m)
@@ -1180,7 +1170,12 @@ object BCodeHelpers {
   val ExcludedForwarderFlags = {
     import scala.tools.nsc.symtab.Flags._
     // Should include DEFERRED but this breaks findMember.
-    SPECIALIZED | LIFTED | PROTECTED | STATIC | EXPANDEDNAME | BridgeAndPrivateFlags | MACRO
+    // Note that BRIDGE is *not* excluded. Trying to exclude bridges by flag doesn't work, findMembers
+    // will then include the member from the parent (which the bridge overrides / implements).
+    // This caused scala/bug#11061 and scala/bug#10812. In 2.13, they are fixed by not emitting
+    // forwarders for bridges. But in 2.12 that's not binary compatible, so instead we continue to
+    // emit forwarders for bridges, but mark them with ACC_BRIDGE.
+    SPECIALIZED | LIFTED | PROTECTED | STATIC | EXPANDEDNAME | PRIVATE | MACRO
   }
 
   /**

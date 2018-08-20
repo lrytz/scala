@@ -24,10 +24,10 @@ class BytecodeTest extends BytecodeTesting {
     for (base <- List("trait", "class")) {
       val List(a, bMirror, bModule) = compileClasses(base + code)
       assertEquals("B", bMirror.name)
-      assertEquals(List("f()Ljava/lang/String;0x9", "f()Ljava/lang/Object;0x49"),
+      assertEquals(List("f()Ljava/lang/Object;0x49", "f()Ljava/lang/String;0x9"),
         bMirror.methods.asScala
           .filter(_.name == "f")
-          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList)
+          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList.sorted)
     }
   }
 
@@ -41,13 +41,13 @@ class BytecodeTest extends BytecodeTesting {
       val List(a, bMirror, bModule) = compileClasses(base + code)
       assertEquals("B", bMirror.name)
       assertEquals(List(
-        "f([I)Ljava/lang/String;0xc9",
+        "f(Lscala/collection/Seq;)Ljava/lang/Object;0x49",
         "f(Lscala/collection/Seq;)Ljava/lang/String;0x9",
         "f([I)Ljava/lang/Object;0xc9",
-        "f(Lscala/collection/Seq;)Ljava/lang/Object;0x49"),
+        "f([I)Ljava/lang/String;0x89"),
         bMirror.methods.asScala
           .filter(_.name == "f")
-          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList)
+          .map(m => m.name + m.desc + "0x" + Integer.toHexString(m.access)).toList.sorted)
     }
   }
 
