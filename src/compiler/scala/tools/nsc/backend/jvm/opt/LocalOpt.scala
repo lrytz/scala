@@ -291,9 +291,11 @@ abstract class LocalOpt {
 
       traceIfChanged("beforeMethodOpt")
 
+      val stats = frontendAccess.unsafeStatistics
+
       // NULLNESS OPTIMIZATIONS
       val runNullness = compilerSettings.optNullnessTracking && requestNullness
-      val nullnessOptChanged = runNullness && nullnessOptimizations(method, ownerClassName)
+      val nullnessOptChanged = runNullness && stats.timed(stats.nullnessOptTimer)(nullnessOptimizations(method, ownerClassName))
       traceIfChanged("nullness")
 
       // UNREACHABLE CODE
@@ -302,32 +304,32 @@ abstract class LocalOpt {
       val runDCE = (compilerSettings.optUnreachableCode && (requestDCE || nullnessOptChanged)) ||
         compilerSettings.optBoxUnbox ||
         compilerSettings.optCopyPropagation
-      val codeRemoved = if (runDCE) removeUnreachableCodeImpl(method, ownerClassName) else false
+      val codeRemoved = if (runDCE) stats.timed(stats.dceTimer)(removeUnreachableCodeImpl(method, ownerClassName)) else false
       traceIfChanged("dce")
 
       // BOX-UNBOX
       val runBoxUnbox = compilerSettings.optBoxUnbox && (requestBoxUnbox || nullnessOptChanged)
-      val boxUnboxChanged = runBoxUnbox && boxUnboxElimination(method, ownerClassName)
+      val boxUnboxChanged = runBoxUnbox && stats.timed(stats.boxUnboxTimer)(boxUnboxElimination(method, ownerClassName))
       traceIfChanged("boxUnbox")
 
       // COPY PROPAGATION
       val runCopyProp = compilerSettings.optCopyPropagation && (requestCopyProp || boxUnboxChanged)
-      val copyPropChanged = runCopyProp && copyPropagation(method, ownerClassName)
+      val copyPropChanged = runCopyProp && stats.timed(stats.copyPropTimer)(copyPropagation(method, ownerClassName))
       traceIfChanged("copyProp")
 
       // STALE STORES
       val runStaleStores = compilerSettings.optCopyPropagation && (requestStaleStores || nullnessOptChanged || codeRemoved || boxUnboxChanged || copyPropChanged)
-      val (storesRemoved, intrinsicRewrittenByStaleStores, callInlinedByStaleStores) = if (!runStaleStores) (false, false, false) else eliminateStaleStoresAndRewriteSomeIntrinsics(method, ownerClassName)
+      val (storesRemoved, intrinsicRewrittenByStaleStores, callInlinedByStaleStores) = if (!runStaleStores) (false, false, false) else stats.timed(stats.staleStoresTimer)(eliminateStaleStoresAndRewriteSomeIntrinsics(method, ownerClassName))
       traceIfChanged("staleStores")
 
       // REDUNDANT CASTS
       val runRedundantCasts = compilerSettings.optRedundantCasts && (requestRedundantCasts || boxUnboxChanged || intrinsicRewrittenByStaleStores || callInlinedByStaleStores)
-      val (typeInsnChanged, intrinsicRewrittenByCasts) = if (!runRedundantCasts) (false, false) else eliminateRedundantCastsAndRewriteSomeIntrinsics(method, ownerClassName)
+      val (typeInsnChanged, intrinsicRewrittenByCasts) = if (!runRedundantCasts) (false, false) else stats.timed(stats.redundantCastsTimer)(eliminateRedundantCastsAndRewriteSomeIntrinsics(method, ownerClassName))
       traceIfChanged("redundantCasts")
 
       // PUSH-POP
       val runPushPop = compilerSettings.optCopyPropagation && (requestPushPop || storesRemoved || typeInsnChanged)
-      val (pushPopRemoved, pushPopCastAdded, pushPopNullCheckAdded) = if (!runPushPop) (false, false, false) else eliminatePushPop(method, ownerClassName)
+      val (pushPopRemoved, pushPopCastAdded, pushPopNullCheckAdded) = if (!runPushPop) (false, false, false) else stats.timed(stats.pushPopTimer)(eliminatePushPop(method, ownerClassName))
       traceIfChanged("pushPop")
 
       // STORE-LOAD PAIRS

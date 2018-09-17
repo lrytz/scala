@@ -277,12 +277,14 @@ abstract class Inliner {
 
     while (firstRound || changedByClosureOptimizer.nonEmpty) {
       val specificMethodsForInlining = if (firstRound) None else Some(changedByClosureOptimizer)
-      val changedByInliner = runInliner(specificMethodsForInlining, inlinerState, failedToInline)
+      val stats = frontendAccess.unsafeStatistics
+      val changedByInliner = stats.timed(stats.inlinerTimer)(runInliner(specificMethodsForInlining, inlinerState, failedToInline))
 
       if (runClosureOptimizer) {
         val specificMethodsForClosureRewriting = if (firstRound) None else Some(changedByInliner)
         // TODO: remove cast by moving `MethodInlinerState` and other classes from inliner to a separate PostProcessor component
-        changedByClosureOptimizer = closureOptimizer.rewriteClosureApplyInvocations(specificMethodsForClosureRewriting, inlinerState.asInstanceOf[mutable.Map[MethodNode, postProcessor.closureOptimizer.postProcessor.inliner.MethodInlinerState]])
+        changedByClosureOptimizer = stats.timed(stats.closureOptTimer)(
+          closureOptimizer.rewriteClosureApplyInvocations(specificMethodsForClosureRewriting, inlinerState.asInstanceOf[mutable.Map[MethodNode, postProcessor.closureOptimizer.postProcessor.inliner.MethodInlinerState]]))
       }
 
       for (m <- inlinerState.keySet if !changedByClosureOptimizer(m))

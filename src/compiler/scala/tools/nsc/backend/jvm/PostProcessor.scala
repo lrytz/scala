@@ -119,9 +119,12 @@ abstract class PostProcessor extends PerRunInit {
       for (u <- generatedUnits; c <- u.classes) {
         byteCodeRepository.add(c.classNode, Some(u.sourceFile.canonicalPath))
       }
-      if (compilerSettings.optBuildCallGraph) for (u <- generatedUnits; c <- u.classes if !c.isArtifact) {
-        // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
-        callGraph.addClass(c.classNode)
+      val stats = frontendAccess.unsafeStatistics
+      stats.timed(stats.callGraphBuildTimer) {
+        if (compilerSettings.optBuildCallGraph) for (u <- generatedUnits; c <- u.classes if !c.isArtifact) {
+          // skip call graph for mirror / bean: we don't inline into them, and they are not referenced from other classes
+          callGraph.addClass(c.classNode)
+        }
       }
       if (compilerSettings.optInlinerEnabled)
         inliner.runInlinerAndClosureOptimizer()
@@ -132,7 +135,8 @@ abstract class PostProcessor extends PerRunInit {
 
   def localOptimizations(classNode: ClassNode): Unit = {
     val stats = frontendAccess.unsafeStatistics
-    stats.timed(stats.methodOptTimer)(localOpt.methodOptimizations(classNode))
+//    stats.timed(stats.methodOptTimer)(localOpt.methodOptimizations(classNode))
+    localOpt.methodOptimizations(classNode)
   }
 
   def setInnerClasses(classNode: ClassNode): Unit = {

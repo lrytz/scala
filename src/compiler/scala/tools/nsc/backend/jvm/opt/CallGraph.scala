@@ -122,12 +122,15 @@ abstract class CallGraph {
   }
 
   def refresh(methodNode: MethodNode, definingClass: ClassBType): Unit = {
-    callsites.remove(methodNode)
-    closureInstantiations.remove(methodNode)
-    // callsitePositions, inlineAnnotatedCallsites, noInlineAnnotatedCallsites, staticallyResolvedInvokespecial
-    // are left unchanged. They contain individual instructions, the state for those remains valid in case
-    // the inliner performs a rollback.
-    addMethod(methodNode, definingClass)
+    val stats = frontendAccess.unsafeStatistics
+    stats.timed(stats.callGraphRefreshTimer) {
+      callsites.remove(methodNode)
+      closureInstantiations.remove(methodNode)
+      // callsitePositions, inlineAnnotatedCallsites, noInlineAnnotatedCallsites, staticallyResolvedInvokespecial
+      // are left unchanged. They contain individual instructions, the state for those remains valid in case
+      // the inliner performs a rollback.
+      addMethod(methodNode, definingClass)
+    }
   }
 
   def addMethod(methodNode: MethodNode, definingClass: ClassBType): Unit = {
