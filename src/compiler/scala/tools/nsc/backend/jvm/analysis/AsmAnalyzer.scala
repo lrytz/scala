@@ -14,6 +14,7 @@ package scala.tools.nsc.backend.jvm.analysis
 
 import scala.tools.asm.tree.analysis._
 import scala.tools.asm.tree.{AbstractInsnNode, MethodNode}
+import scala.tools.nsc.backend.jvm.AsmUtils
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
 import scala.tools.nsc.backend.jvm.analysis.BackendUtils.computeMaxLocalsMaxStack
 import scala.tools.nsc.backend.jvm.opt.BytecodeUtils._
@@ -25,7 +26,12 @@ import scala.tools.nsc.backend.jvm.opt.BytecodeUtils._
 abstract class AsmAnalyzer[V <: Value](methodNode: MethodNode, classInternalName: InternalName, val analyzer: Analyzer[V]) {
   computeMaxLocalsMaxStack(methodNode)
   try {
+    val a = System.currentTimeMillis()
     analyzer.analyze(classInternalName, methodNode)
+    val b = System.currentTimeMillis()
+    if ((b - a) > 100 && this.isInstanceOf[ProdConsAnalyzer]) {
+      println(s"${b - a} ${methodNode.instructions.size} ${methodNode.maxLocals} ${methodNode.maxStack} $classInternalName.${methodNode.name}")
+    }
   } catch {
     case ae: AnalyzerException =>
       throw new AnalyzerException(null, "While processing " + classInternalName + "." + methodNode.name, ae)
@@ -47,7 +53,7 @@ object AsmAnalyzer {
 
   private val nullnessSizeLimit    = 5000l * 600l  * 600l    // 5000 insns, 600 locals
   private val basicValueSizeLimit  = 9000l * 1000l * 1000l
-  private val sourceValueSizeLimit = 8000l * 950l  * 950l
+  private val sourceValueSizeLimit = 8000l * 950l  * 950l    // TODO: seems too big. analysis takes longer than 1s
 
   def sizeOKForAliasing(method: MethodNode): Boolean = size(method) < nullnessSizeLimit
   def sizeOKForNullness(method: MethodNode): Boolean = size(method) < nullnessSizeLimit
