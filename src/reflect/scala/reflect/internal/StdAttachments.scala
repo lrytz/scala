@@ -135,4 +135,7 @@ trait StdAttachments {
   case class ChangeOwnerAttachment(originalOwner: Symbol)
 
   case object InterpolatedString extends PlainAttachment
+
+  /** Apply is right associative. */
+  case object RightAssociative extends PlainAttachment
 }

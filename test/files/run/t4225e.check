@@ -1,19 +1,22 @@
+t4225e.scala:19: warning: right-associative application requires evaluating right-to-left
+  mkBarString andThen_: mkFoo
+              ^
 t4225e.scala:12: warning: a pure expression does nothing in statement position; multiline expressions might require enclosing parentheses
     def andThen_:(b : Bar) = { println("pre") ; b ; println("post") }
                                                 ^
-bar
-foo
-pre
-post
-
 foo
 bar
 pre
 post
 
+foo
 bar
+pre
+post
+
 foo
 pre
+bar
 post
 
 foo
