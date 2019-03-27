@@ -17,6 +17,8 @@ import scala.language.higherKinds
 import scala.util.hashing.MurmurHash3
 import java.lang.String
 
+import scala.annotation.unchecked.uncheckedVariance
+
 /** Base trait for set collections.
   */
 trait Set[A]
@@ -38,9 +40,9 @@ trait Set[A]
 
   override def hashCode(): Int = MurmurHash3.setHash(toIterable)
 
-  override def iterableFactory: IterableFactory[IterableCC] = Set
+  override def iterableFactory: IterableFactory[Set] = Set
 
-  def empty: IterableCC[A] = iterableFactory.empty
+  def empty: Set[A] = iterableFactory.empty
 
   @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Set"

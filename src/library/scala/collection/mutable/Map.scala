@@ -24,7 +24,7 @@ trait Map[K, V]
     with Growable[(K, V)]
     with Shrinkable[K] {
 
-  override def mapFactory: scala.collection.MapFactory[MapCC] = Map
+  override def mapFactory: scala.collection.MapFactory[Map] = Map
 
   /*
   //TODO consider keeping `remove` because it returns the removed entry

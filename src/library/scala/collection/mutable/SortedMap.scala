@@ -26,7 +26,7 @@ trait SortedMap[K, V]
 
   override def unsorted: Map[K, V] = this
 
-  override def sortedMapFactory: SortedMapFactory[SortedMapCC] = SortedMap
+  override def sortedMapFactory: SortedMapFactory[SortedMap] = SortedMap
 
   /** The same sorted map with a given default function.
     *  Note: The default is only used for `apply`. Other methods like `get`, `contains`, `iterator`, `keys`, etc.

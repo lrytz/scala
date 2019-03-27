@@ -22,7 +22,7 @@ import scala.language.higherKinds
 
 /** Base trait for immutable set collections */
 trait Set[A] extends Iterable[A] with collection.Set[A] with SetOps[A, Set, Set[A]] {
-  override def iterableFactory: IterableFactory[IterableCC] = Set
+  override def iterableFactory: IterableFactory[Set] = Set
 }
 
 /** Base trait for immutable set operations

@@ -26,7 +26,7 @@ trait SortedSet[A]
 
   override def unsorted: Set[A] = this
 
-  override def sortedIterableFactory: SortedIterableFactory[SortedIterableCC] = SortedSet
+  override def sortedIterableFactory: SortedIterableFactory[SortedSet] = SortedSet
 }
 
 /**
