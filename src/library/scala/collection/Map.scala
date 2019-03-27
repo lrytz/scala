@@ -107,15 +107,6 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     s.asInstanceOf[S]
   }
 
-  /**
-    * Type alias to `CC`. It is used to provide a default implementation of the `fromSpecific`
-    * and `newSpecificBuilder` operations.
-    *
-    * Due to the `@uncheckedVariance` annotation, usage of this type member can be unsound and is
-    * therefore not recommended.
-    */
-  protected type MapCC[KCC, VCC] = CC[KCC, VCC] @uncheckedVariance
-
   /** Similar to `fromIterable`, but returns a Map collection type.
     * Note that the return type is now `CC[K2, V2]`.
     */
@@ -392,8 +383,11 @@ object Map extends MapFactory.Delegate[Map](immutable.Map) {
 @SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends AbstractIterable[(K, V)] with Map[K, V]
 
-trait MapFactoryDefaults[K, V, +MapCC[_, _]] { self: MapOps[K, V, MapCC, MapCC[K, V]] =>
+trait MapFactoryDefaults[K, V, +MapCC[x, y] <: IterableOps[(x, y), MapCC, MapCC[x, y]]] { self: MapOps[K, V, MapCC, MapCC[K, V]] =>
   override protected def fromSpecific(coll: IterableOnce[(K, V)]): MapCC[K, V] = mapFactory.from(coll)
   override protected def newSpecificBuilder: mutable.Builder[(K, V), MapCC[K, V]] = mapFactory.newBuilder[K, V]
   override def empty: MapCC[K, V] = mapFactory.empty
+
+  override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, Iterable, MapCC] = new MapOps.WithFilter(this, p)
+  override def ++:[B >: (K, V)](that: scala.collection.IterableOnce[B]): Iterable[B] = iterableFactory.from(that) ++ coll
 }

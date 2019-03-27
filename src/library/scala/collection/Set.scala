@@ -232,4 +232,4 @@ object Set extends IterableFactory.Delegate[Set](immutable.Set)
 
 /** Explicit instantiation of the `Set` trait to reduce class file size in subclasses. */
 @SerialVersionUID(3L)
-abstract class AbstractSet[A] extends AbstractIterable[A] with Set[A]
+abstract class AbstractSet[A] extends AbstractIterable[A] with Set[A] with IterableFactoryDefaults[A, Set]
