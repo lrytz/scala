@@ -13,8 +13,12 @@
 package scala
 package collection
 
+import scala.annotation.unchecked.uncheckedVariance
+
 
 trait SeqView[+A] extends SeqOps[A, View, View[A]] with View[A] {
+  override protected def fromSpecific(coll: IterableOnce[A @uncheckedVariance]): View[A] = iterableFactory.from(coll)
+  override protected def newSpecificBuilder: mutable.Builder[A @uncheckedVariance, View[A]] = iterableFactory.newBuilder[A]
 
   override def view: SeqView[A] = this
 

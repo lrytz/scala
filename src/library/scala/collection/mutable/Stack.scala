@@ -13,7 +13,7 @@
 package scala.collection.mutable
 
 import scala.annotation.migration
-import scala.collection.{IterableOnce, SeqFactory, StrictOptimizedSeqFactory, StrictOptimizedSeqOps}
+import scala.collection.{IterableOnce, SeqFactory, StrictOptimizedSeqFactory, StrictOptimizedSeqOps, IterableFactoryDefaults}
 
 /** A stack implements a data structure which allows to store and retrieve
   *  objects in a last-in-first-out (LIFO) fashion.
@@ -35,6 +35,7 @@ class Stack[A] protected (array: Array[AnyRef], start: Int, end: Int)
   extends ArrayDeque[A](array, start, end)
     with IndexedSeqOps[A, Stack, Stack[A]]
     with StrictOptimizedSeqOps[A, Stack, Stack[A]]
+    with IterableFactoryDefaults[A, Stack]
     with Cloneable[Stack[A]] {
 
   def this(initialSize: Int = ArrayDeque.DefaultInitialSize) =

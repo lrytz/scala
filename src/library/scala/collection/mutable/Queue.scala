@@ -34,6 +34,7 @@ class Queue[A] protected (array: Array[AnyRef], start: Int, end: Int)
   extends ArrayDeque[A](array, start, end)
     with IndexedSeqOps[A, Queue, Queue[A]]
     with StrictOptimizedSeqOps[A, Queue, Queue[A]]
+    with IterableFactoryDefaults[A, Queue]
     with Cloneable[Queue[A]]
     with DefaultSerializable {
 

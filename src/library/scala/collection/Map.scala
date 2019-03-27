@@ -23,7 +23,7 @@ import scala.util.hashing.MurmurHash3
 trait Map[K, +V]
   extends Iterable[(K, V)]
     with MapOps[K, V, Map, Map[K, V]]
-    with MapFactoryDefaults[K, V @uncheckedVariance, Map]
+    with MapFactoryDefaults[K, V @uncheckedVariance, Map, Iterable]
     with Equals {
 
   /**
@@ -330,14 +330,15 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     fromSpecific(this.view.filterKeys(k => !keysSet.contains(k)))
   }
 
-  @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
-  def ++: [V1 >: V](that: IterableOnce[(K,V1)]): CC[K,V1] = {
-    val thatIterable: Iterable[(K, V1)] = that match {
-      case that: Iterable[(K, V1)] => that
-      case that => View.from(that)
-    }
-    mapFactory.from(new View.Concat(toIterable, thatIterable))
-  }
+  // TODO
+//  @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
+//  def ++: [V1 >: V](that: IterableOnce[(K,V1)]): CC[K,V1] = {
+//    val thatIterable: Iterable[(K, V1)] = that match {
+//      case that: Iterable[(K, V1)] => that
+//      case that => View.from(that)
+//    }
+//    mapFactory.from(new View.Concat(toIterable, thatIterable))
+//  }
 
   // explicit override for correct disambiguation with the new overload above
   @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
@@ -383,11 +384,13 @@ object Map extends MapFactory.Delegate[Map](immutable.Map) {
 @SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends AbstractIterable[(K, V)] with Map[K, V]
 
-trait MapFactoryDefaults[K, V, +MapCC[x, y] <: IterableOps[(x, y), MapCC, MapCC[x, y]]] { self: MapOps[K, V, MapCC, MapCC[K, V]] =>
+trait MapFactoryDefaults[K, V, +MapCC[x, y] <: IterableOps[(x, y), Iterable, Iterable[(x, y)]], +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]]] {
+  self: MapOps[K, V, MapCC, MapCC[K, V]] with IterableOps[(K, V), IterableCC, MapCC[K, V]] =>
   override protected def fromSpecific(coll: IterableOnce[(K, V)]): MapCC[K, V] = mapFactory.from(coll)
   override protected def newSpecificBuilder: mutable.Builder[(K, V), MapCC[K, V]] = mapFactory.newBuilder[K, V]
-  override def empty: MapCC[K, V] = mapFactory.empty
+  def empty: MapCC[K, V] = mapFactory.empty
 
-  override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, Iterable, MapCC] = new MapOps.WithFilter(this, p)
-  override def ++:[B >: (K, V)](that: scala.collection.IterableOnce[B]): Iterable[B] = iterableFactory.from(that) ++ coll
+  override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, IterableCC, MapCC] = new MapOps.WithFilter[K, V, IterableCC, MapCC](this, p)
+  //def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B]
+  override def ++:[B >: (K, V)](that: scala.collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ coll
 }

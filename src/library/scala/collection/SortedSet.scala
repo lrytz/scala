@@ -174,7 +174,8 @@ object SortedSetOps {
 @SerialVersionUID(3L)
 object SortedSet extends SortedIterableFactory.Delegate[SortedSet](immutable.SortedSet)
 
-trait SortedIterableFactoryDefaults[A, +SortedIterableCC[_]] { self: SortedSetOps[A, SortedIterableCC, SortedIterableCC[A]] =>
+trait SortedIterableFactoryDefaults[A, +SortedIterableCC[X] <: SortedSet[X] with SortedSetOps[X, SortedIterableCC, SortedIterableCC[X]]] {
+  self: SortedSetOps[A, SortedIterableCC, SortedIterableCC[A] ] =>
   override protected def fromSpecific(coll: IterableOnce[A]): SortedIterableCC[A]    = sortedIterableFactory.from(coll)
   override protected def newSpecificBuilder: mutable.Builder[A, SortedIterableCC[A]] = sortedIterableFactory.newBuilder[A]
   override def empty: SortedIterableCC[A] = sortedIterableFactory.empty

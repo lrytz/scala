@@ -22,9 +22,13 @@ trait Map[K, V]
     with collection.Map[K, V]
     with MapOps[K, V, Map, Map[K, V]]
     with Growable[(K, V)]
-    with Shrinkable[K] {
+    with Shrinkable[K]
+    with MapFactoryDefaults[K, V, Map, Iterable] {
 
   override def mapFactory: scala.collection.MapFactory[Map] = Map
+
+  override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, Iterable, Map] = new MapOps.WithFilter(this, p)
+  override def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B] = iterableFactory.from(that) ++ coll
 
   /*
   //TODO consider keeping `remove` because it returns the removed entry
@@ -70,6 +74,9 @@ trait MapOps[K, V, +CC[X, Y] <: MapOps[X, Y, CC, _], +C <: MapOps[K, V, CC, C]]
     with Builder[(K, V), C]
     with Growable[(K, V)]
     with Shrinkable[K] {
+
+  override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, Iterable, CC] = new MapOps.WithFilter(this, p)
+  override def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B] = iterableFactory.from(that) ++ coll
 
   def result(): C = coll
 

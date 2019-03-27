@@ -886,10 +886,10 @@ object Iterable extends IterableFactory.Delegate[Iterable](immutable.Iterable) {
 
 /** Explicit instantiation of the `Iterable` trait to reduce class file size in subclasses. */
 abstract class AbstractIterable[+A] extends Iterable[A]
+  with IterableFactoryDefaults[A @uncheckedVariance, Iterable]
 
 trait IterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]]] { self: IterableOps[A, IterableCC, IterableCC[A]] =>
-  override protected def fromSpecific(coll: IterableOnce[A]): IterableCC[A] = iterableFactory.from(coll)
-  override protected def newSpecificBuilder: Builder[A, IterableCC[A]] = iterableFactory.newBuilder[A]
-  def empty: IterableCC[A] = iterableFactory.empty
-  override def ++:[B >: A](that: collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ this
+  protected def fromSpecific(coll: IterableOnce[A]): IterableCC[A] = iterableFactory.from(coll)
+  protected def newSpecificBuilder: Builder[A, IterableCC[A]] = iterableFactory.newBuilder[A]
+  def ++:[B >: A](that: collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ this
 }

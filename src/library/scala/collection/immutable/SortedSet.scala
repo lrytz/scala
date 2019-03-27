@@ -21,11 +21,14 @@ import scala.language.higherKinds
 trait SortedSet[A]
   extends Set[A]
      with collection.SortedSet[A]
-     with SortedSetOps[A, SortedSet, SortedSet[A]] {
+     with SortedSetOps[A, SortedSet, SortedSet[A]]
+     with SortedIterableFactoryDefaults[A, SortedSet] {
 
   override def unsorted: Set[A] = this
 
   override def sortedIterableFactory: SortedIterableFactory[SortedSet] = SortedSet
+
+  override def withFilter(p: A => Boolean): SortedSetOps.WithFilter[A, Set, immutable.SortedSet] = new SortedSetOps.WithFilter(this, p)
 }
 
 /**
@@ -37,12 +40,17 @@ trait SortedSetOps[A, +CC[X] <: SortedSet[X], +C <: SortedSetOps[A, CC, C]]
      with collection.SortedSetOps[A, CC, C] {
 
   def unsorted: Set[A]
+
+  override def withFilter(p: A => Boolean): SortedSetOps.WithFilter[A, Set, CC] = new SortedSetOps.WithFilter(this, p)
 }
 
 trait StrictOptimizedSortedSetOps[A, +CC[X] <: SortedSet[X], +C <: SortedSetOps[A, CC, C]]
   extends SortedSetOps[A, CC, C]
     with collection.StrictOptimizedSortedSetOps[A, CC, C]
-    with StrictOptimizedSetOps[A, Set, C]
+    with StrictOptimizedSetOps[A, Set, C] {
+
+  override def withFilter(p: A => Boolean): SortedSetOps.WithFilter[A, Set, CC] = new SortedSetOps.WithFilter(this, p)
+}
 
 /**
   * $factoryInfo
