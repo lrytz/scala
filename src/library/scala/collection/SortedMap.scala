@@ -21,12 +21,10 @@ import scala.annotation.unchecked.uncheckedVariance
 /** Base type of sorted sets */
 trait SortedMap[K, +V]
   extends Map[K, V]
-    with SortedMapOps[K, V, SortedMap, SortedMap[K, V]] {
+    with SortedMapOps[K, V, SortedMap, SortedMap[K, V]]
+    with SortedMapFactoryDefaults[K, V @uncheckedVariance, SortedMap] {
 
   def unsorted: Map[K, V] = this
-
-  override protected def fromSpecific(coll: IterableOnce[(K, V @uncheckedVariance)]): SortedMap[K, V]    = sortedMapFactory.from(coll)
-  override protected def newSpecificBuilder: mutable.Builder[(K, V @uncheckedVariance), SortedMap[K, V]] = sortedMapFactory.newBuilder[K, V]
 
   /**
     * @note This operation '''has''' to be overridden by concrete collection classes to effectively
@@ -36,8 +34,6 @@ trait SortedMap[K, +V]
     * @return The factory of this collection.
     */
   def sortedMapFactory: SortedMapFactory[SortedMap] = SortedMap
-
-  override def empty: SortedMap[K, V] = sortedMapFactory.empty
 
   @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "SortedMap"
@@ -212,3 +208,9 @@ object SortedMapOps {
 
 @SerialVersionUID(3L)
 object SortedMap extends SortedMapFactory.Delegate[SortedMap](immutable.SortedMap)
+
+trait SortedMapFactoryDefaults[K, V, +SortedMapCC[_, _]] { self: SortedMapOps[K, V, SortedMapCC, SortedMapCC[K, V]] =>
+  protected def fromSpecific(coll: IterableOnce[(K, V)]): SortedMapCC[K, V]    = sortedMapFactory.from(coll)
+  protected def newSpecificBuilder: mutable.Builder[(K, V), SortedMapCC[K, V]] = sortedMapFactory.newBuilder[K, V]
+  def empty: SortedMapCC[K, V] = sortedMapFactory.empty
+}

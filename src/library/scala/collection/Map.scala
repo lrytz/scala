@@ -23,10 +23,8 @@ import scala.util.hashing.MurmurHash3
 trait Map[K, +V]
   extends Iterable[(K, V)]
     with MapOps[K, V, Map, Map[K, V]]
+    with MapFactoryDefaults[K, V @uncheckedVariance, Map]
     with Equals {
-
-  override protected def fromSpecific(coll: IterableOnce[(K, V @uncheckedVariance)]): Map[K, V] = mapFactory.from(coll)
-  override protected def newSpecificBuilder: mutable.Builder[(K, V @uncheckedVariance), Map[K, V @uncheckedVariance]] = mapFactory.newBuilder[K, V]
 
   /**
     * @note This operation '''has''' to be overridden by concrete collection classes to effectively
@@ -36,8 +34,6 @@ trait Map[K, +V]
     * @return The factory of this collection.
     */
   def mapFactory: scala.collection.MapFactory[Map] = Map
-
-  override def empty: Map[K, V] = mapFactory.empty
 
   def canEqual(that: Any): Boolean = true
 
@@ -395,3 +391,9 @@ object Map extends MapFactory.Delegate[Map](immutable.Map) {
 /** Explicit instantiation of the `Map` trait to reduce class file size in subclasses. */
 @SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends AbstractIterable[(K, V)] with Map[K, V]
+
+trait MapFactoryDefaults[K, V, +MapCC[_, _]] { self: MapOps[K, V, MapCC, MapCC[K, V]] =>
+  override protected def fromSpecific(coll: IterableOnce[(K, V)]): MapCC[K, V] = mapFactory.from(coll)
+  override protected def newSpecificBuilder: mutable.Builder[(K, V), MapCC[K, V]] = mapFactory.newBuilder[K, V]
+  override def empty: MapCC[K, V] = mapFactory.empty
+}

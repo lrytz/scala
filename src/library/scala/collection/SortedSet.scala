@@ -17,11 +17,11 @@ import scala.annotation.unchecked.uncheckedVariance
 import scala.language.higherKinds
 
 /** Base type of sorted sets */
-trait SortedSet[A] extends Set[A] with SortedSetOps[A, SortedSet, SortedSet[A]] {
-  def unsorted: Set[A] = this
+trait SortedSet[A] extends Set[A]
+    with SortedSetOps[A, SortedSet, SortedSet[A]]
+    with SortedIterableFactoryDefaults[A, SortedSet] {
 
-  override protected def fromSpecific(coll: IterableOnce[A] @uncheckedVariance): SortedSet[A] = sortedIterableFactory.from(coll)
-  override protected def newSpecificBuilder: mutable.Builder[A, SortedSet[A]] = sortedIterableFactory.newBuilder[A]
+  def unsorted: Set[A] = this
 
   /**
     * @note This operation '''has''' to be overridden by concrete collection classes to effectively
@@ -31,8 +31,6 @@ trait SortedSet[A] extends Set[A] with SortedSetOps[A, SortedSet, SortedSet[A]] 
     * @return The factory of this collection.
     */
   def sortedIterableFactory: SortedIterableFactory[SortedSet] = SortedSet
-
-  override def empty: SortedSet[A] = sortedIterableFactory.empty
 
   @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "SortedSet"
@@ -175,3 +173,9 @@ object SortedSetOps {
 
 @SerialVersionUID(3L)
 object SortedSet extends SortedIterableFactory.Delegate[SortedSet](immutable.SortedSet)
+
+trait SortedIterableFactoryDefaults[A, +SortedIterableCC[_]] { self: SortedSetOps[A, SortedIterableCC, SortedIterableCC[A]] =>
+  override protected def fromSpecific(coll: IterableOnce[A]): SortedIterableCC[A]    = sortedIterableFactory.from(coll)
+  override protected def newSpecificBuilder: mutable.Builder[A, SortedIterableCC[A]] = sortedIterableFactory.newBuilder[A]
+  override def empty: SortedIterableCC[A] = sortedIterableFactory.empty
+}
