@@ -35,6 +35,7 @@ class Queue[A] protected (array: Array[AnyRef], start: Int, end: Int)
     with IndexedSeqOps[A, Queue, Queue[A]]
     with StrictOptimizedSeqOps[A, Queue, Queue[A]]
     with IterableFactoryDefaults[A, Queue]
+    with ArrayDequeOps[A, Queue, Queue[A]]
     with Cloneable[Queue[A]]
     with DefaultSerializable {
 
@@ -112,7 +113,7 @@ class Queue[A] protected (array: Array[AnyRef], start: Int, end: Int)
     */
   @`inline` final def front: A = head
 
-  override def clone(): Queue[A] = {
+  override def klone(): Queue[A] = {
     val bf = newSpecificBuilder
     bf ++= this
     bf.result()
