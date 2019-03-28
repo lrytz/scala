@@ -261,7 +261,7 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
   def isDefinedAt(key: K): Boolean = contains(key)
 
   /** The empty map of the same type as this map
-    * @return an empty map of type `Repr`.
+    * @return an empty map of type `C`.
     */
   def empty: C
 
@@ -388,7 +388,7 @@ trait MapFactoryDefaults[K, V, +MapCC[x, y] <: IterableOps[(x, y), Iterable, Ite
   self: MapOps[K, V, MapCC, MapCC[K, V]] with IterableOps[(K, V), IterableCC, MapCC[K, V]] =>
   override protected def fromSpecific(coll: IterableOnce[(K, V)]): MapCC[K, V] = mapFactory.from(coll)
   override protected def newSpecificBuilder: mutable.Builder[(K, V), MapCC[K, V]] = mapFactory.newBuilder[K, V]
-  def empty: MapCC[K, V] = mapFactory.empty
+  override def empty: MapCC[K, V] = mapFactory.empty
 
   override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, IterableCC, MapCC] = new MapOps.WithFilter[K, V, IterableCC, MapCC](this, p)
   //def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B]

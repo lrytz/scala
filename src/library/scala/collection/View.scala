@@ -31,6 +31,8 @@ trait View[+A] extends Iterable[A] with IterableOps[A, View, View[A]] with Seria
 
   override def iterableFactory: IterableFactory[View] = View
 
+  override def empty: scala.collection.View[A] = iterableFactory.empty
+
   override def toString: String  = stringPrefix + "(?)"
 
   @deprecatedOverriding("Compatibility override", since="2.13.0")

@@ -50,6 +50,7 @@ class ArrayDeque[A] protected (
     with IndexedBuffer[A]
     with IndexedSeqOps[A, ArrayDeque, ArrayDeque[A]]
     with StrictOptimizedSeqOps[A, ArrayDeque, ArrayDeque[A]]
+    with IterableFactoryDefaults[A, ArrayDeque]
     with DefaultSerializable {
 
   reset(array, start, end)

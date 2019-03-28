@@ -22,7 +22,6 @@ trait Set[A]
     with SetOps[A, Set, Set[A]] {
 
   override def iterableFactory: IterableFactory[Set] = Set
-  override def empty: Set[A] = iterableFactory.empty
 }
 
 /**

@@ -195,6 +195,12 @@ trait IterableOps[+A, +CC[_], +C] extends Any with IterableOnce[A] with Iterable
     */
   protected def newSpecificBuilder: Builder[A @uncheckedVariance, C]
 
+  /** The empty iterable of the same type as this iterable
+    *
+    * @return an empty iterable of type `C`.
+    */
+  def empty: C
+
   /** Selects the first element of this $coll.
     *  $orderDependent
     *  @return  the first element of this $coll.
@@ -888,8 +894,17 @@ object Iterable extends IterableFactory.Delegate[Iterable](immutable.Iterable) {
 abstract class AbstractIterable[+A] extends Iterable[A]
   with IterableFactoryDefaults[A @uncheckedVariance, Iterable]
 
-trait IterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]]] { self: IterableOps[A, IterableCC, IterableCC[A]] =>
+trait IterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]]] extends IterableOps[A, IterableCC, IterableCC[A]] {
   protected def fromSpecific(coll: IterableOnce[A]): IterableCC[A] = iterableFactory.from(coll)
   protected def newSpecificBuilder: Builder[A, IterableCC[A]] = iterableFactory.newBuilder[A]
   def ++:[B >: A](that: collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ this
+  def empty: IterableCC[A] = iterableFactory.empty
+}
+
+trait EvidenceIterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]], Ev[_]] extends IterableOps[A, IterableCC, IterableCC[A]] {
+  protected def evidenceIterableFactory: EvidenceIterableFactory[IterableCC, Ev]
+  implicit protected def iterableEvidence: Ev[A]
+  override protected def fromSpecific(coll: IterableOnce[A]): IterableCC[A] = evidenceIterableFactory.from(coll)
+  override protected def newSpecificBuilder: Builder[A, IterableCC[A]] = evidenceIterableFactory.newBuilder[A]
+  override def empty: IterableCC[A] = evidenceIterableFactory.empty
 }

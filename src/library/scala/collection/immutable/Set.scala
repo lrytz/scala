@@ -26,7 +26,6 @@ trait Set[A] extends Iterable[A]
     with SetOps[A, Set, Set[A]]
     with IterableFactoryDefaults[A, Set] {
   override def iterableFactory: IterableFactory[Set] = Set
-  override def empty: Set[A] = iterableFactory.empty
 }
 
 /** Base trait for immutable set operations

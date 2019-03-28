@@ -33,5 +33,6 @@ package mutable
 
 trait SeqMap[K, V] extends AbstractMap[K, V]
   with MapOps[K, V, SeqMap, SeqMap[K, V]]
+  with MapFactoryDefaults[K, V, SeqMap, Iterable]
 
 object SeqMap extends MapFactory.Delegate[SeqMap](LinkedHashMap)

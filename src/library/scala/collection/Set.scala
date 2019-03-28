@@ -40,8 +40,6 @@ trait Set[A]
 
   override def iterableFactory: IterableFactory[Set] = Set
 
-  override def empty: Set[A] = iterableFactory.empty
-
   @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Set"
 

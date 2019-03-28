@@ -16,6 +16,7 @@ package immutable
 
 import java.io.{ObjectInputStream, ObjectOutputStream}
 
+import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.mutable.Builder
 
 /**
@@ -38,6 +39,7 @@ import scala.collection.mutable.Builder
 trait SeqMap[K, +V]
   extends AbstractMap[K, V]
     with MapOps[K, V, SeqMap, SeqMap[K, V]]
+    with MapFactoryDefaults[K, V @uncheckedVariance, SeqMap, Iterable]
 
 object SeqMap extends MapFactory[SeqMap] {
   def empty[K, V]: SeqMap[K, V] = EmptyLinkedMap.asInstanceOf[SeqMap[K, V]]
