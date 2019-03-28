@@ -199,7 +199,7 @@ trait IterableOps[+A, +CC[_], +C] extends Any with IterableOnce[A] with Iterable
     *
     * @return an empty iterable of type `C`.
     */
-  def empty: C
+  def empty: C = newSpecificBuilder.result()
 
   /** Selects the first element of this $coll.
     *  $orderDependent
@@ -813,7 +813,10 @@ trait IterableOps[+A, +CC[_], +C] extends Any with IterableOnce[A] with Iterable
   }
 
   @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
-  def ++:[B >: A](that: IterableOnce[B]): CC[B]
+  def ++:[B >: A](that: IterableOnce[B]): CC[B] = iterableFactory.from(that match {
+    case xs: Iterable[B] => new View.Concat(xs, this)
+    case _ => that.iterator ++ iterator
+  })
 }
 
 object IterableOps {
@@ -897,8 +900,7 @@ abstract class AbstractIterable[+A] extends Iterable[A]
 trait IterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]]] extends IterableOps[A, IterableCC, IterableCC[A]] {
   protected def fromSpecific(coll: IterableOnce[A]): IterableCC[A] = iterableFactory.from(coll)
   protected def newSpecificBuilder: Builder[A, IterableCC[A]] = iterableFactory.newBuilder[A]
-  def ++:[B >: A](that: collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ this
-  def empty: IterableCC[A] = iterableFactory.empty
+  override def empty: IterableCC[A] = iterableFactory.empty
 }
 
 trait EvidenceIterableFactoryDefaults[A, +IterableCC[x] <: IterableOps[x, IterableCC, IterableCC[x]], Ev[_]] extends IterableOps[A, IterableCC, IterableCC[A]] {

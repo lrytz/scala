@@ -31,7 +31,6 @@ trait SortedMap[K, +V]
   override def empty: SortedMap[K, V] = sortedMapFactory.empty
 
   override def withFilter(p: ((K, V)) => Boolean): collection.SortedMapOps.WithFilter[K, V, Iterable, Map, SortedMap] = new collection.SortedMapOps.WithFilter(this, p)
-  override def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B] = iterableFactory.from(that) ++ coll
 
   /** The same map with a given default function.
     *  Note: The default is only used for `apply`. Other methods like `get`, `contains`, `iterator`, `keys`, etc.

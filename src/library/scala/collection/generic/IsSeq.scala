@@ -72,7 +72,7 @@ object IsSeq {
           protected[this] def coll: String = s
           protected[this] def fromSpecific(coll: IterableOnce[Char]): String = coll.iterator.mkString
           def iterableFactory: IterableFactory[immutable.ArraySeq] = immutable.ArraySeq.untagged
-          def empty: String = ""
+          override def empty: String = ""
           protected[this] def newSpecificBuilder: mutable.Builder[Char, String] = new StringBuilder
           def iterator: Iterator[Char] = s.iterator
         }
@@ -97,7 +97,7 @@ object IsSeq {
           protected def coll: Array[A] = a
           protected def fromSpecific(coll: IterableOnce[A]): Array[A] = Array.from(coll)
           def iterableFactory: IterableFactory[mutable.ArraySeq] = mutable.ArraySeq.untagged
-          def empty: Array[A] = Array.empty[A]
+          override def empty: Array[A] = Array.empty[A]
           protected def newSpecificBuilder: mutable.Builder[A, Array[A]] = Array.newBuilder
           def iterator: Iterator[A] = a.iterator
         }

@@ -127,7 +127,6 @@ trait SortedMapOps[K, +V, +CC[X, Y] <: Map[X, Y] with SortedMapOps[X, Y, CC, _],
       val map = SortedMapOps.this.rangeImpl(from, until)
       new map.KeySortedSet
     }
-    override def ++:[B >: K](that: IterableOnce[B]): Set[B] = iterableFactory.from(that) ++ this
   }
 
   /** A generic trait that is reused by sorted keyset implementations */

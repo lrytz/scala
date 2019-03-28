@@ -260,11 +260,6 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     */
   def isDefinedAt(key: K): Boolean = contains(key)
 
-  /** The empty map of the same type as this map
-    * @return an empty map of type `C`.
-    */
-  def empty: C
-
   override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, Iterable, CC] = new MapOps.WithFilter(this, p)
 
   /** Builds a new map by applying a function to all elements of this $coll.
@@ -341,8 +336,8 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
 //  }
 
   // explicit override for correct disambiguation with the new overload above
-  @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
-  def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B]
+//  @deprecated("Use ++ instead of ++: for collections of type Iterable", "2.13.0")
+//  def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B]
 }
 
 object MapOps {
@@ -391,6 +386,4 @@ trait MapFactoryDefaults[K, V, +MapCC[x, y] <: IterableOps[(x, y), Iterable, Ite
   override def empty: MapCC[K, V] = mapFactory.empty
 
   override def withFilter(p: ((K, V)) => Boolean): MapOps.WithFilter[K, V, IterableCC, MapCC] = new MapOps.WithFilter[K, V, IterableCC, MapCC](this, p)
-  //def ++:[B >: (K, V)](that: IterableOnce[B]): Iterable[B]
-  override def ++:[B >: (K, V)](that: scala.collection.IterableOnce[B]): IterableCC[B] = iterableFactory.from(that) ++ coll
 }

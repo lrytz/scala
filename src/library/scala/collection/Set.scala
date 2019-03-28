@@ -211,11 +211,6 @@ trait SetOps[A, +CC[_], +C <: SetOps[A, CC, C]]
 
   /** Alias for `union` */
   @`inline` final def | (that: Set[A]): C = concat(that)
-
-  /** The empty set of the same type as this set
-    * @return  an empty set of type `C`.
-    */
-  def empty: C
 }
 
 /**
