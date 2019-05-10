@@ -939,9 +939,13 @@ trait Types
      *  to produce a string on each level.
      */
     override final def toString: String = {
-      // see comments to internal#Symbol.typeSignature for an explanation why this initializes
-      if (!isCompilerUniverse) fullyInitializeType(this)
-      typeToString(this)
+      if (this eq ObjectTpeJava) "Object[java]"
+      else if (this eq ObjectTpe) "Object[scala]"
+      else {
+        // see comments to internal#Symbol.typeSignature for an explanation why this initializes
+        if (!isCompilerUniverse) fullyInitializeType(this)
+        typeToString(this)
+      }
     }
 
     /** Method to be implemented in subclasses.
