@@ -20,10 +20,6 @@ import xsbti.compile.*;
 
 import java.io.File;
 
-import dotty.tools.dotc.core.Contexts.ContextBase;
-import dotty.tools.dotc.Main;
-import dotty.tools.dotc.interfaces.*;
-
 import java.lang.reflect.InvocationTargetException;
 import java.net.URLClassLoader;
 

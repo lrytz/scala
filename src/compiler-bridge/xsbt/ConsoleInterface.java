@@ -12,6 +12,7 @@
 
 package xsbt;
 
+/*
 import java.util.ArrayList;
 
 import scala.Some;
@@ -62,3 +63,4 @@ public class ConsoleInterface {
     driver.run(cleanupCommands, state);
   }
 }
+*/

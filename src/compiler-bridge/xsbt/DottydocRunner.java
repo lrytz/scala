@@ -12,6 +12,7 @@
 
 package xsbt;
 
+/*
 import xsbti.Logger;
 import xsbti.Severity;
 
@@ -95,3 +96,4 @@ public class DottydocRunner {
     }
   }
 }
+*/

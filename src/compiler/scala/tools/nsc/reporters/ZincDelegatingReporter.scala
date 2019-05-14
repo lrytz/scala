@@ -16,43 +16,51 @@ package reporters
 
 import java.io.File
 import java.util.Optional
-
 import scala.reflect.internal.util.{ FakePos, NoPosition, Position }
-// Left for compatibility
-import Compat._
+import scala.tools.nsc.Settings
+import scala.jdk.OptionConverters._
+import xsbti.{
+  Problem => XProblem,
+  Position => XPosition,
+  Severity => XSeverity,
+  Reporter => XReporter
+}
 
-private object ZincDelegatingReporter {
-  def apply(settings: scala.tools.nsc.Settings, delegate: xsbti.Reporter): DelegatingReporter =
-    new DelegatingReporter(Command.getWarnFatal(settings), Command.getNoWarn(settings), delegate)
+object ZincDelegatingReporter {
+  def apply(settings: Settings, delegate: XReporter): ZincDelegatingReporter =
+    new ZincDelegatingReporter(
+      settings.fatalWarnings.value,
+      settings.nowarn.value,
+      delegate)
 
   class PositionImpl(
-      sourcePath0: Option[String],
-      sourceFile0: Option[File],
-      line0: Option[Int],
-      lineContent0: String,
-      offset0: Option[Int],
-      pointer0: Option[Int],
-      pointerSpace0: Option[String],
-      startOffset0: Option[Int],
-      endOffset0: Option[Int],
-      startLine0: Option[Int],
-      startColumn0: Option[Int],
-      endLine0: Option[Int],
-      endColumn0: Option[Int]
-  ) extends xsbti.Position {
-    val line = o2oi(line0)
-    val lineContent = lineContent0
-    val offset = o2oi(offset0)
-    val sourcePath = o2jo(sourcePath0)
-    val sourceFile = o2jo(sourceFile0)
-    val pointer = o2oi(pointer0)
-    val pointerSpace = o2jo(pointerSpace0)
-    override val startOffset = o2oi(startOffset0)
-    override val endOffset = o2oi(endOffset0)
-    override val startLine = o2oi(startLine0)
-    override val startColumn = o2oi(startColumn0)
-    override val endLine = o2oi(endLine0)
-    override val endColumn = o2oi(endColumn0)
+    sourcePath0: Option[String],
+    sourceFile0: Option[File],
+    line0: Option[Int],
+    lineContent0: String,
+    offset0: Option[Int],
+    pointer0: Option[Int],
+    pointerSpace0: Option[String],
+    startOffset0: Option[Int],
+    endOffset0: Option[Int],
+    startLine0: Option[Int],
+    startColumn0: Option[Int],
+    endLine0: Option[Int],
+    endColumn0: Option[Int])
+      extends XPosition {
+    override val line: Optional[Integer] = o2oi(line0)
+    override val lineContent = lineContent0
+    override val offset: Optional[Integer] = o2oi(offset0)
+    override val sourcePath = sourcePath0.toJava
+    override val sourceFile = sourceFile0.toJava
+    override val pointer: Optional[Integer] = o2oi(pointer0)
+    override val pointerSpace = pointerSpace0.toJava
+    override val startOffset: Optional[Integer] = o2oi(startOffset0)
+    override val endOffset: Optional[Integer] = o2oi(endOffset0)
+    override val startLine: Optional[Integer] = o2oi(startLine0)
+    override val startColumn: Optional[Integer] = o2oi(startColumn0)
+    override val endLine: Optional[Integer] = o2oi(endLine0)
+    override val endColumn: Optional[Integer] = o2oi(endColumn0)
     override def toString =
       (sourcePath0, line0) match {
         case (Some(s), Some(l)) => s + ":" + l
@@ -66,22 +74,14 @@ private object ZincDelegatingReporter {
       new PositionImpl(None, None, None, "", None, None, None, None, None, None, None, None, None)
   }
 
-  import java.lang.{ Integer => I }
-  private[xsbt] def o2oi(opt: Option[Int]): Optional[I] = {
+  private[nsc] def o2oi(opt: Option[Int]): Optional[java.lang.Integer] = {
     opt match {
-      case Some(s) => Optional.ofNullable[I](s: I)
-      case None    => Optional.empty[I]
+      case Some(s) => Optional.ofNullable[java.lang.Integer](s: java.lang.Integer)
+      case None    => Optional.empty[java.lang.Integer]
     }
   }
 
-  private[xsbt] def o2jo[A](o: Option[A]): Optional[A] = {
-    o match {
-      case Some(v) => Optional.ofNullable(v)
-      case None    => Optional.empty[A]()
-    }
-  }
-
-  private[xsbt] def convert(dirtyPos: Position): xsbti.Position = {
+  private[nsc] def convert(dirtyPos: Position): xsbti.Position = {
     def cleanPos(pos: Position) = {
       Option(pos) match {
         case None | Some(NoPosition) => None
@@ -139,14 +139,11 @@ private object ZincDelegatingReporter {
   }
 }
 
-// Copyright 2002-2009 LAMP/EPFL
-// Original author: Martin Odersky
-// Based on scala.tools.nsc.reporters.{AbstractReporter, ConsoleReporter}
-private final class ZincDelegatingReporter(
+final class ZincDelegatingReporter(
     warnFatal: Boolean,
     noWarn: Boolean,
-    private[this] var delegate: xsbti.Reporter
-) extends scala.tools.nsc.reporters.Reporter {
+    private[this] var delegate: XReporter
+) extends Reporter {
   def dropDelegate(): Unit = { delegate = null }
   def error(msg: String): Unit = error(FakePos("scalac"), msg)
   def printSummary(): Unit = delegate.printSummary()
@@ -155,7 +152,7 @@ private final class ZincDelegatingReporter(
   override def hasErrors = delegate.hasErrors
   override def hasWarnings = delegate.hasWarnings
   override def comment(pos: Position, msg: String): Unit =
-    delegate.comment(DelegatingReporter.convert(pos), msg)
+    delegate.comment(ZincDelegatingReporter.convert(pos), msg)
   override def reset(): Unit = {
     super.reset()
     delegate.reset()
@@ -165,12 +162,12 @@ private final class ZincDelegatingReporter(
     val skip = rawSeverity == WARNING && noWarn
     if (!skip) {
       val severity = if (warnFatal && rawSeverity == WARNING) ERROR else rawSeverity
-      delegate.log(new CompileProblem(DelegatingReporter.convert(pos), msg, convert(severity)))
+      delegate.log(new CompileProblem(ZincDelegatingReporter.convert(pos), msg, convert(severity)))
     }
   }
 
   import xsbti.Severity.{ Info, Warn, Error }
-  private[this] def convert(sev: Severity): xsbti.Severity = {
+  private[this] def convert(sev: Severity): XSeverity = {
     sev match {
       case INFO    => Info
       case WARNING => Warn
@@ -178,8 +175,6 @@ private final class ZincDelegatingReporter(
     }
   }
 
-  // Define our own problem because the bridge should not depend on sbt util-logging.
-  import xsbti.{ Problem => XProblem, Position => XPosition, Severity => XSeverity }
   private final class CompileProblem(
       pos: XPosition,
       msg: String,

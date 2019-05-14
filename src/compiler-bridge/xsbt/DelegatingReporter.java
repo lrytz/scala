@@ -12,6 +12,7 @@
 
 package xsbt;
 
+/*
 import java.util.Optional;
 
 import xsbti.Position;
@@ -136,3 +137,4 @@ final public class DelegatingReporter extends AbstractReporter {
     delegate.log(new Problem(position, message.msg(), severity, rendered.toString()));
   }
 }
+*/

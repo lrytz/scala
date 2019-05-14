@@ -39,7 +39,7 @@ object Dependency {
  * where it originates from. The Symbol -> Classfile mapping is implemented by
  * LocateClassFile that we inherit from.
  */
-final class Dependency(val global: CallbackGlobal) extends LocateClassFile with GlobalHelpers {
+final class Dependency(val global: ZincCallbackGlobal) extends LocateClassFile with GlobalHelpers {
   import global._
 
   def newPhase(prev: Phase): Phase = new DependencyPhase(prev)

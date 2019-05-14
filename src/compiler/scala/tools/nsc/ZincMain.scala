@@ -15,183 +15,112 @@ package nsc
 
 import xsbti.{ AnalysisCallback, Logger, Problem, Reporter }
 import xsbti.compile._
-import scala.tools.nsc.Settings
-import scala.collection.mutable
-import Log.debug
-import java.io.File
+import java.util.function.Supplier
+import reporters.ZincDelegatingReporter
 
-final class CompilerInterface {
-  def newCompiler(
-      options: Array[String],
-      output: Output,
-      initialLog: Logger,
-      initialDelegate: Reporter
-  ): CachedCompiler =
-    new CachedCompiler0(options, output, new WeakLog(initialLog, initialDelegate))
+class ZincMainClass extends Driver with EvalLoop with java.io.Closeable {
+  var compiler: ZincGlobal = _
 
-  def run(
-      sources: Array[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      delegate: Reporter,
-      progress: CompileProgress,
-      cached: CachedCompiler
-  ): Unit =
-    cached.run(sources, changes, callback, log, delegate, progress)
-}
-
-class InterfaceCompileFailed(
-    val arguments: Array[String],
-    val problems: Array[Problem],
-    override val toString: String
-) extends xsbti.CompileFailed
-
-class InterfaceCompileCancelled(val arguments: Array[String], override val toString: String)
-    extends xsbti.CompileCancelled
-
-private final class WeakLog(private[this] var log: Logger, private[this] var delegate: Reporter) {
-  def apply(message: String): Unit = {
-    assert(log ne null, "Stale reference to logger")
-    log.error(Message(message))
-  }
-  def logger: Logger = log
-  def reporter: Reporter = delegate
-  def clear(): Unit = {
-    log = null
-    delegate = null
-  }
-}
-
-private final class CachedCompiler0(args: Array[String], output: Output, initialLog: WeakLog)
-    extends CachedCompiler
-    with CachedCompilerCompat
-    with java.io.Closeable {
-
-  /////////////////////////////////////////////////////////////////////////////////////////////////
-  //////////////////////////////////// INITIALIZATION CODE ////////////////////////////////////////
-  /////////////////////////////////////////////////////////////////////////////////////////////////
-
-  val settings = new Settings(s => initialLog(s))
-  output match {
-    case multi: MultipleOutput =>
-      for (out <- multi.getOutputGroups)
-        settings.outputDirs
-          .add(out.getSourceDirectory.getAbsolutePath, out.getOutputDirectory.getAbsolutePath)
-    case single: SingleOutput =>
-      val outputFilepath = single.getOutputDirectory.getAbsolutePath
-      settings.outputDirs.setSingleOutput(outputFilepath)
+  def resident(compiler: Global): Unit = loop { line =>
+    val command = new CompilerCommand(line.split("\\s+").toList, new Settings(scalacError))
+    compiler.reporter.reset()
+    new compiler.Run() compile command.files
   }
 
-  val command = Command(args.toList, settings)
-  private[this] val dreporter = DelegatingReporter(settings, initialLog.reporter)
-  try {
-    if (!noErrors(dreporter)) {
-      dreporter.printSummary()
-      handleErrors(dreporter, initialLog.logger)
-    }
-  } finally initialLog.clear()
+  override def newCompiler(): Global = Global(settings)
+  def newCompiler(settings: Settings, reporter: ZincDelegatingReporter, output: Output): ZincGlobal =
+    new ZincGlobal(settings, reporter, output)
 
-  /** Instance of the underlying Zinc compiler. */
-  val compiler: ZincCompiler = newCompiler(command.settings, dreporter, output)
-
-  /////////////////////////////////////////////////////////////////////////////////////////////////
-
-  def close(): Unit = {
-    compiler match {
-      case c: java.io.Closeable => c.close()
-      case _                    =>
-    }
+  override def doCompile(compiler: Global): Unit = {
+    if (settings.resident) resident(compiler)
+    else super.doCompile(compiler)
   }
 
-  def noErrors(dreporter: DelegatingReporter) = !dreporter.hasErrors && command.ok
+  def noErrors(reporter: ZincDelegatingReporter): Boolean = !reporter.hasErrors && command.ok
 
-  def commandArguments(sources: Array[File]): Array[String] =
-    (command.settings.recreateArgs ++ sources.map(_.getAbsolutePath)).toArray[String]
+  def process(
+    args: Array[String],
+    changes: DependencyChanges,
+    callback: AnalysisCallback,
+    bridgeCallback: ZincMainCallback,
+    log: Logger,
+    delegate: Reporter,
+    progress: CompileProgress,
+    output: Output): Boolean = {
+    val initialLog = new WeakLog(log, delegate)
+    settings = new Settings(msg => initialLog(msg))
+    command = new CompilerCommand(args.toList, settings)
+    val dreporter = ZincDelegatingReporter(settings, initialLog.reporter)
+    reporter = dreporter
 
-  import scala.tools.nsc.Properties.versionString
-  def infoOnCachedCompiler(compilerId: String): String =
-    s"[zinc] Running cached compiler $compilerId for Scala compiler $versionString"
-
-  def run(
-      sources: Array[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      delegate: Reporter,
-      progress: CompileProgress
-  ): Unit = synchronized {
-    debug(log, infoOnCachedCompiler(hashCode().toLong.toHexString))
-    val dreporter = DelegatingReporter(settings, delegate)
     try {
-      run(sources.toList, changes, callback, log, dreporter, progress)
-    } finally {
-      dreporter.dropDelegate()
+      if (!noErrors(dreporter)) {
+        dreporter.printSummary()
+        handleErrors(dreporter, initialLog.logger)
+      }
+    } finally initialLog.clear()
+    def handleErrors(dreporter: ZincDelegatingReporter, log: Logger): Unit = {
+      debug(log, "Compilation failed (CompilerInterface)")
+      bridgeCallback.handleErrors(args, dreporter.problems)
     }
-  }
-
-  private def prettyPrintCompilationArguments(args: Array[String]) =
-    args.mkString("[zinc] The Scala compiler is invoked with:\n\t", "\n\t", "")
-  private val StopInfoError = "Compiler option supplied that disabled Zinc compilation."
-  private[this] def run(
-      sources: List[File],
-      changes: DependencyChanges,
-      callback: AnalysisCallback,
-      log: Logger,
-      underlyingReporter: DelegatingReporter,
-      compileProgress: CompileProgress
-  ): Unit = {
-
+    compiler = newCompiler(command.settings, dreporter, output)
     if (command.shouldStopWithInfo) {
-      underlyingReporter.info(null, command.getInfoMessage(compiler), true)
-      throw new InterfaceCompileFailed(args, Array(), StopInfoError)
+      dreporter.info(null, command.getInfoMessage(compiler), true)
+      bridgeCallback.handleErrors(args, Array())
     }
 
-    if (noErrors(underlyingReporter)) {
-      debug(log, prettyPrintCompilationArguments(args))
-      compiler.set(callback, underlyingReporter)
-      val run = new compiler.ZincRun(compileProgress)
-      val sortedSourceFiles = sources.map(_.getAbsolutePath).sortWith(_ < _)
-      run.compile(sortedSourceFiles)
-      processUnreportedWarnings(run)
-      underlyingReporter.problems.foreach(
-        p => callback.problem(p.category, p.position, p.message, p.severity, true)
-      )
+    if (noErrors(dreporter)) {
+      compiler.set(callback, dreporter)
+      val compiler0 = compiler
+      val run = new compiler0.ZincRun(progress)
+      run.compile(command.files)
+      // processUnreportedWarnings(run)
+      // dreporter.problems.foreach(
+      //   p => callback.problem(p.category, p.position, p.message, p.severity, true)
+      // )
     }
-
-    underlyingReporter.printSummary()
-    if (!noErrors(underlyingReporter))
-      handleErrors(underlyingReporter, log)
 
     // the case where we cancelled compilation _after_ some compilation errors got reported
     // will be handled by line above so errors still will be reported properly just potentially not
     // all of them (because we cancelled the compilation)
-    if (underlyingReporter.cancelled)
-      handleCompilationCancellation(underlyingReporter, log)
+    // if (dreporter.cancelled) {
+    //   bridgeCallback.handleCompilationCancellation(dreporter, log)
+    // }
+    noErrors(dreporter)
   }
 
-  def handleErrors(dreporter: DelegatingReporter, log: Logger): Nothing = {
-    debug(log, "Compilation failed (CompilerInterface)")
-    throw new InterfaceCompileFailed(args, dreporter.problems, "Compilation failed")
+  def close(): Unit = {
+    Option(compiler) match {
+      case Some(c: java.io.Closeable) => c.close()
+      case _                          =>
+    }
   }
 
-  def handleCompilationCancellation(dreporter: DelegatingReporter, log: Logger): Nothing = {
-    assert(dreporter.cancelled, "We should get here only if when compilation got cancelled")
-    debug(log, "Compilation cancelled (CompilerInterface)")
-    throw new InterfaceCompileCancelled(args, "Compilation has been cancelled")
+  def debug(log: Logger, msg: => String): Unit = log.debug(message(msg))
+
+  private final class WeakLog(private[this] var log: Logger, private[this] var delegate: Reporter) {
+    import scala.jdk.FunctionConverters._
+    def apply(msg: => String): Unit = {
+      assert(log ne null, "Stale reference to logger")
+      log.error(message(msg))
+    }
+    def logger: Logger = log
+    def reporter: Reporter = delegate
+    def clear(): Unit = {
+      log = null
+      delegate = null
+    }
   }
 
-  def processUnreportedWarnings(run: compiler.Run): Unit = {
-    // allConditionalWarnings and the ConditionalWarning class are only in 2.10+
-    final class CondWarnCompat(
-        val what: String,
-        val warnings: mutable.ListBuffer[(compiler.Position, String)]
-    )
-    implicit def compat(run: AnyRef): Compat = new Compat
-    final class Compat { def allConditionalWarnings = List[CondWarnCompat]() }
-
-    val warnings = run.allConditionalWarnings
-    if (warnings.nonEmpty)
-      compiler.logUnreportedWarnings(warnings.map(cw => ("" /*cw.what*/, cw.warnings.toList)))
+  def message(message: => String): Supplier[String] = {
+    import scala.jdk.FunctionConverters._
+    (() => message).asJava
   }
+}
+
+object ZincMain extends ZincMainClass { }
+
+trait ZincMainCallback {
+  def handleErrors(args: Array[String], problems: Array[Problem]): Unit
+  def handleCompilationCancellation(args: Array[String], problems: Array[Problem]): Unit
 }

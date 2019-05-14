@@ -22,8 +22,8 @@ import java.io.File
 /**
  * Contains utility methods for looking up class files corresponding to Symbols.
  */
-abstract class LocateClassFile extends Compat with ClassName {
-  val global: CallbackGlobal
+abstract class LocateClassFile extends ClassName {
+  val global: ZincCallbackGlobal
   import global._
 
   private[this] final val classSeparator = '.'

@@ -12,6 +12,7 @@
  
 package xsbt;
 
+/*
 import xsbti.Logger;
 import xsbti.Reporter;
 
@@ -20,3 +21,4 @@ public class ScaladocInterface {
     new DottydocRunner(args, log, delegate).run();
   }
 }
+*/

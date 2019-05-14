@@ -17,11 +17,11 @@ package incremental
 import scala.tools.nsc.symtab.Flags
 import xsbti.api._
 
-object APIExctractor {
+object APIExtractor {
   val name = "xsbt-api"
 }
 
-final class APIExctractor(val global: CallbackGlobal) extends Compat with GlobalHelpers with ClassName {
+final class APIExtractor(val global: ZincCallbackGlobal) extends GlobalHelpers with ClassName {
   import global._
 
   import scala.collection.mutable
@@ -30,7 +30,7 @@ final class APIExctractor(val global: CallbackGlobal) extends Compat with Global
   def newPhase(prev: Phase) = new ApiPhase(prev)
   class ApiPhase(prev: Phase) extends GlobalPhase(prev) {
     override def description = "Extracts the public API from source files."
-    def name = API.name
+    def name = APIExtractor.name
     override def run(): Unit = {
       val start = System.currentTimeMillis
       super.run()
@@ -124,9 +124,9 @@ final class APIExctractor(val global: CallbackGlobal) extends Compat with Global
         if (!symbol.isLocalClass) {
           val pathToClassFile = s"${names.binaryName}.class"
           val classFile = {
-            JarUtils.outputJar match {
+            jarUtil.outputJar match {
               case Some(outputJar) =>
-                new java.io.File(JarUtils.classNameInJar(outputJar, pathToClassFile))
+                new java.io.File(jarUtil.classNameInJar(outputJar, pathToClassFile))
               case None =>
                 val outputDir = global.settings.outputDirs.outputDirFor(sourceFile).file
                 new java.io.File(outputDir, pathToClassFile)

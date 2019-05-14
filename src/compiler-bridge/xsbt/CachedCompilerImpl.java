@@ -15,17 +15,13 @@ package xsbt;
 import xsbti.AnalysisCallback;
 import xsbti.Logger;
 import xsbti.Reporter;
+import xsbti.Problem;
 import xsbti.Severity;
 import xsbti.compile.*;
 
 import java.io.File;
-
-import dotty.tools.dotc.core.Contexts.Context;
-import dotty.tools.dotc.core.Contexts.ContextBase;
-import dotty.tools.dotc.Main;
-import dotty.tools.dotc.interfaces.*;
-
-import java.net.URLClassLoader;
+import scala.tools.nsc.ZincMain;
+import scala.tools.nsc.ZincMainCallback;
 
 public class CachedCompilerImpl implements CachedCompiler {
   private final String[] args;
@@ -63,20 +59,37 @@ public class CachedCompilerImpl implements CachedCompiler {
     return result;
   }
 
-  synchronized public void run(File[] sources, DependencyChanges changes, AnalysisCallback callback, Logger log, Reporter delegate, CompileProgress progress) {
+  synchronized public void run(
+    File[] sources,
+    DependencyChanges changes,
+    AnalysisCallback callback,
+    Logger log,
+    Reporter delegate,
+    CompileProgress progress) {
     log.debug(() -> {
-      String msg = "Calling Dotty compiler with arguments  (CompilerInterface):";
+      String msg = "calling Scala compiler with arguments (CachedCompilerImpl):";
       for (String arg : args)
         msg = msg + "\n\t" + arg;
       return msg;
     });
-
-    Context ctx = new ContextBase().initialCtx().fresh()
-      .setSbtCallback(callback)
-      .setReporter(new DelegatingReporter(delegate));
-
-    dotty.tools.dotc.reporting.Reporter reporter = Main.process(commandArguments(sources), ctx);
-    if (reporter.hasErrors()) {
+    ZincMainCallback zincCallback = new ZincMainCallback() {
+      public void handleErrors(String[] args, Problem[] problems) {
+        throw new InterfaceCompileFailed(args, problems);
+      }
+      public void handleCompilationCancellation(String [] args, Problem[] problems) {
+        throw new InterfaceCompileCancelled(args, problems);
+      }
+    };
+    boolean success = ZincMain.process(
+      commandArguments(sources),
+      changes,
+      callback,
+      zincCallback,
+      log,
+      delegate,
+      progress,
+      output);
+    if (!success) {
       throw new InterfaceCompileFailed(args, new Problem[0]);
     }
   }
