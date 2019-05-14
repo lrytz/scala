@@ -10,8 +10,11 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
+/*
 import xsbti.Logger
 import scala.tools.nsc.interpreter.IMain
 import scala.tools.nsc.interpreter.shell.{ ILoop, ShellConfig, ReplReporterImpl }
@@ -109,3 +112,4 @@ object MakeSettings {
     settings
   }
 }
+*/

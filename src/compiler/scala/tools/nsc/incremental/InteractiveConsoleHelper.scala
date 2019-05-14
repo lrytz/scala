@@ -10,8 +10,11 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
+/*
 import Compat._
 import xsbti.InteractiveConsoleResult
 
@@ -23,3 +26,4 @@ object InteractiveConsoleHelper {
       case Results.Error      => InteractiveConsoleResult.Error
     }
 }
+*/

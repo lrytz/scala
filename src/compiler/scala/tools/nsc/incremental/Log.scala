@@ -10,10 +10,14 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
+/*
 object Log {
   def debug(log: xsbti.Logger, msg: => String) = log.debug(Message(msg))
   def settingsError(log: xsbti.Logger): String => Unit =
     s => log.error(Message(s))
 }
+*/

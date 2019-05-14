@@ -10,8 +10,11 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
+/*
 import xsbti.Logger
 import Log.debug
 
@@ -74,3 +77,4 @@ private class Runner(args: Array[String], log: Logger, delegate: xsbti.Reporter)
     }
   }
 }
+*/

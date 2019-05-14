@@ -10,7 +10,8 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
 
 import xsbti.{ AnalysisCallback, Logger, Problem, Reporter }
 import xsbti.compile._

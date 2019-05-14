@@ -10,7 +10,8 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
 
 import xsbti.{ AnalysisCallback, Severity }
 import xsbti.compile._
@@ -22,7 +23,7 @@ import java.io.File
 import scala.reflect.io.PlainFile
 
 /** Defines the interface of the incremental compiler hiding implementation details. */
-sealed abstract class CallbackGlobal(
+sealed abstract class ZincCallbackGlobal(
     settings: Settings,
     reporter: reporters.Reporter,
     output: Output
@@ -46,7 +47,7 @@ sealed abstract class CallbackGlobal(
     }
   }
 
-  lazy val JarUtils = new JarUtils(outputDirs)
+  lazy val jarUtil = new JarUtil(outputDirs)
 
   /**
    * Defines the sbt phase in which the dependency analysis is performed.
@@ -54,7 +55,7 @@ sealed abstract class CallbackGlobal(
    * in [[xsbt.LocalToNonLocalClass]] to make sure the we don't resolve local
    * classes before we reach this phase.
    */
-  private[xsbt] val sbtDependency: SubComponent
+  val sbtDependency: SubComponent
 
   /**
    * A map from local classes to non-local class that contains it.
@@ -69,11 +70,11 @@ sealed abstract class CallbackGlobal(
    * internally for backed purposes (generation of EnclosingClass attributes) but
    * that internal mapping doesn't have a stable interface we could rely on.
    */
-  private[xsbt] val localToNonLocalClass = new LocalToNonLocalClass[this.type](this)
+  val localToNonLocalClass = new LocalToNonLocalClass[this.type](this)
 }
 
 /** Defines the implementation of Zinc with all its corresponding phases. */
-sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, output: Output)
+sealed class ZincGlobal(settings: Settings, dreporter: DelegatingReporter, output: Output)
     extends CallbackGlobal(settings, dreporter, output)
     with ZincGlobalCompat {
 
@@ -88,7 +89,7 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
 
   /** Phase that analyzes the generated class files and maps them to sources. */
   object sbtAnalyzer extends {
-    val global: ZincCompiler.this.type = ZincCompiler.this
+    val global: ZincGlobal.this.type = ZincGlobal.this
     val phaseName = Analyzer.name
     val runsAfter = List("jvm")
     override val runsBefore = List("terminal")
@@ -101,7 +102,7 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
 
   /** Phase that extracts dependency information */
   object sbtDependency extends {
-    val global: ZincCompiler.this.type = ZincCompiler.this
+    val global: ZincGlobal.this.type = ZincGlobal.this
     val phaseName = Dependency.name
     val runsAfter = List(API.name)
     override val runsBefore = List("refchecks")
@@ -120,7 +121,7 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
    *       irrespective of whether we typecheck from source or unpickle previously compiled classes.
    */
   object apiExtractor extends {
-    val global: ZincCompiler.this.type = ZincCompiler.this
+    val global: ZincGlobal.this.type = ZincGlobal.this
     val phaseName = API.name
     val runsAfter = List("typer")
     override val runsBefore = List("erasure")
@@ -268,5 +269,5 @@ sealed class ZincCompiler(settings: Settings, dreporter: DelegatingReporter, out
 
 import scala.reflect.internal.Positions
 final class ZincCompilerRangePos(settings: Settings, dreporter: DelegatingReporter, output: Output)
-    extends ZincCompiler(settings, dreporter, output)
+    extends ZincGlobal(settings, dreporter, output)
     with Positions

@@ -10,18 +10,20 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
 import java.io.File
 
 import scala.tools.nsc.Phase
 import scala.collection.JavaConverters._
 
-object Analyzer {
+object ZincAnalyzer {
   def name = "xsbt-analyzer"
 }
 
-final class Analyzer(val global: CallbackGlobal) extends LocateClassFile {
+final class ZincAnalyzer(val global: CallbackGlobal) extends LocateClassFile {
   import global._
 
   def newPhase(prev: Phase): Phase = new AnalyzerPhase(prev)

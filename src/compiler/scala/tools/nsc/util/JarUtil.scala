@@ -10,7 +10,9 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package util
 
 import java.io.File
 
@@ -22,7 +24,7 @@ import java.io.File
  * duplicates some of the code, as it is difficult to share it. Any change
  * in the logic of this file must be applied to the other `JarUtils` too!
  */
-final class JarUtils(outputDirs: Iterable[File]) {
+final class JarUtil(outputDirs: Iterable[File]) {
   // This is an equivalent of asking if it runs on Windows where the separator is `\`
   private val isSlashSeparator: Boolean = File.separatorChar == '/'
 

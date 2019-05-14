@@ -10,9 +10,13 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+ /*
+package scala.tools
+package nsc
+package incremental
 
 import xsbti.InteractiveConsoleResult
 
 case class InteractiveConsoleResponse(result: InteractiveConsoleResult, output: String)
     extends xsbti.InteractiveConsoleResponse
+*/

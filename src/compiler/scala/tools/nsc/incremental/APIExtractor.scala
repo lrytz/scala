@@ -10,17 +10,18 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
-import scala.tools.nsc.Phase
 import scala.tools.nsc.symtab.Flags
 import xsbti.api._
 
-object API {
+object APIExctractor {
   val name = "xsbt-api"
 }
 
-final class API(val global: CallbackGlobal) extends Compat with GlobalHelpers with ClassName {
+final class APIExctractor(val global: CallbackGlobal) extends Compat with GlobalHelpers with ClassName {
   import global._
 
   import scala.collection.mutable

@@ -10,8 +10,11 @@
  * additional information regarding copyright ownership.
  */
 
-package xsbt
+package scala.tools
+package nsc
+package incremental
 
+/*
 import java.io.{ PrintWriter, StringWriter }
 
 import scala.tools.nsc.interpreter.IMain
@@ -93,3 +96,4 @@ object InteractiveMakeSettings {
     settings
   }
 }
+*/
