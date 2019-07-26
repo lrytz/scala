@@ -151,7 +151,7 @@ trait TreeAndTypeAnalysis extends Debugging {
 
             List(debug.patmatResult(s"enum sealed tp=$tp, tpApprox=$tpApprox as") {
               // valid subtypes are turned into checkable types, as we are entering the realm of the dynamic
-              filterChildren(subclasses)
+              filterChildren(if (subclasses.isEmpty) List(sym) else subclasses)
             })
           }
         case sym if sym.isCase =>

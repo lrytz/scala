@@ -130,4 +130,19 @@ class TestSealedExhaustive { // compile only
       case C2 | C4  => true
     }
   }
+  object ob5 {
+    sealed abstract class Foo(val a: String)
+
+    object Ext {
+      def unapply(foo: Foo): Some[String] =
+        Some(foo.a)
+    }
+
+    class T {
+      val root: PartialFunction[Foo, Boolean] = {
+        case Ext("a") => true
+        case Ext("b") => false
+      }
+    }
+  }
 }

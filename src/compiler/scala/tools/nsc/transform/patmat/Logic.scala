@@ -523,9 +523,9 @@ trait ScalaLogic extends Interface with Logic with TreeAndTypeAnalysis {
       private[this] val id: Int = Var.nextId
 
       // private[this] var canModify: Option[Array[StackTraceElement]] = None
-      private[this] def ensureCanModify() = {} //if (canModify.nonEmpty) debug.patmat("BUG!"+ this +" modified after having been observed: "+ canModify.get.mkString("\n"))
+      private[this] def ensureCanModify() = () //if (canModify.nonEmpty) debug.patmat("BUG!"+ this +" modified after having been observed: "+ canModify.get.mkString("\n"))
 
-      private[this] def observed() = {} //canModify = Some(Thread.currentThread.getStackTrace)
+      private[this] def observed() = () //canModify = Some(Thread.currentThread.getStackTrace)
 
       // don't access until all potential equalities have been registered using registerEquality
       private[this] val symForEqualsTo = new mutable.HashMap[Const, Sym]
