@@ -1,17 +1,17 @@
 kind: pipeline
 name: default
 
-image: adoptopenjdk:8-jdk-hotspot
-
 steps:
 - name: git
-  pull: default
   image: plugins/git
+  pull: default
 
 - name: ls
+  image: debian
   commands:
   - ls -al
 
 - name: version
+  image: adoptopenjdk:8-jdk-hotspot
   commands:
   - java -version
