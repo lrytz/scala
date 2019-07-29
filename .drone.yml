@@ -9,7 +9,9 @@ steps:
   image: plugins/git
 
 - name: ls
-  commands: ls -al
+  commands:
+  - ls -al
 
 - name: version
-  commands: java -version
+  commands:
+  - java -version
