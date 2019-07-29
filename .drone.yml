@@ -1,0 +1,15 @@
+kind: pipeline
+name: default
+
+image: adoptopenjdk/openjdk8
+
+steps:
+- name: git
+  pull: default
+  image: plugins/git
+
+- name: ls
+  commands: ls -al
+
+- name: version
+  commands: java -version
