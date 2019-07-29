@@ -1,7 +1,7 @@
 kind: pipeline
 name: default
 
-image: adoptopenjdk/openjdk8
+image: adoptopenjdk:8-jdk-hotspot
 
 steps:
 - name: git
