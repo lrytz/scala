@@ -2930,15 +2930,9 @@ self =>
           val tparams = typeParamClauseOpt(name, contextBoundBuf)
           classContextBounds = contextBoundBuf.toList
           val tstart = (in.offset :: classContextBounds.map(_.pos.start)).min
-          if (!classContextBounds.isEmpty && mods.isTrait) {
-            val viewBoundsExist = if (currentRun.isScala214) "" else " nor view bounds `<% ...`"
-              syntaxError(s"traits cannot have type parameters with context bounds `: ...`$viewBoundsExist", skipIt = false)
-            classContextBounds = List()
-          }
           val constrAnnots = if (!mods.isTrait) constructorAnnotations() else Nil
-          val (constrMods, vparamss) =
-            if (mods.isTrait) (Modifiers(Flags.TRAIT), List())
-            else (accessModifierOpt(), paramClauses(name, classContextBounds, ofCaseClass = mods.isCase))
+          val constrMods = if (mods.isTrait) Modifiers(Flags.TRAIT) else accessModifierOpt()
+          val vparamss = paramClauses(name, classContextBounds, ofCaseClass = mods.isCase)
           val template = templateOpt(mods, name, constrMods withAnnotations constrAnnots, vparamss, tstart)
           val result = gen.mkClassDef(mods, name, tparams, template)
           // Context bounds generate implicit parameters (part of the template) with types
@@ -3078,7 +3072,7 @@ self =>
         }
         else {
           newLineOptWhenFollowedBy(LBRACE)
-          val (self, body) = templateBodyOpt(parenMeansSyntaxError = mods.isTrait || name.isTermName)
+          val (self, body) = templateBodyOpt(parenMeansSyntaxError = name.isTermName)
           (List(), self, body)
         }
       )
