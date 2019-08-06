@@ -460,36 +460,17 @@ abstract class TreeGen {
    *  @param npos  the position of the new
    *  @param cpos  the position of the anonymous class starting with parents
    */
-  def mkNew(parents: List[Tree], self: ValDef, stats: List[Tree],
-            npos: Position, cpos: Position): Tree =
-    if (parents.isEmpty)
-      mkNew(List(scalaAnyRefConstr), self, stats, npos, cpos)
-    else if (parents.tail.isEmpty && stats.isEmpty) {
-      // `Parsers.template` no longer differentiates tpts and their argss
-      // e.g. `C()` will be represented as a single tree Apply(Ident(C), Nil)
-      // instead of parents = Ident(C), argss = Nil as before
-      // this change works great for things that are actually templates
-      // but in this degenerate case we need to perform postprocessing
-      val app = treeInfo.dissectApplied(parents.head)
-      atPos(npos union cpos) { New(app.callee, app.argss) }
-    } else {
-      val x = tpnme.ANON_CLASS_NAME
-      atPos(npos union cpos) {
-        Block(
-          List(
-            atPos(cpos) {
-              ClassDef(
-                Modifiers(FINAL), x, Nil,
-                mkTemplate(parents, self, NoMods, ListOfNil, stats, cpos.focus))
-            }),
-          atPos(npos) {
-            New(
-              Ident(x) setPos npos.focus,
-              Nil)
-          }
-        )
-      }
+  def mkNew(parents: List[Tree], self: ValDef, stats: List[Tree], npos: Position, cpos: Position): Tree = {
+    atPos(npos union cpos) {
+      Block(List(
+        atPos(cpos) {
+          ClassDef(Modifiers(FINAL), tpnme.ANON_CLASS_NAME, Nil,
+            mkTemplate(mkParents(NoMods, parents), self, NoMods, ListOfNil, stats, cpos.focus))
+        }),
+        atPos(npos)(New(Ident(tpnme.ANON_CLASS_NAME) setPos npos.focus, Nil))
+      )
     }
+  }
 
   /** Create a tree representing the function type (argtpes) => restpe */
   def mkFunctionTypeTree(argtpes: List[Tree], restpe: Tree): Tree =

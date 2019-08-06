@@ -536,8 +536,20 @@ trait ReificationSupport { self: SymbolTable =>
     }
 
     object SyntacticNew extends SyntacticNewExtractor {
-      def apply(earlyDefs: List[Tree], parents: List[Tree], selfType: Tree, body: List[Tree]): Tree =
-        gen.mkNew(parents, mkSelfType(selfType), earlyDefs ::: body, NoPosition, NoPosition)
+      def apply(earlyDefs: List[Tree], parents: List[Tree], selfType: Tree, body: List[Tree]): Tree = {
+        if (earlyDefs.isEmpty && body.isEmpty && parents.lengthCompare(1) == 0) {
+          // TODO wtf is this for
+          // `Parsers.template` no longer differentiates tpts and their argss
+          // e.g. `C()` will be represented as a single tree Apply(Ident(C), Nil)
+          // instead of parents = Ident(C), argss = Nil as before
+          // this change works great for things that are actually templates
+          // but in this degenerate case we need to perform postprocessing
+          val app = treeInfo.dissectApplied(parents.head)
+          New(app.callee, app.argss)
+        }
+        else
+          gen.mkNew(parents, mkSelfType(selfType), earlyDefs ::: body, NoPosition, NoPosition)
+      }
 
       def unapply(tree: Tree): Option[(List[Tree], List[Tree], ValDef, List[Tree])] = tree match {
         case treeInfo.Applied(Select(New(SyntacticAppliedType(ident, targs)), nme.CONSTRUCTOR), Nil, List(Nil)) =>
