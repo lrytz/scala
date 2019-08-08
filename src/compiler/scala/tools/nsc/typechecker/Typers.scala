@@ -1511,260 +1511,266 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           context.error(tparam.pos, "type parameter of value class may not be specialized")
     }
 
-    /** Typechecks a parent type reference.
-     *
-     *  This typecheck is harder than it might look, because it should honor early
-     *  definitions and also perform type argument inference with the help of super call
-     *  arguments provided in `encodedtpt`.
-     *
-     *  The method is called in batches (batch = 1 time per each parent type referenced),
-     *  two batches per definition: once from namer, when entering a ClassDef or a ModuleDef
-     *  and once from typer, when typechecking the definition.
-     *
-     *  ***Arguments***
-     *
-     *  `encodedtpt` represents the parent type reference wrapped in an `Apply` node
-     *  which indicates value arguments (i.e. type macro arguments or super constructor call arguments)
-     *  If no value arguments are provided by the user, the `Apply` node is still
-     *  there, but its `args` will be set to `Nil`.
-     *  This argument is synthesized by `tools.nsc.ast.Parsers.templateParents`.
-     *
-     *  `templ` is an enclosing template, which contains a primary constructor synthesized by the parser.
-     *  Such a constructor is a DefDef which contains early initializers and maybe a super constructor call
-     *  (I wrote "maybe" because trait constructors don't call super constructors).
-     *  This argument is synthesized by `tools.nsc.ast.Trees.Template`.
-     *
-     *  `inMixinPosition` indicates whether the reference is not the first in the
-     *  list of parents (and therefore cannot be a class) or the opposite.
-     *
-     *  ***Return value and side effects***
-     *
-     *  Returns a `TypeTree` representing a resolved parent type.
-     *  If the typechecked parent reference implies non-nullary and non-empty argument list,
-     *  this argument list is attached to the returned value in SuperArgsAttachment.
-     *  The attachment is necessary for the subsequent typecheck to fixup a super constructor call
-     *  in the body of the primary constructor (see `typedTemplate` for details).
-     *
-     *  This method might invoke `typedPrimaryConstrBody`, hence it might cause the side effects
-     *  described in the docs of that method. It might also attribute the Super(_, _) reference
-     *  (if present) inside the primary constructor of `templ`.
-     *
-     *  ***Example***
-     *
-     *  For the following definition:
-     *
-     *    class D extends {
-     *      val x = 2
-     *      val y = 4
-     *    } with B(x)(3) with C(y) with T
-     *
-     *  this method will be called six times:
-     *
-     *    (3 times from the namer)
-     *    typedParentType(Apply(Apply(Ident(B), List(Ident(x))), List(3)), templ, inMixinPosition = false)
-     *    typedParentType(Apply(Ident(C), List(Ident(y))), templ, inMixinPosition = true)
-     *    typedParentType(Apply(Ident(T), List()), templ, inMixinPosition = true)
-     *
-     *    (3 times from the typer)
-     *    <the same three calls>
-     */
-    private def typedParentType(encodedtpt: Tree, templ: Template, inMixinPosition: Boolean): Tree = {
-      val app @ treeInfo.Applied(core, _, argss) = treeInfo.dissectApplied(encodedtpt)
-      val decodedtpt = app.callee
-      val argssAreTrivial = argss == Nil || argss == ListOfNil
 
-      // we cannot avoid cyclic references with `initialize` here, because when type macros arrive,
-      // we'll have to check the probe for isTypeMacro anyways.
-      // therefore I think it's reasonable to trade a more specific "inherits itself" error
-      // for a generic, yet understandable "cyclic reference" error
-      var probe = typedTypeConstructor(core.duplicate).tpe.typeSymbol
-      if (probe == null) probe = NoSymbol
-      probe.initialize
+    def typedParentTypes(templ: Template): List[Tree] = {
+      /** Typechecks a parent type reference.
+       *
+       * This typecheck is harder than it might look, because it should honor early
+       * definitions and also perform type argument inference with the help of super call
+       * arguments provided in `encodedtpt`.
+       *
+       * The method is called in batches (batch = 1 time per each parent type referenced),
+       * two batches per definition: once from namer, when entering a ClassDef or a ModuleDef
+       * and once from typer, when typechecking the definition.
+       *
+       * ***Arguments***
+       *
+       * `encodedtpt` represents the parent type reference wrapped in an `Apply` node
+       * which indicates value arguments (i.e. type macro arguments or super constructor call arguments)
+       * If no value arguments are provided by the user, the `Apply` node is still
+       * there, but its `args` will be set to `Nil`.
+       * This argument is synthesized by `tools.nsc.ast.Parsers.templateParents`.
+       *
+       * `templ` is an enclosing template, which contains a primary constructor synthesized by the parser.
+       * Such a constructor is a DefDef which contains early initializers and maybe a super constructor call
+       * (I wrote "maybe" because trait constructors don't call super constructors).
+       * This argument is synthesized by `tools.nsc.ast.Trees.Template`.
+       *
+       * `inMixinPosition` indicates whether the reference is not the first in the
+       * list of parents (and therefore cannot be a class) or the opposite.
+       *
+       * ***Return value and side effects***
+       *
+       * Returns a `TypeTree` representing a resolved parent type.
+       * If the typechecked parent reference implies non-nullary and non-empty argument list,
+       * this argument list is attached to the returned value in SuperArgsAttachment.
+       * The attachment is necessary for the subsequent typecheck to fixup a super constructor call
+       * in the body of the primary constructor (see `typedTemplate` for details).
+       *
+       * This method might invoke `typedPrimaryConstrBody`, hence it might cause the side effects
+       * described in the docs of that method. It might also attribute the Super(_, _) reference
+       * (if present) inside the primary constructor of `templ`.
+       *
+       * ***Example***
+       *
+       * For the following definition:
+       *
+       * class D extends {
+       * val x = 2
+       * val y = 4
+       * } with B(x)(3) with C(y) with T
+       *
+       * this method will be called six times:
+       *
+       * (3 times from the namer)
+       * typedParentType(Apply(Apply(Ident(B), List(Ident(x))), List(3)), templ, inMixinPosition = false)
+       * typedParentType(Apply(Ident(C), List(Ident(y))), templ, inMixinPosition = true)
+       * typedParentType(Apply(Ident(T), List()), templ, inMixinPosition = true)
+       *
+       * (3 times from the typer)
+       * <the same three calls>
+       */
+      def typedParentType(encodedtpt: Tree, templ: Template, inMixinPosition: Boolean): Tree = {
+        val app@treeInfo.Applied(core, _, argss) = treeInfo.dissectApplied(encodedtpt)
+        val decodedtpt                           = app.callee
+        val argssAreTrivial                      = argss == Nil || argss == ListOfNil
 
-      if (probe.isTrait || inMixinPosition) {
-        if (!argssAreTrivial) {
-          if (probe.isTrait) ConstrArgsInParentWhichIsTraitError(encodedtpt, probe)
-          else () // a class in a mixin position - this warrants an error in `validateParentClasses`
-                  // therefore here we do nothing, e.g. don't check that the # of ctor arguments
-                  // matches the # of ctor parameters or stuff like that
-        }
-        typedType(decodedtpt)
-      } else {
-        val supertpt = typedTypeConstructor(decodedtpt)
-        val supertparams = if (supertpt.hasSymbolField) supertpt.symbol.typeParams else Nil
-        def inferParentTypeArgs: Tree = {
-          typedPrimaryConstrBody(templ) {
-            val supertpe = PolyType(supertparams, appliedType(supertpt.tpe, supertparams map (_.tpeHK)))
-            val supercall = New(supertpe, mmap(argss)(_.duplicate))
-            val treeInfo.Applied(Select(ctor, nme.CONSTRUCTOR), _, _) = supercall
-            ctor setType supertpe // this is an essential hack, otherwise it will occasionally fail to typecheck
-            atPos(supertpt.pos.focus)(supercall)
-          } match {
-            case EmptyTree => MissingTypeArgumentsParentTpeError(supertpt); supertpt
-            case tpt       => TypeTree(tpt.tpe) setPos supertpt.pos  // scala/bug#7224: don't .focus positions of the TypeTree of a parent that exists in source
+        // we cannot avoid cyclic references with `initialize` here, because when type macros arrive,
+        // we'll have to check the probe for isTypeMacro anyways.
+        // therefore I think it's reasonable to trade a more specific "inherits itself" error
+        // for a generic, yet understandable "cyclic reference" error
+        var probe = typedTypeConstructor(core.duplicate).tpe.typeSymbol
+        if (probe == null) probe = NoSymbol
+        probe.initialize
+
+        if (probe.isTrait || inMixinPosition) {
+          if (!argssAreTrivial) {
+            if (probe.isTrait) ConstrArgsInParentWhichIsTraitError(encodedtpt, probe)
+            else () // a class in a mixin position - this warrants an error in `validateParentClasses`
+            // therefore here we do nothing, e.g. don't check that the # of ctor arguments
+            // matches the # of ctor parameters or stuff like that
           }
+          typedType(decodedtpt)
+        } else {
+          val supertpt     = typedTypeConstructor(decodedtpt)
+          val supertparams = if (supertpt.hasSymbolField) supertpt.symbol.typeParams else Nil
+
+          def inferParentTypeArgs: Tree = {
+            typedPrimaryConstrBody(templ) {
+              val supertpe                                              = PolyType(supertparams, appliedType(supertpt.tpe, supertparams map (_.tpeHK)))
+              val supercall                                             = New(supertpe, mmap(argss)(_.duplicate))
+              val treeInfo.Applied(Select(ctor, nme.CONSTRUCTOR), _, _) = supercall
+              ctor setType supertpe // this is an essential hack, otherwise it will occasionally fail to typecheck
+              atPos(supertpt.pos.focus)(supercall)
+            } match {
+              case EmptyTree => MissingTypeArgumentsParentTpeError(supertpt); supertpt
+              case tpt       => TypeTree(tpt.tpe) setPos supertpt.pos // scala/bug#7224: don't .focus positions of the TypeTree of a parent that exists in source
+            }
+          }
+
+          val supertptWithTargs = if (supertparams.isEmpty || context.unit.isJava) supertpt else inferParentTypeArgs
+
+          // this is the place where we tell the typer what argss should be used for the super call
+          // if argss are nullary or empty, then (see the docs for `typedPrimaryConstrBody`)
+          // the super call dummy is already good enough, so we don't need to do anything
+          if (argssAreTrivial) supertptWithTargs else supertptWithTargs updateAttachment SuperArgsAttachment(argss)
         }
-
-        val supertptWithTargs = if (supertparams.isEmpty || context.unit.isJava) supertpt else inferParentTypeArgs
-
-        // this is the place where we tell the typer what argss should be used for the super call
-        // if argss are nullary or empty, then (see the docs for `typedPrimaryConstrBody`)
-        // the super call dummy is already good enough, so we don't need to do anything
-        if (argssAreTrivial) supertptWithTargs else supertptWithTargs updateAttachment SuperArgsAttachment(argss)
       }
-    }
 
-    /** Typechecks the mishmash of trees that happen to be stuffed into the primary constructor of a given template.
-     *  Before commencing the typecheck, replaces the `pendingSuperCall` dummy with the result of `actualSuperCall`.
-     *  `actualSuperCall` can return `EmptyTree`, in which case the dummy is replaced with a literal unit.
-     *
-     *  ***Return value and side effects***
-     *
-     *  If a super call is present in the primary constructor and is not erased by the transform, returns it typechecked.
-     *  Otherwise (e.g. if the primary constructor is missing or the super call isn't there) returns `EmptyTree`.
-     *
-     *  As a side effect, this method attributes the underlying fields of early vals.
-     *  Early vals aren't typechecked anywhere else, so it's essential to call `typedPrimaryConstrBody`
-     *  at least once per definition. It'd be great to disentangle this logic at some point.
-     *
-     *  ***Example***
-     *
-     *  For the following definition:
-     *
-     *    class D extends {
-     *      val x = 2
-     *      val y = 4
-     *    } with B(x)(3) with C(y) with T
-     *
-     *  the primary constructor of `templ` will be:
-     *
-     *    Block(List(
-     *      ValDef(NoMods, x, TypeTree(), 2)
-     *      ValDef(NoMods, y, TypeTree(), 4)
-     *      global.pendingSuperCall,
-     *      Literal(Constant(())))
-     *
-     *  Note the `pendingSuperCall` part. This is the representation of a fill-me-in-later supercall dummy,
-     *  which encodes the fact that supercall argss are unknown during parsing and need to be transplanted
-     *  from one of the parent types. Read more about why the argss are unknown in `tools.nsc.ast.Trees.Template`.
-     */
-    private def typedPrimaryConstrBody(templ: Template)(actualSuperCall: => Tree): Tree =
+      /** Typechecks the mishmash of trees that happen to be stuffed into the primary constructor of a given template.
+       * Before commencing the typecheck, replaces the `pendingSuperCall` dummy with the result of `actualSuperCall`.
+       * `actualSuperCall` can return `EmptyTree`, in which case the dummy is replaced with a literal unit.
+       *
+       * ***Return value and side effects***
+       *
+       * If a super call is present in the primary constructor and is not erased by the transform, returns it typechecked.
+       * Otherwise (e.g. if the primary constructor is missing or the super call isn't there) returns `EmptyTree`.
+       *
+       * As a side effect, this method attributes the underlying fields of early vals.
+       * Early vals aren't typechecked anywhere else, so it's essential to call `typedPrimaryConstrBody`
+       * at least once per definition. It'd be great to disentangle this logic at some point.
+       *
+       * ***Example***
+       *
+       * For the following definition:
+       *
+       * class D extends {
+       * val x = 2
+       * val y = 4
+       * } with B(x)(3) with C(y) with T
+       *
+       * the primary constructor of `templ` will be:
+       *
+       * Block(List(
+       * ValDef(NoMods, x, TypeTree(), 2)
+       * ValDef(NoMods, y, TypeTree(), 4)
+       *      global.pendingSuperCall,
+       * Literal(Constant(())))
+       *
+       * Note the `pendingSuperCall` part. This is the representation of a fill-me-in-later supercall dummy,
+       * which encodes the fact that supercall argss are unknown during parsing and need to be transplanted
+       * from one of the parent types. Read more about why the argss are unknown in `tools.nsc.ast.Trees.Template`.
+       */
+      def typedPrimaryConstrBody(templ: Template)(actualSuperCall: => Tree): Tree =
         treeInfo.firstConstructor(templ.body) match {
-        case ctor @ DefDef(_, _, _, vparamss, _, cbody @ Block(cstats, cunit)) =>
+          case ctor@DefDef(_, _, _, vparamss, _, cbody@Block(cstats, cunit)) =>
             val (preSuperStats, superCall) = {
               val (stats, rest) = cstats span (x => !treeInfo.isSuperConstrCall(x))
               (stats map (_.duplicate), if (rest.isEmpty) EmptyTree else rest.head.duplicate)
             }
-          val superCall1 = (superCall match {
-            case global.pendingSuperCall => actualSuperCall
-            case EmptyTree => EmptyTree
-          }) orElse cunit
-          val cbody1 = treeCopy.Block(cbody, preSuperStats, superCall1)
-          val clazz = context.owner
+            val superCall1                 = (superCall match {
+              case global.pendingSuperCall => actualSuperCall
+              case EmptyTree               => EmptyTree
+            }) orElse cunit
+            val cbody1                     = treeCopy.Block(cbody, preSuperStats, superCall1)
+            val clazz                      = context.owner
             assert(clazz != NoSymbol, templ)
-          // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
-          //         cyclic errors in an implicit search in argument to the super constructor call on
-          //         account of the "ignore symbols without complete info that succeed the implicit search"
-          //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
-          val dummy = context.outer.owner.newLocalDummy(context.owner.pos)
-          val cscope = context.outer.makeNewScope(ctor, dummy)
-          if (dummy.isTopLevel) currentRun.symSource(dummy) = currentUnit.source.file
-          val cbody2 = { // called both during completion AND typing.
+            // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
+            //         cyclic errors in an implicit search in argument to the super constructor call on
+            //         account of the "ignore symbols without complete info that succeed the implicit search"
+            //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
+            val dummy  = context.outer.owner.newLocalDummy(context.owner.pos)
+            val cscope = context.outer.makeNewScope(ctor, dummy)
+            if (dummy.isTopLevel) currentRun.symSource(dummy) = currentUnit.source.file
+            val cbody2 = { // called both during completion AND typing.
             val typer1 = newTyper(cscope)
-            // XXX: see about using the class's symbol....
-            clazz.unsafeTypeParams foreach (sym => typer1.context.scope.enter(sym))
-            typer1.namer.enterValueParams(vparamss map (_.map(_.duplicate)))
-            typer1.typed(cbody1)
+              // XXX: see about using the class's symbol....
+              clazz.unsafeTypeParams foreach (sym => typer1.context.scope.enter(sym))
+              typer1.namer.enterValueParams(vparamss map (_.map(_.duplicate)))
+              typer1.typed(cbody1)
             }
 
             val preSuperVals = treeInfo.preSuperFields(templ.body)
             if (preSuperVals.isEmpty && preSuperStats.nonEmpty)
-            devWarning("Wanted to zip empty presuper val list with " + preSuperStats)
+              devWarning("Wanted to zip empty presuper val list with " + preSuperStats)
             else
-            foreach2(preSuperStats, preSuperVals)((ldef, gdef) => gdef.tpt setType ldef.symbol.tpe)
+              foreach2(preSuperStats, preSuperVals)((ldef, gdef) => gdef.tpt setType ldef.symbol.tpe)
 
-          if (superCall1 == cunit) EmptyTree
-          else cbody2 match { // ???
-            case Block(_, expr) => expr
-            case tree => tree
-          }
-          case _ =>
-          EmptyTree
+            if (superCall1 == cunit) EmptyTree
+            else cbody2 match { // ???
+              case Block(_, expr) => expr
+              case tree           => tree
+            }
+          case _                                                             =>
+            EmptyTree
         }
 
-    /** Makes sure that the first type tree in the list of parent types is always a class.
-     *  If the first parent is a trait, prepend its supertype to the list until it's a class.
-     */
-    private def normalizeFirstParent(parents: List[Tree]): List[Tree] = {
-      @annotation.tailrec
-      def explode0(parents: List[Tree]): List[Tree] = {
-        val supertpt :: rest = parents // parents is always non-empty here - it only grows
-        if (supertpt.tpe.typeSymbol == AnyClass) {
-          supertpt setType AnyRefTpe
-          parents
-        } else if (treeInfo isTraitRef supertpt) {
-          val supertpt1  = typedType(supertpt)
-          def supersuper = TypeTree(supertpt1.tpe.firstParent) setPos supertpt.pos.focus
-          if (supertpt1.isErrorTyped) rest
-          else explode0(supersuper :: supertpt1 :: rest)
-        } else parents
+      /** Makes sure that the first type tree in the list of parent types is always a class.
+       * If the first parent is a trait, prepend its supertype to the list until it's a class.
+       */
+      def normalizeFirstParent(parents: List[Tree]): List[Tree] = {
+        @annotation.tailrec
+        def explode0(parents: List[Tree]): List[Tree] = {
+          val supertpt :: rest = parents // parents is always non-empty here - it only grows
+          if (supertpt.tpe.typeSymbol == AnyClass) {
+            supertpt setType AnyRefTpe
+            parents
+          } else if (treeInfo isTraitRef supertpt) {
+            val supertpt1 = typedType(supertpt)
+
+            def supersuper = TypeTree(supertpt1.tpe.firstParent) setPos supertpt.pos.focus
+
+            if (supertpt1.isErrorTyped) rest
+            else explode0(supersuper :: supertpt1 :: rest)
+          } else parents
+        }
+
+        def explode(parents: List[Tree]) =
+          if (treeInfo isTraitRef parents.head) explode0(parents)
+          else parents
+
+        if (parents.isEmpty) Nil else explode(parents)
       }
 
-      def explode(parents: List[Tree]) =
-        if (treeInfo isTraitRef parents.head) explode0(parents)
-        else parents
+      /** Certain parents are added in the parser before it is known whether
+       * that class also declared them as parents. For instance, this is an
+       * error unless we take corrective action here:
+       *
+       * case class Foo() extends Serializable
+       *
+       * So we strip the duplicates before typer.
+       */
+      def fixDuplicateSyntheticParents(parents: List[Tree]): List[Tree] = parents match {
+        case Nil     => Nil
+        case x :: xs =>
+          val sym = x.symbol
+          x :: fixDuplicateSyntheticParents(
+            if (isPossibleSyntheticParent(sym)) xs filterNot (_.symbol == sym)
+            else xs
+          )
+      }
 
-      if (parents.isEmpty) Nil else explode(parents)
-    }
+      templ.parents match {
+        case Nil           => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
+        case first :: rest =>
+          try {
+            val supertpts = fixDuplicateSyntheticParents(normalizeFirstParent(
+              typedParentType(first, templ, inMixinPosition = false) +:
+              (rest map (typedParentType(_, templ, inMixinPosition = true)))))
 
-    /** Certain parents are added in the parser before it is known whether
-     *  that class also declared them as parents. For instance, this is an
-     *  error unless we take corrective action here:
-     *
-     *    case class Foo() extends Serializable
-     *
-     *  So we strip the duplicates before typer.
-     */
-    private def fixDuplicateSyntheticParents(parents: List[Tree]): List[Tree] = parents match {
-      case Nil      => Nil
-      case x :: xs  =>
-        val sym = x.symbol
-        x :: fixDuplicateSyntheticParents(
-          if (isPossibleSyntheticParent(sym)) xs filterNot (_.symbol == sym)
-          else xs
-        )
-    }
+            // if that is required to infer the targs of a super call
+            // typedParentType calls typedPrimaryConstrBody to do the inferring typecheck
+            // as a side effect, that typecheck also assigns types to the fields underlying early vals
+            // however if inference is not required, the typecheck doesn't happen
+            // and therefore early fields have their type trees not assigned
+            // here we detect this situation and take preventive measures
+            if (treeInfo.hasUntypedPreSuperFields(templ.body))
+              typedPrimaryConstrBody(templ)(EmptyTree)
 
-    def typedParentTypes(templ: Template): List[Tree] = templ.parents match {
-      case Nil => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
-      case first :: rest =>
-        try {
-          val supertpts = fixDuplicateSyntheticParents(normalizeFirstParent(
-            typedParentType(first, templ, inMixinPosition = false) +:
-            (rest map (typedParentType(_, templ, inMixinPosition = true)))))
-
-          // if that is required to infer the targs of a super call
-          // typedParentType calls typedPrimaryConstrBody to do the inferring typecheck
-          // as a side effect, that typecheck also assigns types to the fields underlying early vals
-          // however if inference is not required, the typecheck doesn't happen
-          // and therefore early fields have their type trees not assigned
-          // here we detect this situation and take preventive measures
-          if (treeInfo.hasUntypedPreSuperFields(templ.body))
-            typedPrimaryConstrBody(templ)(EmptyTree)
-
-          supertpts mapConserve (tpt => checkNoEscaping.privates(this, context.owner, tpt))
-        }
-        catch {
-          case ex: TypeError if !global.propagateCyclicReferences =>
-            // fallback in case of cyclic errors
-            // @H none of the tests enter here but I couldn't rule it out
-            // upd. @E when a definition inherits itself, we end up here
-            // because `typedParentType` triggers `initialize` for parent types symbols
-            log("Type error calculating parents in template " + templ)
-            log("Error: " + ex)
-            ParentTypesError(templ, ex)
-            List(TypeTree(AnyRefTpe))
-        }
+            supertpts mapConserve (tpt => checkNoEscaping.privates(this, context.owner, tpt))
+          }
+          catch {
+            case ex: TypeError if !global.propagateCyclicReferences =>
+              // fallback in case of cyclic errors
+              // @H none of the tests enter here but I couldn't rule it out
+              // upd. @E when a definition inherits itself, we end up here
+              // because `typedParentType` triggers `initialize` for parent types symbols
+              log("Type error calculating parents in template " + templ)
+              log("Error: " + ex)
+              ParentTypesError(templ, ex)
+              List(TypeTree(AnyRefTpe))
+          }
+      }
     }
 
     /** <p>Check that</p>
