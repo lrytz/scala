@@ -189,22 +189,33 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
     def genLoadIf(tree: If, expectedType: BType): BType = {
       val If(condp, thenp, elsep) = tree
 
-      val success = new asm.Label
+      val labelTarget = thenp match {
+        case Apply(fun, args) if fun.symbol.isLabel && args.isEmpty => programPoint(fun.symbol)
+        case Block(List(Apply(fun, args)), Literal(Constant(()))) if fun.symbol.isLabel && args.isEmpty => programPoint(fun.symbol)
+        case _ => null
+      }
+
+      val success = if (labelTarget != null) labelTarget else new asm.Label
       val failure = new asm.Label
 
       val hasElse = !elsep.isEmpty
       val postIf  = if (hasElse) new asm.Label else failure
 
-      genCond(condp, success, failure, targetIfNoJump = success)
-      markProgramPoint(success)
+      if (labelTarget != null)
+        genCond(condp, success, failure, targetIfNoJump = failure)
+      else
+        genCond(condp, success, failure, targetIfNoJump = success)
+      if (labelTarget == null) markProgramPoint(success)
 
       val thenKind      = tpeTK(thenp)
       val elseKind      = if (!hasElse) UNIT else tpeTK(elsep)
       def hasUnitBranch = (thenKind == UNIT || elseKind == UNIT)
       val resKind       = if (hasUnitBranch) UNIT else tpeTK(tree)
 
-      genLoad(thenp, resKind)
-      if (hasElse) { bc goTo postIf }
+      if (labelTarget == null) {
+        genLoad(thenp, resKind)
+        if (hasElse) { bc goTo postIf }
+      }
       markProgramPoint(failure)
       if (hasElse) {
         genLoad(elsep, resKind)
