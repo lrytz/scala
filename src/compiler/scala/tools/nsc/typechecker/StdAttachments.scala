@@ -119,24 +119,6 @@ trait StdAttachments {
       })
     )
 
-  /** After being synthesized by the parser, primary constructors aren't fully baked yet.
-   *  A call to super in such constructors is just a fill-me-in-later dummy resolved later
-   *  by `parentTypes`. This attachment coordinates `parentTypes` and `typedTemplate` and
-   *  allows them to complete the synthesis.
-   */
-  case class SuperArgsAttachment(argss: List[List[Tree]])
-
-  /** Convenience method for `SuperArgsAttachment`.
-   *  Compared with `MacroRuntimeAttachment` this attachment has different a usage pattern,
-   *  so it really benefits from a dedicated extractor.
-   */
-  def superArgs(tree: Tree): Option[List[List[Tree]]] =
-    tree.attachments.get[SuperArgsAttachment] collect { case SuperArgsAttachment(argss) => argss }
-
-  /** Determines whether the given tree has an associated SuperArgsAttachment.
-   */
-  def hasSuperArgs(tree: Tree): Boolean = superArgs(tree).nonEmpty
-
   /** @see markMacroImplRef
    */
   case object MacroImplRefAttachment

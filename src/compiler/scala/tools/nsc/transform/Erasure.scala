@@ -421,35 +421,6 @@ abstract class Erasure extends InfoTransform
 
   class UnknownSig extends Exception
 
-  /** Add calls to supermixin constructors
-    *    `super[mix].$init$()`
-    *  to tree, which is assumed to be the body of a constructor of class clazz.
-    */
-  private def addMixinConstructorCalls(tree: Tree, clazz: Symbol): Tree = {
-    // TODO: move to constructors?
-    def mixinConstructorCalls: List[Tree] = {
-      for (mc <- clazz.mixinClasses.reverse if mc.isTrait && mc.primaryConstructor != NoSymbol)
-        yield atPos(tree.pos) {
-          Apply(SuperSelect(clazz, mc.primaryConstructor), Nil)
-        }
-    }
-
-    tree match {
-      case Block(Nil, expr) =>
-        // AnyVal constructor - have to provide a real body so the
-        // jvm doesn't throw a VerifyError. But we can't add the
-        // body until now, because the typer knows that Any has no
-        // constructor and won't accept a call to super.init.
-        assert((clazz isSubClass AnyValClass) || clazz.info.parents.isEmpty, clazz)
-        Block(List(Apply(gen.mkSuperInitCall, Nil)), expr)
-
-      case Block(stats, expr) =>
-        // needs `hasSymbolField` check because `supercall` could be a block (named / default args)
-        val (presuper, supercall :: rest) = stats span (t => t.hasSymbolWhich(_ hasFlag PRESUPER))
-        treeCopy.Block(tree, presuper ::: (supercall :: mixinConstructorCalls ::: rest), expr)
-    }
-  }
-
 
   val deconstMap = new TypeMap {
     // For some reason classOf[Foo] creates ConstantType(Constant(tpe)) with an actual Type for tpe,
@@ -783,11 +754,6 @@ abstract class Erasure extends InfoTransform
     override def typed1(tree: Tree, mode: Mode, pt: Type): Tree = {
       val tree1 = try {
         tree match {
-          case DefDef(_,_,_,_,_,_) if tree.symbol.isClassConstructor && tree.symbol.isPrimaryConstructor && tree.symbol.owner != ArrayClass =>
-            super.typed1(deriveDefDef(tree)(addMixinConstructorCalls(_, tree.symbol.owner)), mode, pt) // (3)
-          case Template(parents, self, body) =>
-            val parents1 = tree.symbol.owner.info.parents map (t => TypeTree(t) setPos tree.pos)
-            super.typed1(treeCopy.Template(tree, parents1, noSelfType, body), mode, pt)
           case InjectDerivedValue(arg) =>
             (tree.attachments.get[TypeRefAttachment]: @unchecked) match {
               case Some(itype) =>
@@ -1204,6 +1170,66 @@ abstract class Erasure extends InfoTransform
         }
       }
 
+      /** Add calls to supermixin constructors
+       *    `super[mix].$init$()`
+       *  to tree, which is assumed to be the body of a constructor of class clazz.
+       */
+      private def addMixinConstructorCalls(tree: Tree, clazz: Symbol, parents: List[Tree]): Tree = {
+        def mkSuperCall(parent: Tree) = parent match {
+          case app: Apply =>
+            val newToSuper = new InternalTransformer {
+              override def transform(t: Tree): Tree =
+                t match {
+                  case New(tpt) => Super(clazz, tpnme.EMPTY) setType tpt.tpe
+                  case _      => super.transform(t)
+                }
+            }
+
+            def stripApply(t: Tree): Tree = t match {
+              case Apply(fun, _) => stripApply(fun)
+              case TypeApply(fun, args) => stripApply(fun)
+              case _ => t
+            }
+
+            val core = stripApply(app)
+            println(s"core: $core")
+            val superCall = newToSuper.transform(app)
+            println(s"super call from $clazz to $parent: ${core.tpe.resultType.typeSymbol} --> $superCall")
+            (core.tpe.resultType.typeSymbol, superCall)
+
+          case sel =>
+            val parentClazz = sel.tpe.typeSymbol
+            println(s"super call from $clazz to $parent: ${parentClazz} --> ${sel.tpe.typeSymbol}")
+            (parentClazz, Apply(Select(Super(clazz, tpnme.EMPTY) setType sel.tpe, parentClazz.primaryConstructor), Nil))
+        }
+
+        val superCalls = parents.map(mkSuperCall).toMap
+
+        println(s"superCalls: $superCalls")
+
+        // have to emit those constructor calls now before we turn our parent trees into TypeTrees and we lose
+        // the arguments to pass for any supertrait's params -- also, those params themselves should be transformed by erasure
+        def mixinConstructorCalls: List[Tree] =
+          for (mc <- clazz.mixinClasses.reverse; if mc.isTrait && mc.primaryConstructor != NoSymbol ; superCall <- superCalls.get(mc).toList)
+            yield atPos(tree.pos)(superCall)
+
+        tree match {
+          // TODO: this case could be delayed until constructors
+          case Block(Nil, expr) =>
+            // AnyVal constructor - have to provide a real body so the
+            // jvm doesn't throw a VerifyError. But we can't add the
+            // body until now, because the typer knows that Any has no
+            // constructor and won't accept a call to super.init.
+            assert((clazz isSubClass AnyValClass) || clazz.info.parents.isEmpty, clazz)
+            Block(List(Apply(gen.mkSuperInitCall, Nil)), expr)
+
+          case Block(stats, expr) =>
+            // needs `hasSymbolField` check because `supercall` could be a block (named / default args)
+            val (presuper, supercall :: rest) = stats span (t => t.hasSymbolWhich(_ hasFlag PRESUPER))
+            treeCopy.Block(tree, presuper ::: (supercall :: mixinConstructorCalls ::: rest), expr)
+        }
+      }
+
       def preErase(tree: Tree): Tree = tree match {
         case tree: Apply =>
           preEraseApply(tree)
@@ -1279,10 +1305,24 @@ abstract class Erasure extends InfoTransform
 
           tree
 
-        case Template(parents, self, body) =>
+        case Template(parents, _, body) =>
+          val clazz    = tree.symbol.owner
           //Console.println("checking no dble defs " + tree)//DEBUG
-          checkNoDoubleDefs(tree.symbol.owner)
-          treeCopy.Template(tree, parents, noSelfType, addBridgesToTemplate(body, currentOwner))
+          checkNoDoubleDefs(clazz)
+
+          val parentTypes   = clazz.info.parents
+          val parentsErased = parentTypes map (t => TypeTree(t) setPos tree.pos)
+
+          val bodyWithMixinSuperCalls =
+            if (clazz != ArrayClass && !clazz.isTrait && parentTypes.exists(_.typeSymbol.isTrait)) {
+              val primaryCtor = clazz.primaryConstructor
+              body mapConserve {
+                case dd@DefDef(_, _, _, _, _, _) if dd.symbol == primaryCtor => deriveDefDef(dd)(addMixinConstructorCalls(_, clazz, parents))
+                case stat                                                    => stat
+              }
+            } else body
+
+          treeCopy.Template(tree, parentsErased, noSelfType, addBridgesToTemplate(bodyWithMixinSuperCalls, currentOwner))
 
         case Match(selector, cases) =>
           Match(Typed(selector, TypeTree(selector.tpe)), cases)

@@ -447,7 +447,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
   private def needsSpecialization(env: TypeEnv, sym: Symbol): Boolean = (
     !hasUnspecializableAnnotation(sym) && (
          specializedTypeVars(sym).intersect(env.keySet).diff(wasSpecializedForTypeVars(sym)).nonEmpty
-      || sym.isClassConstructor && (sym.enclClass.typeParams exists (_.isSpecialized))
+      || sym.isClassConstructor && (sym.enclClass.typeParams exists (_.isSpecialized)) // TODO: exclude trait constructor now that they have the same name as class constructors (until mixins)
       || isNormalizedMember(sym) && info(sym).typeBoundsIn(env)
     )
   )
@@ -1689,22 +1689,23 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
           }
 
         case Template(parents, self, body) =>
-          def transformTemplate = {
           val specMembers = makeSpecializedMembers(tree.symbol.enclClass) ::: (implSpecClasses(body) map localTyper.typed)
+
           if (!symbol.isPackageClass)
             (new CollectMethodBodies)(tree)
-          val parents1 = map2Conserve(parents, currentOwner.info.parents)((parent, tpe) =>
-            parent match {
-              case tt @ TypeTree() if tpe eq tt.tpe => tt
-              case _ => TypeTree(tpe) setPos parent.pos
-            })
+
+          val parents1 = transformTrees(parents) // TODO: do we need to run specialization on the parent trees?
+            // used to replace all trees by TypeTrees, which loses trait param arguments (a parent tree for a supertrait that takes trait params is an Apply)
+            // map2Conserve(parents, currentOwner.info.parents)((parent, tpe) =>
+            //   parent match {
+            //     case tt @ TypeTree() if tpe eq tt.tpe => tt
+            //     case _ => TypeTree(tpe) setPos parent.pos
+            //   })
 
           treeCopy.Template(tree,
-            parents1    /*currentOwner.info.parents.map(tpe => TypeTree(tpe) setPos parents.head.pos)*/ ,
+            parents1,
             self,
             atOwner(currentOwner)(transformTrees(body ::: specMembers)))
-          }
-          transformTemplate
 
         case ddef @ DefDef(_, _, _, _, _, _) if info.isDefinedAt(symbol) =>
         def transformDefDef(ddef: DefDef) = {
@@ -1973,7 +1974,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
               map.iterator.map {
                 case (env, specCls) =>
                   debuglog("created synthetic class: " + specCls + " of " + sym1 + " in " + pp(env))
-                  val parents = specCls.info.parents.map(TypeTree)
+                  val parents = specCls.info.parents.map(TypeTree) // TODO: trait params
                   ClassDef(specCls, atPos(impl.pos)(Template(parents, noSelfType, List()))
                     .setSymbol(specCls.newLocalDummy(sym1.pos))) setPos tree.pos
               }.toList

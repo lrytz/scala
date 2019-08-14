@@ -393,6 +393,9 @@ abstract class TreeGen {
       }
       param
     }
+    // convert (implicit ... ) to ()(implicit ... ) if it's the only parameter section
+    if (vparamss1.isEmpty || !vparamss1.head.isEmpty && vparamss1.head.head.mods.isImplicit)
+      vparamss1 = List() :: vparamss1
 
     val (edefs, rest) = body span treeInfo.isEarlyDef
     val (evdefs, etdefs) = edefs partition treeInfo.isEarlyValDef
@@ -408,29 +411,13 @@ abstract class TreeGen {
     }
     val lvdefs = evdefs collect { case vdef: ValDef => copyValDef(vdef)(mods = vdef.mods | PRESUPER) }
 
-    val constr = {
-      if (constrMods.isTrait) {
-        if (body forall treeInfo.isInterfaceMember) None
-        else Some(
-          atPos(wrappingPos(superPos, lvdefs)) (
-            DefDef(NoMods, nme.MIXIN_CONSTRUCTOR, Nil, ListOfNil, TypeTree(), Block(lvdefs, mkLiteralUnit))))
-      }
-      else {
-        // convert (implicit ... ) to ()(implicit ... ) if it's the only parameter section
-        if (vparamss1.isEmpty || !vparamss1.head.isEmpty && vparamss1.head.head.mods.isImplicit)
-          vparamss1 = List() :: vparamss1
-        val superCall = pendingSuperCall // we can't know in advance which of the parents will end up as a superclass
-                                         // this requires knowing which of the parents is a type macro and which is not
-                                         // and that's something that cannot be found out before typer
-                                         // (the type macros aren't in the trunk yet, but there is a plan for them to land there soon)
-                                         // this means that we don't know what will be the arguments of the super call
-                                         // therefore here we emit a dummy which gets populated when the template is named and typechecked
-        Some(
-          atPos(wrappingPos(superPos, lvdefs ::: vparamss1.flatten).makeTransparent) (
-            DefDef(constrMods, nme.CONSTRUCTOR, List(), vparamss1, TypeTree(), Block(lvdefs ::: List(superCall), mkLiteralUnit))))
-      }
-    }
-    constr foreach (ensureNonOverlapping(_, parents ::: gvdefs, focus = false))
+    val constr = atPos(wrappingPos(superPos, lvdefs ::: vparamss1.flatten).makeTransparent)(
+      DefDef(constrMods,
+        nme.CONSTRUCTOR, // we'll change the name later -- we need a unified name to simplify typedParentType
+        Nil, vparamss1, TypeTree(),
+        Block(lvdefs, mkLiteralUnit)))
+
+    ensureNonOverlapping(constr, parents ::: gvdefs, focus = false)
     // Field definitions for the class - remove defaults.
 
     val fieldDefs = vparamss.flatten map (vd => {
@@ -442,7 +429,7 @@ abstract class TreeGen {
       field
     })
 
-    global.Template(parents, self, gvdefs ::: fieldDefs ::: constr ++: etdefs ::: rest)
+    global.Template(parents, self, gvdefs ::: fieldDefs ::: (constr :: etdefs) ::: rest)
   }
 
   def mkParents(ownerMods: Modifiers, parents: List[Tree], parentPos: Position = NoPosition) =

@@ -1443,7 +1443,7 @@ trait Namers extends MethodSynthesis {
           else resTpGiven
 
         // #2382: return type of default getters are always @uncheckedVariance
-        if (meth.hasDefault) resTpComputedUnlessGiven.withAnnotation(AnnotationInfo(uncheckedVarianceClass.tpe, List(), List()))
+        if (meth.hasDefault && !meth.isConstructor) resTpComputedUnlessGiven.withAnnotation(AnnotationInfo(uncheckedVarianceClass.tpe, List(), List())) // DEFAULTPARAM and TRAIT are same bits.... (misfires on trait constructors)
         else resTpComputedUnlessGiven
       }
 

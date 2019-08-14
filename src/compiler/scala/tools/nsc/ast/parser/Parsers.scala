@@ -2917,7 +2917,7 @@ self =>
     /** {{{
      *  ClassDef ::= Id [TypeParamClause] ConstrAnnotations
      *               [AccessModifier] ClassParamClauses RequiresTypeOpt ClassTemplateOpt
-     *  TraitDef ::= Id [TypeParamClause] RequiresTypeOpt TraitTemplateOpt
+     *  TraitDef ::= Id [TypeParamClause] ClassParamClauses RequiresTypeOpt TraitTemplateOpt
      *  }}}
      */
     def classDef(start: Offset, mods: Modifiers): ClassDef = {
@@ -2930,7 +2930,7 @@ self =>
           val tparams = typeParamClauseOpt(name, contextBoundBuf)
           classContextBounds = contextBoundBuf.toList
           val tstart = (in.offset :: classContextBounds.map(_.pos.start)).min
-          val constrAnnots = if (!mods.isTrait) constructorAnnotations() else Nil
+          val constrAnnots = if (!mods.isTrait) constructorAnnotations() else Nil // TODO: should traits take annots & mods, as in Scala 3?
           val constrMods = if (mods.isTrait) Modifiers(Flags.TRAIT) else accessModifierOpt()
           val vparamss = paramClauses(name, classContextBounds, ofCaseClass = mods.isCase)
           val template = templateOpt(mods, name, constrMods withAnnotations constrAnnots, vparamss, tstart)

@@ -1587,6 +1587,17 @@ abstract class RefChecks extends Transform {
       } else {
         qual match {
           case Super(_, mix)  => checkSuper(mix)
+            // TODO check new, was in typedNew, but that's too soon since parent type inference types synthetic new expressions
+//            if ((sym.isAbstractType || sym.hasAbstractFlag)
+//                && !(sym.isJavaAnnotation && context.inAnnotation))
+//              IsAbstractError(tree, sym)
+//            else if (!(  tp == sym.typeOfThis // when there's no explicit self type -- with (#3612) or without self variable
+//                         // sym.thisSym.tpe == tp.typeOfThis (except for objects)
+//                         || narrowRhs(tp) <:< tp.typeOfThis
+//                         || phase.erasedTypes
+//                      )) {
+//              DoesNotConformToSelfTypeError(tree, sym, tp.typeOfThis)
+//            }
           case _              =>
         }
         tree

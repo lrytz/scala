@@ -3368,10 +3368,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     override def existentialBound = GenPolyType(this.typeParams, TypeBounds.upper(this.classBound))
 
-    def primaryConstructorName = if (this hasFlag TRAIT) nme.MIXIN_CONSTRUCTOR else nme.CONSTRUCTOR
-
     override def primaryConstructor = {
-      val c = info decl primaryConstructorName
+      val c = info.decl(nme.CONSTRUCTOR).orElse(info.decl(nme.MIXIN_CONSTRUCTOR))
       if (c.isOverloaded) c.alternatives.head else c
     }
 

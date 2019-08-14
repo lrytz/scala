@@ -463,7 +463,7 @@ abstract class UnCurry extends InfoTransform
             if (dd.symbol hasAnnotation VarargsClass) validateVarargs(dd)
 
             withNeedLift(needLift = false) {
-              if (dd.symbol.isClassConstructor) {
+              if (dd.symbol.isClassConstructor && !dd.symbol.owner.isTrait) {
                 atOwner(sym) {
                   val rhs1 = (rhs: @unchecked) match {
                     case Block(stats, expr) =>

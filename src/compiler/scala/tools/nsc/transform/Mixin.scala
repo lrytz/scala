@@ -230,7 +230,11 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
       assert(phase == currentRun.mixinPhase, phase)
 
       for (member <- clazz.info.decls) {
-        if (member.isMethod) publicizeTraitMethod(member)
+        if (member.isMethod) {
+          // TODO: drop arguments from trait constructors, rename to JVM name ($init$ instead of <init>)
+          if (member.isConstructor) member.name = nme.MIXIN_CONSTRUCTOR
+          publicizeTraitMethod(member)
+        }
         else {
           assert(member.isTerm && !member.isDeferred, member)
           // disable assert to support compiling against code compiled by an older compiler (until we re-starr)

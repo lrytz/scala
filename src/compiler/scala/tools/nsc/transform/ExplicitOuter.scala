@@ -166,7 +166,7 @@ abstract class ExplicitOuter extends InfoTransform
       val resTpTransformed = transformInfo(sym, resTp)
 
       val paramsWithOuter =
-        if (sym.isClassConstructor && isInner(sym.owner)) // 1
+        if (sym.isClassConstructor && isInner(sym.owner) && !sym.owner.isTrait) // 1
           sym.newValueParameter(nme.OUTER_ARG, sym.pos, ARTIFACT).setInfo(sym.owner.outerClass.thisType) :: params
         else params
 
@@ -415,7 +415,7 @@ abstract class ExplicitOuter extends InfoTransform
           if (sym.isClassConstructor) {
             val clazz = sym.owner
             val vparamss1 =
-              if (isInner(clazz)) { // (4)
+              if (isInner(clazz) && !clazz.isTrait) { // (4)
                 if (isUnderConstruction(clazz.outerClass)) {
                   reporter.error(tree.pos, s"Implementation restriction: ${clazz.fullLocationString} requires premature access to ${clazz.outerClass}.")
                 }
