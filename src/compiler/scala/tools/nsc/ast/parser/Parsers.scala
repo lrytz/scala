@@ -2995,7 +2995,7 @@ self =>
         val start = in.offset
         val parent = startAnnotType()
         parents += (in.token match {
-          case LPAREN => atPos(start)(multipleArgumentExprs().foldLeft(parent)(Apply.apply))
+          case LPAREN => atPos(start)(New(parent, multipleArgumentExprs()))
           case _      => parent
         })
       }

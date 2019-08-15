@@ -1575,26 +1575,15 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
        */
       def typedParentType(parent: Tree): Tree =
         parent match {
-          case Apply(fun, args) if !phase.erasedTypes =>
-            def spliceCtorCall(p: Tree): Tree = p match {
-              case Apply(fun, args) => treeCopy.Apply(p, spliceCtorCall(fun), args)
-              case ctor             => // TODO: defend against re-type checking when Select New was already spliced in -- should we move this to parser?
-                Select(New(ctor) setPos ctor.pos, nme.CONSTRUCTOR) setPos ctor.pos.focus // note that we don't know whether parent is a trait/class, so we can't know whether to use nme.CONSTRUCTOR or nme.MIXIN_CONSTRUCTOR
-            }
-
-            // turn the parser's result into an expression that we can type check in the scope of the ctor body
-            val parentCtorCall = treeCopy.Apply(parent, spliceCtorCall(fun), args)
-            println(s"typedParentType converting parent $parent ${parent.tpe} to $parentCtorCall")
-
-            typedInCtorContext(templ)(parentCtorCall) match {
-              case parentCtorCallTyped if parentCtorCallTyped.tpe != null =>
-                parentCtorCallTyped
+          case _: Apply => // constructor call
+            typedInCtorContext(templ)(parent) match {
+              case parentCtorCallTyped if parentCtorCallTyped.tpe != null => parentCtorCallTyped
               case _ =>
                 MissingTypeArgumentsParentTpeError(parent)
                 parent setType ErrorType
             }
 
-          case _                => typedType(parent)
+          case _ => typedType(parent)
         }
 
       /** Typechecks the mishmash of trees that happen to be stuffed into the primary constructor of a given template.
@@ -1719,7 +1708,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       }
 
       templ.parents match {
-        case Nil           => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
+        case Nil     => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
         case parents =>
           try {
             val supertpts = fixDuplicateSyntheticParents(normalizeFirstParent(parents map typedParentType))
@@ -2018,33 +2007,34 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       if (!phase.erasedTypes && !clazz.info.resultType.isError) // @S: prevent crash for duplicated type members
         checkFinitary(clazz.info.resultType.asInstanceOf[ClassInfoType])
 
-      val bodyWithPrimaryCtor = if (clazz.isTrait || phase.erasedTypes) body1 else {
-        val primaryCtor = treeInfo.firstConstructor(body1)
-        val primaryCtor1 = primaryCtor match {
-          case DefDef(_, _, _, _, _, Block(earlyVals, unit)) =>
-            val firstParent = parents1.head
-            val pos  = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
+      val bodyWithPrimaryCtor =
+        if (clazz.isTrait || phase.erasedTypes) body1 else {
+          val primaryCtor  = treeInfo.firstConstructor(body1)
+          val primaryCtor1 = primaryCtor match {
+            case DefDef(_, _, _, _, _, Block(earlyVals, unit)) =>
+              val firstParent = parents1.head
+              val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
 
-            val superCall = firstParent match {
-              case app: Apply =>
-                val newToSuper = new InternalTransformer {
-                  override def transform(t: Tree): Tree =
-                    t match {
-                      case New(tpt) => Super(This(tpnme.EMPTY) setSymbol clazz setType selfType, tpnme.EMPTY) setType SuperType(selfType, tpt.tpe)
-                      case _      => super.transform(t)
-                    }
-                }
+              val superCall = firstParent match {
+                case app: Apply =>
+                  val newToSuper = new InternalTransformer {
+                    override def transform(t: Tree): Tree =
+                      t match {
+                        case New(tpt) => Super(This(tpnme.EMPTY) setSymbol clazz setType selfType, tpnme.EMPTY) setType SuperType(selfType, tpt.tpe)
+                        case _        => super.transform(t)
+                      }
+                  }
 
-                newToSuper.transform(firstParent)
+                  newToSuper.transform(firstParent)
 
-              case _ => Apply(gen.mkSuperInitCall, Nil)
-            }
+                case _ => Apply(gen.mkSuperInitCall, Nil)
+              }
 
-            deriveDefDef(primaryCtor)(block => Block(earlyVals :+ atPos(pos)(superCall), unit) setPos pos) setPos pos
-          case _ => primaryCtor
+              deriveDefDef(primaryCtor)(block => Block(earlyVals :+ atPos(pos)(superCall), unit) setPos pos) setPos pos
+            case _                                             => primaryCtor
+          }
+          body1 mapConserve { case `primaryCtor` => primaryCtor1; case stat => stat }
         }
-        body1 mapConserve { case `primaryCtor` => primaryCtor1; case stat => stat }
-      }
 
       val body3 = typedStats(bodyWithPrimaryCtor, templ.symbol)
 

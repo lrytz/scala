@@ -1192,20 +1192,20 @@ abstract class Erasure extends InfoTransform
             }
 
             val core = stripApply(app)
-            println(s"core: $core")
+//            println(s"core: $core")
             val superCall = newToSuper.transform(app)
-            println(s"super call from $clazz to $parent: ${core.tpe.resultType.typeSymbol} --> $superCall")
+//            println(s"super call from $clazz to $parent: ${core.tpe.resultType.typeSymbol} --> $superCall")
             (core.tpe.resultType.typeSymbol, superCall)
 
           case sel =>
             val parentClazz = sel.tpe.typeSymbol
-            println(s"super call from $clazz to $parent: ${parentClazz} --> ${sel.tpe.typeSymbol}")
+//            println(s"super call from $clazz to $parent: ${parentClazz} --> ${sel.tpe.typeSymbol}")
             (parentClazz, Apply(Select(Super(clazz, tpnme.EMPTY) setType sel.tpe, parentClazz.primaryConstructor), Nil))
         }
 
         val superCalls = parents.map(mkSuperCall).toMap
 
-        println(s"superCalls: $superCalls")
+//        println(s"superCalls: $superCalls")
 
         // have to emit those constructor calls now before we turn our parent trees into TypeTrees and we lose
         // the arguments to pass for any supertrait's params -- also, those params themselves should be transformed by erasure
