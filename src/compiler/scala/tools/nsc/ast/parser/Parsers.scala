@@ -1762,7 +1762,14 @@ self =>
             val tstart = in.offset
             val (parents, self, stats) = template()
             val cpos = r2p(tstart, tstart, in.lastOffset max tstart)
-            gen.mkNew(parents, self, stats, npos, cpos)
+
+            (parents, self, stats) match {
+              case (parent :: Nil, `noSelfType`, List()) => // if there was no block at all, we get the empty list for stats -- an empty block is encoded as List(EmptyTree)
+                if (parent.isInstanceOf[Apply]) parent // templateParents adds the New application when constructor arguments were supplied
+                else ApplyConstructor(parent, Nil) // unapplied parent
+              case _ => // need an anonymous class (either multiple parents or a block for a refinement)
+                gen.mkNew(parents, self, stats, npos, cpos)
+            }
           case _ =>
             syntaxErrorOrIncompleteAnd("illegal start of simple expression", skipIt = true)(errorTermTree)
         }
