@@ -1517,47 +1517,48 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         case Nil     => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
         case parents =>
           try {
+            val firstCtor = treeInfo.firstConstructor(templ.body)
+
             // Create our own little constructor typer to type check the parent types, which we need to do before we
             // can type check the actual constructor (in templateSig and typedTemplate).
-            lazy val ctorTyper = {
-              val firstCtor = treeInfo.firstConstructor(templ.body)
-              firstCtor.attachments.get[TemporaryCtorVparamSymssAttachment].map(_.ctorTyper.asInstanceOf[Typer]).getOrElse {
-                firstCtor match {
-                  case ctor@DefDef(_, _, _, vparamss, _, Block(cstats, _)) =>
-                    // gen.mkTemplate only puts early vals in the primary constructor body, but then typedTemplate adds the super call -- i suppose we see both kinds of tree here (pre/post typer)?
-                    val preSuperStats = cstats.takeWhile(x => !treeInfo.isSuperConstrCall(x))
+            // This typer puts the class's type params, any early vals and the primary constructor arguments into scope.
+            // We keep the typer and the temporary symbols we're using for the vparams in an attachment,
+            // to only do this once (TODO: why do we end up here multiple times from namer?),
+            //  and so that we can later substitute the correct symbols in (while type checking the primary ctor).
+            lazy val ctorTyper = firstCtor.attachments.get[TemporaryCtorVparamSymssAttachment].map(_.ctorTyper.asInstanceOf[Typer]).getOrElse {
+              // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
+              //         cyclic errors in an implicit search in argument to the super constructor call on
+              //         account of the "ignore symbols without complete info that succeed the implicit search"
+              //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
+              val ctorOwner = context.outer.owner.newLocalDummy(context.owner.pos)
+              val cscope    = context.outer.makeNewScope(firstCtor, ctorOwner)
+              if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
 
-                    // Type in the primary constructor context, after entering early vals and type params in scope
-                    val clazz = context.owner
-                    assert(clazz != NoSymbol, templ)
-                    // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
-                    //         cyclic errors in an implicit search in argument to the super constructor call on
-                    //         account of the "ignore symbols without complete info that succeed the implicit search"
-                    //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
-                    val ctorOwner = context.outer.owner.newLocalDummy(context.owner.pos)
-                    val cscope    = context.outer.makeNewScope(ctor, ctorOwner)
-                    if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
+              val ctorTyper = newTyper(cscope)
 
-                    val ctorTyper = newTyper(cscope)
-                    clazz.unsafeTypeParams.foreach(ctorTyper.context.scope.enter)
-                    val symss = ctorTyper.namer.enterValueParams(mmap(vparamss)(_.duplicate))
-                    ctor.updateAttachment(TemporaryCtorVparamSymssAttachment(symss, ctorTyper)) // symss will be patched up later once the primary ctor is typed for real
-                    ctorTyper.namer.enterSyms(preSuperStats)
-                    ctorTyper.typedStats(preSuperStats, ctorOwner, warnPure = false)
+              val clazz = context.owner
+              assert(clazz != NoSymbol, templ)
+              clazz.unsafeTypeParams.foreach(ctorTyper.context.scope.enter)
 
-                    // TODO: drop
-                    val preSuperVals = treeInfo.preSuperFields(templ.body)
-                    if (preSuperVals.isEmpty && preSuperStats.nonEmpty)
-                      devWarning("Wanted to zip empty presuper val list with " + preSuperStats)
-                    else
-                                            foreach2(preSuperStats, preSuperVals)((ldef, gdef) => gdef.tpt setType ldef.symbol.tpe)
+              firstCtor match {
+                case ctor@DefDef(_, _, _, vparamss, _, body) =>
+                  body match {
+                    case Block(cstats, _) =>
+                      // gen.mkTemplate only puts early vals in the primary constructor body, but then typedTemplate adds the super call -- i suppose we see both kinds of tree here (pre/post typer)?
+                      val preSuperStats = cstats.filter(treeInfo.isEarlyValDef)
+                      ctorTyper.namer.enterSyms(preSuperStats.map(_.duplicate)) // TODO: need to dupe?
+                    case _ =>
+                  }
 
-                    ctorTyper
-                  case _                                                   =>
-                    abort(s"missing ctor for $templ")
-                }
+                  val symss = ctorTyper.namer.enterValueParams(mmap(vparamss)(_.duplicate)) // TODO: need to dupe?
+
+                  ctor.updateAttachment(TemporaryCtorVparamSymssAttachment(symss, ctorTyper)) // symss will be patched up later once the primary ctor is typed for real
+                case _ =>
               }
+
+              ctorTyper
             }
+
 
             def typedParentType(parent: Tree): Tree =
               (parent match {
@@ -1908,14 +1909,16 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       if (!phase.erasedTypes && !clazz.info.resultType.isError) // @S: prevent crash for duplicated type members
         checkFinitary(clazz.info.resultType.asInstanceOf[ClassInfoType])
 
-      val primaryCtor  = treeInfo.firstConstructor(body1)
+      val body3 =
+        if (clazz.isTrait || phase.erasedTypes) typedStats(body1, templ.symbol)
+        else {
+          val primaryCtor  = treeInfo.firstConstructor(body1)
+          val rest = body1.filter(_ ne primaryCtor)
 
-      val tempClassVparamSymss = primaryCtor.getAndRemoveAttachment[TemporaryCtorVparamSymssAttachment].map(_.tempClassVparamSymss).getOrElse(Nil)
+          val tempClassVparamSymss = primaryCtor.getAndRemoveAttachment[TemporaryCtorVparamSymssAttachment].map(_.tempClassVparamSymss).getOrElse(Nil)
 
-      val bodyWithPrimaryCtor =
-        if (clazz.isTrait || phase.erasedTypes) body1 else {
-          val primaryCtor1 = primaryCtor match {
-            case DefDef(_, _, _, _, _, Block(earlyVals, unit)) =>
+          val primaryCtorTyped = primaryCtor match {
+            case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) =>
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
 
@@ -1936,19 +1939,23 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 case _ => Apply(gen.mkSuperInitCall, Nil)
               }
 
-              deriveDefDef(primaryCtor)(block => Block(earlyVals :+ atPos(pos)(superCall), unit) setPos pos) setPos pos
-            case _                                             => primaryCtor
+              val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
+
+              // See note at TemporaryCtorVparamSymssAttachment and typedParentType
+              if (tempClassVparamSymss.nonEmpty)
+                foreach2(ctorTyped.vparamss, tempClassVparamSymss){ (vparams, oldSyms) =>
+                  ctorTyped.substituteSymbols(oldSyms, vparams.map(_.symbol))
+                }
+
+              val preSuperVals = treeInfo.preSuperFields(rest)
+              foreach2(preSuperVals, earlyValsCtor)((abstractDef, concreteDef) => abstractDef.tpt setType concreteDef.symbol.tpe)
+
+              ctorTyped
+
+            case _ => typedByValueExpr(primaryCtor)
           }
-          body1 mapConserve { case `primaryCtor` => primaryCtor1; case stat => stat }
-        }
 
-      val body3 = typedStats(bodyWithPrimaryCtor, templ.symbol)
-
-      // See note at TemporaryCtorVparamSymssAttachment and typedParentType
-      if (tempClassVparamSymss.nonEmpty)
-        treeInfo.firstConstructor(body3) match {
-          case dd@DefDef(_, _, _, vparamss, _, _) =>
-            foreach2(vparamss, tempClassVparamSymss){ (vparams, oldSyms) => dd.substituteSymbols(oldSyms, vparams.map(_.symbol))}
+          primaryCtorTyped :: typedStats(rest, templ.symbol)
         }
 
       if (clazz.info.firstParent.typeSymbol == AnyValClass)

@@ -533,7 +533,7 @@ abstract class TreeInfo {
 
   /** The value definitions marked PRESUPER in this statement sequence */
   def preSuperFields(stats: List[Tree]): List[ValDef] =
-    stats collect { case vd: ValDef if isEarlyValDef(vd) => vd }
+    stats collect { case vd@ValDef(mods, _, _, _) if mods hasFlag PRESUPER => vd }
 
   def hasUntypedPreSuperFields(stats: List[Tree]): Boolean =
     preSuperFields(stats) exists (_.tpt.isEmpty)
