@@ -1513,217 +1513,113 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
 
     def typedParentTypes(templ: Template): List[Tree] = {
-      // TODO update docs
-
-
-      /** Typechecks a parent type reference.
-       *
-       * This typecheck is harder than it might look, because it should honor early
-       * definitions and also perform type argument inference with the help of super call
-       * arguments provided in `encodedtpt`.
-       *
-       * The method is called in batches (batch = 1 time per each parent type referenced),
-       * two batches per definition: once from namer, when entering a ClassDef or a ModuleDef
-       * and once from typer, when typechecking the definition.
-       *
-       * ***Arguments***
-       *
-       * `encodedtpt` represents the parent type reference wrapped in an `Apply` node
-       * which indicates value arguments (i.e. type macro arguments or super constructor call arguments)
-       * If no value arguments are provided by the user, the `Apply` node is still
-       * there, but its `args` will be set to `Nil`.
-       * This argument is synthesized by `tools.nsc.ast.Parsers.templateParents`.
-       *
-       * `templ` is an enclosing template, which contains a primary constructor synthesized by the parser.
-       * Such a constructor is a DefDef which contains early initializers and maybe a super constructor call
-       * (I wrote "maybe" because trait constructors don't call super constructors).
-       * This argument is synthesized by `tools.nsc.ast.Trees.Template`.
-       *
-       * `inMixinPosition` indicates whether the reference is not the first in the
-       * list of parents (and therefore cannot be a class) or the opposite.
-       *
-       * ***Return value and side effects***
-       *
-       * Returns a `TypeTree` representing a resolved parent type.
-       * If the typechecked parent reference implies non-nullary and non-empty argument list,
-       * this argument list is attached to the returned value in SuperArgsAttachment.
-       * The attachment is necessary for the subsequent typecheck to fixup a super constructor call
-       * in the body of the primary constructor (see `typedTemplate` for details).
-       *
-       * This method might invoke `typedInCtorContext`, hence it might cause the side effects
-       * described in the docs of that method. It might also attribute the Super(_, _) reference
-       * (if present) inside the primary constructor of `templ`.
-       *
-       * ***Example***
-       *
-       * For the following definition:
-       *
-       * class D extends {
-       * val x = 2
-       * val y = 4
-       * } with B(x)(3) with C(y) with T
-       *
-       * this method will be called six times:
-       *
-       * (3 times from the namer)
-       * typedParentType(Apply(Apply(Ident(B), List(Ident(x))), List(3)), templ, inMixinPosition = false)
-       * typedParentType(Apply(Ident(C), List(Ident(y))), templ, inMixinPosition = true)
-       * typedParentType(Apply(Ident(T), List()), templ, inMixinPosition = true)
-       *
-       * (3 times from the typer)
-       * <the same three calls>
-       */
-      def typedParentType(parent: Tree): Tree =
-        parent match {
-          case _: Apply => // constructor call
-            typedInCtorContext(templ)(parent) match {
-              case parentCtorCallTyped if parentCtorCallTyped.tpe != null => parentCtorCallTyped
-              case _ =>
-                MissingTypeArgumentsParentTpeError(parent)
-                parent setType ErrorType
-            }
-
-          case _ => typedType(parent)
-        }
-
-      /** Typechecks the mishmash of trees that happen to be stuffed into the primary constructor of a given template.
-       * Before commencing the typecheck, replaces the `pendingSuperCall` dummy with the result of `actualSuperCall`.
-       * `actualSuperCall` can return `EmptyTree`, in which case the dummy is replaced with a literal unit.
-       *
-       * ***Return value and side effects***
-       *
-       * If a super call is present in the primary constructor and is not erased by the transform, returns it typechecked.
-       * Otherwise (e.g. if the primary constructor is missing or the super call isn't there) returns `EmptyTree`.
-       *
-       * As a side effect, this method attributes the underlying fields of early vals.
-       * Early vals aren't typechecked anywhere else, so it's essential to call `typedInCtorContext`
-       * at least once per definition. It'd be great to disentangle this logic at some point.
-       *
-       * ***Example***
-       *
-       * For the following definition:
-       *
-       * class D extends {
-       * val x = 2
-       * val y = 4
-       * } with B(x)(3) with C(y) with T
-       *
-       * the primary constructor of `templ` will be:
-       *
-       * Block(List(
-       * ValDef(NoMods, x, TypeTree(), 2)
-       * ValDef(NoMods, y, TypeTree(), 4)
-       *      global.pendingSuperCall,
-       * Literal(Constant(())))
-       *
-       * Note the `pendingSuperCall` part. This is the representation of a fill-me-in-later supercall dummy,
-       * which encodes the fact that supercall argss are unknown during parsing and need to be transplanted
-       * from one of the parent types. Read more about why the argss are unknown in `tools.nsc.ast.Trees.Template`.
-       */
-      // TODO once we get rid of early vals, we can mostly replace this method by a call to type in the constructor context
-      def typedInCtorContext(templ: Template)(actualSuperCall: Tree): Tree =
-        treeInfo.firstConstructor(templ.body) match {
-          case ctor@DefDef(_, _, _, vparamss, _, Block(cstats, _)) =>
-            // gen.mkTemplate only puts early vals in the primary constructor body, but then typedTemplate adds the super call -- i suppose we see both kinds of tree here (pre/post typer)?
-            val preSuperStats = cstats.takeWhile(x => !treeInfo.isSuperConstrCall(x))
-
-            // Type in the primary constructor context, after entering early vals and type params in scope
-            val superCallTyped = { // called both during completion AND typing.
-              val clazz = context.owner
-              assert(clazz != NoSymbol, templ)
-              // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
-              //         cyclic errors in an implicit search in argument to the super constructor call on
-              //         account of the "ignore symbols without complete info that succeed the implicit search"
-              //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
-              val ctorOwner  = context.outer.owner.newLocalDummy(context.owner.pos)
-              val cscope = context.outer.makeNewScope(ctor, ctorOwner)
-              if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
-
-              val ctorTyper = newTyper(cscope)
-
-              clazz.unsafeTypeParams.foreach(ctorTyper.context.scope.enter)
-              ctorTyper.namer.enterValueParams(mmap(vparamss)(_.duplicate))
-              ctorTyper.namer.enterSyms(preSuperStats)
-//              typer1.typedStats(preSuperStats, dummy, warnPure = false)
-              if (actualSuperCall ne EmptyTree) ctorTyper.typed(actualSuperCall)
-              else actualSuperCall
-            }
-
-            val preSuperVals = treeInfo.preSuperFields(templ.body)
-            if (preSuperVals.isEmpty && preSuperStats.nonEmpty)
-              devWarning("Wanted to zip empty presuper val list with " + preSuperStats)
-            else
-              foreach2(preSuperStats, preSuperVals)((ldef, gdef) => gdef.tpt setType ldef.symbol.tpe)
-
-            superCallTyped
-          case _                                                             =>
-            EmptyTree
-        }
-
-      /** Makes sure that the first type tree in the list of parent types is always a class.
-       * If the first parent is a trait, prepend its supertype to the list until it's a class.
-       *
-       * TODO: what if a (non-trait) class actually appears later in the list?
-       */
-      def normalizeFirstParent(parents: List[Tree]): List[Tree] = {
-        @annotation.tailrec
-        def explode0(parents: List[Tree]): List[Tree] = {
-          val supertpt :: rest = parents // parents is always non-empty here - it only grows
-          if (supertpt.tpe.typeSymbol == AnyClass) {
-            supertpt setType AnyRefTpe
-            parents
-          } else if (treeInfo isTraitRef supertpt) {
-            val supertpt1 = typedParentType(supertpt)
-
-            def supersuper = TypeTree(supertpt1.tpe.firstParent) setPos supertpt.pos.focus
-
-            if (supertpt1.isErrorTyped) rest
-            else explode0(supersuper :: supertpt1 :: rest)
-          } else parents
-        }
-
-        def explode(parents: List[Tree]) =
-          if (treeInfo isTraitRef parents.head) explode0(parents)
-          else parents
-
-        if (parents.isEmpty) Nil else explode(parents)
-      }
-
-      /** Certain parents are added in the parser before it is known whether
-       * that class also declared them as parents. For instance, this is an
-       * error unless we take corrective action here:
-       *
-       * case class Foo() extends Serializable
-       *
-       * So we strip the duplicates before typer.
-       */
-      def fixDuplicateSyntheticParents(parents: List[Tree]): List[Tree] = parents match {
-        case Nil     => Nil
-        case parent :: xs =>
-          val parentSym = parent.tpe.typeSymbol
-          parent :: fixDuplicateSyntheticParents(
-            if (isPossibleSyntheticParent(parentSym)) xs filterNot (_.tpe.typeSymbol == parentSym)
-            else xs
-          )
-      }
-
       templ.parents match {
         case Nil     => List(atPos(templ.pos)(TypeTree(AnyRefTpe)))
         case parents =>
           try {
-            val supertpts = fixDuplicateSyntheticParents(normalizeFirstParent(parents map typedParentType))
+            // Create our own little constructor typer to type check the parent types, which we need to do before we
+            // can type check the actual constructor (in templateSig and typedTemplate).
+            lazy val ctorTyper = {
+              val firstCtor = treeInfo.firstConstructor(templ.body)
+              firstCtor.attachments.get[TemporaryCtorVparamSymssAttachment].map(_.ctorTyper.asInstanceOf[Typer]).getOrElse {
+                firstCtor match {
+                  case ctor@DefDef(_, _, _, vparamss, _, Block(cstats, _)) =>
+                    // gen.mkTemplate only puts early vals in the primary constructor body, but then typedTemplate adds the super call -- i suppose we see both kinds of tree here (pre/post typer)?
+                    val preSuperStats = cstats.takeWhile(x => !treeInfo.isSuperConstrCall(x))
 
-            // TODO drop when early vals are gone
-            // if that is required to infer the targs of a super call
-            // typedParentType calls typedInCtorContext to do the inferring typecheck
-            // as a side effect, that typecheck also assigns types to the fields underlying early vals
-            // however if inference is not required, the typecheck doesn't happen
-            // and therefore early fields have their type trees not assigned
-            // here we detect this situation and take preventive measures
-            if (treeInfo.hasUntypedPreSuperFields(templ.body))
-              typedInCtorContext(templ)(EmptyTree)
+                    // Type in the primary constructor context, after entering early vals and type params in scope
+                    val clazz = context.owner
+                    assert(clazz != NoSymbol, templ)
+                    // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
+                    //         cyclic errors in an implicit search in argument to the super constructor call on
+                    //         account of the "ignore symbols without complete info that succeed the implicit search"
+                    //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
+                    val ctorOwner = context.outer.owner.newLocalDummy(context.owner.pos)
+                    val cscope    = context.outer.makeNewScope(ctor, ctorOwner)
+                    if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
 
-            supertpts mapConserve (tpt => checkNoEscaping.privates(this, context.owner, tpt))
+                    val ctorTyper = newTyper(cscope)
+                    clazz.unsafeTypeParams.foreach(ctorTyper.context.scope.enter)
+                    val symss = ctorTyper.namer.enterValueParams(mmap(vparamss)(_.duplicate))
+                    ctor.updateAttachment(TemporaryCtorVparamSymssAttachment(symss, ctorTyper)) // symss will be patched up later once the primary ctor is typed for real
+                    ctorTyper.namer.enterSyms(preSuperStats)
+                    ctorTyper.typedStats(preSuperStats, ctorOwner, warnPure = false)
+
+                    // TODO: drop
+                    val preSuperVals = treeInfo.preSuperFields(templ.body)
+                    if (preSuperVals.isEmpty && preSuperStats.nonEmpty)
+                      devWarning("Wanted to zip empty presuper val list with " + preSuperStats)
+                    else
+                                            foreach2(preSuperStats, preSuperVals)((ldef, gdef) => gdef.tpt setType ldef.symbol.tpe)
+
+                    ctorTyper
+                  case _                                                   =>
+                    abort(s"missing ctor for $templ")
+                }
+              }
+            }
+
+            def typedParentType(parent: Tree): Tree =
+              (parent match {
+                case _: Apply => ctorTyper.typed(parent)
+                case _        => ctorTyper.typedType(parent) // TODO: before we didn't use ctorTyper, but a type could also see ctor params?? (as singleton types?)
+              }) match {
+                case err if err.tpe == null => // TODO is this the right cond?
+                  MissingTypeArgumentsParentTpeError(parent)
+                  parent setType ErrorType
+                case tpd => tpd
+              }
+
+
+            /** Makes sure that the first type tree in the list of parent types is always a class.
+             * If the first parent is a trait, prepend its supertype to the list until it's a class.
+             *
+             * TODO: what if a (non-trait) class actually appears later in the list?
+             */
+            def normalizeFirstParent(parents: List[Tree]): List[Tree] = {
+              @annotation.tailrec
+              def explode0(parents: List[Tree]): List[Tree] = {
+                val supertpt :: rest = parents // parents is always non-empty here - it only grows
+                if (supertpt.tpe.typeSymbol == AnyClass) {
+                  supertpt setType AnyRefTpe
+                  parents
+                } else if (treeInfo isTraitRef supertpt) {
+                  // TODO when would supertpt not be typed already?? it's either coming from the original list of typed parents or its the TypeTree created below
+                  val supertpt1 = typedParentType(supertpt)
+
+                  if (supertpt1.isErrorTyped) rest
+                  else explode0((TypeTree(supertpt1.tpe.firstParent) setPos supertpt.pos.focus) :: supertpt1 :: rest)
+                } else parents
+              }
+
+              def explode(parents: List[Tree]) =
+                if (treeInfo isTraitRef parents.head) explode0(parents)
+                else parents
+
+              if (parents.isEmpty) Nil else explode(parents)
+            }
+
+            /** Certain parents are added in the parser before it is known whether
+             * that class also declared them as parents. For instance, this is an
+             * error unless we take corrective action here:
+             *
+             * case class Foo() extends Serializable
+             *
+             * So we strip the duplicates before typer.
+             */
+            def fixDuplicateSyntheticParents(parents: List[Tree]): List[Tree] = parents match {
+              case Nil     => Nil
+              case parent :: xs =>
+                val parentSym = parent.tpe.typeSymbol
+                parent :: fixDuplicateSyntheticParents(
+                  if (isPossibleSyntheticParent(parentSym)) xs filterNot (_.tpe.typeSymbol == parentSym)
+                  else xs
+                )
+            }
+
+            fixDuplicateSyntheticParents(normalizeFirstParent(parents map typedParentType)).mapConserve(tpt =>
+              checkNoEscaping.privates(this, context.owner, tpt)
+            )
           }
           catch {
             case ex: TypeError if !global.propagateCyclicReferences =>
@@ -2006,15 +1902,18 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       if (clazz.isTrait)
         parentsWithConstructorArgs.foreach(ConstrArgsInParentOfTraitError)
       else {
-
+        // TODO: the first, and only the first, class to mix in a trait with parameters must pass arguments for them
       }
 
       if (!phase.erasedTypes && !clazz.info.resultType.isError) // @S: prevent crash for duplicated type members
         checkFinitary(clazz.info.resultType.asInstanceOf[ClassInfoType])
 
+      val primaryCtor  = treeInfo.firstConstructor(body1)
+
+      val tempClassVparamSymss = primaryCtor.getAndRemoveAttachment[TemporaryCtorVparamSymssAttachment].map(_.tempClassVparamSymss).getOrElse(Nil)
+
       val bodyWithPrimaryCtor =
         if (clazz.isTrait || phase.erasedTypes) body1 else {
-          val primaryCtor  = treeInfo.firstConstructor(body1)
           val primaryCtor1 = primaryCtor match {
             case DefDef(_, _, _, _, _, Block(earlyVals, unit)) =>
               val firstParent = parents1.head
@@ -2044,6 +1943,13 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         }
 
       val body3 = typedStats(bodyWithPrimaryCtor, templ.symbol)
+
+      // See note at TemporaryCtorVparamSymssAttachment and typedParentType
+      if (tempClassVparamSymss.nonEmpty)
+        treeInfo.firstConstructor(body3) match {
+          case dd@DefDef(_, _, _, vparamss, _, _) =>
+            foreach2(vparamss, tempClassVparamSymss){ (vparams, oldSyms) => dd.substituteSymbols(oldSyms, vparams.map(_.symbol))}
+        }
 
       if (clazz.info.firstParent.typeSymbol == AnyValClass)
         validateDerivedValueClass(clazz, body3)

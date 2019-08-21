@@ -465,8 +465,7 @@ abstract class Erasure extends InfoTransform
         yield atPos(tree.pos)(superCall)
 
     tree match {
-      // TODO: this case could be delayed until constructors
-      case Block(Nil, expr) =>
+      case Block(Nil, expr) => // TODO: this case could be delayed until constructors
         // AnyVal constructor - have to provide a real body so the
         // jvm doesn't throw a VerifyError. But we can't add the
         // body until now, because the typer knows that Any has no
@@ -477,6 +476,7 @@ abstract class Erasure extends InfoTransform
       case Block(stats, expr) =>
         // needs `hasSymbolField` check because `supercall` could be a block (named / default args)
         val (presuper, supercall :: rest) = stats span (t => t.hasSymbolWhich(_ hasFlag PRESUPER))
+        // println(s"adding mixin super calls after $presuper, $supercall: $mixinConstructorCalls\n rest: $rest, $expr")
         treeCopy.Block(tree, presuper ::: (supercall :: mixinConstructorCalls ::: rest), expr)
     }
   }
