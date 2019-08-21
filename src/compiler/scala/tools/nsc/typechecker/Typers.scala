@@ -1915,7 +1915,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           val primaryCtor  = treeInfo.firstConstructor(body1)
           val rest = body1.filter(_ ne primaryCtor)
 
-          val tempClassVparamSymss = primaryCtor.getAndRemoveAttachment[TemporaryCtorVparamSymssAttachment].map(_.tempClassVparamSymss).getOrElse(Nil)
+          val attach = primaryCtor.getAndRemoveAttachment[TemporaryCtorVparamSymssAttachment]
+          val tempClassVparamSymss = attach.map(_.tempClassVparamSymss).getOrElse(Nil)
+          val origCtorTyperOwner = attach.map(_.ctorTyper.asInstanceOf[Typer].context.owner).getOrElse(NoSymbol)
 
           val primaryCtorTyped = primaryCtor match {
             case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) =>
@@ -1940,6 +1942,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               }
 
               val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
+
+              ctorTyped.rhs.changeOwner(origCtorTyperOwner, ctorTyped.symbol)
 
               // See note at TemporaryCtorVparamSymssAttachment and typedParentType
               if (tempClassVparamSymss.nonEmpty)
