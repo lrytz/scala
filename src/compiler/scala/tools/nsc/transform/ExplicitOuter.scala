@@ -166,7 +166,7 @@ abstract class ExplicitOuter extends InfoTransform
       val resTpTransformed = transformInfo(sym, resTp)
 
       val paramsWithOuter =
-        if (sym.isClassConstructor && isInner(sym.owner) && !sym.owner.isTrait) // 1
+        if (sym.isClassConstructor && !sym.owner.isTrait && isInner(sym.owner)) // 1
           sym.newValueParameter(nme.OUTER_ARG, sym.pos, ARTIFACT).setInfo(sym.owner.outerClass.thisType) :: params
         else params
 
@@ -291,12 +291,12 @@ abstract class ExplicitOuter extends InfoTransform
       val savedOuterParam = outerParam
       try {
         tree match {
-          case Template(_, _, _) =>
+          case Template(_, _, _)                                                                                             =>
             outerParam = NoSymbol
-          case DefDef(_, _, _, (param :: _) :: _, _, _) if sym.isClassConstructor && isInner(sym.owner) =>
+          case DefDef(_, _, _, (param :: _) :: _, _, _) if sym.isClassConstructor && !sym.owner.isTrait && isInner(sym.owner) =>
             outerParam = param.symbol
             assert(outerParam.name startsWith nme.OUTER, outerParam.name)
-          case _ =>
+          case _                                                                                                             =>
         }
         if ((treeInfo isSelfOrSuperConstrCall tree) || (treeInfo isEarlyDef tree)) {
           selfOrSuperCalls push currentOwner.owner
@@ -412,7 +412,7 @@ abstract class ExplicitOuter extends InfoTransform
             )
           )
         case DefDef(_, _, _, vparamss, _, rhs) =>
-          if (sym.isClassConstructor) {
+          if (sym.isClassConstructor && !sym.owner.isTrait) {
             val clazz = sym.owner
             val vparamss1 =
               if (isInner(clazz) && !clazz.isTrait) { // (4)
@@ -449,7 +449,7 @@ abstract class ExplicitOuter extends InfoTransform
             sym setFlag notPROTECTED
           super.transform(tree)
 
-        case Apply(sel @ Select(qual, nme.CONSTRUCTOR), args) if isInner(sel.symbol.owner) =>
+        case Apply(sel @ Select(qual, nme.CONSTRUCTOR), args) if isInner(sel.symbol.owner) && !sel.symbol.owner.isTrait =>
           val outerVal = atPos(tree.pos)(qual match {
             // it's a call between constructors of same class
             case _: This  =>
