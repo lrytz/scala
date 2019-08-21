@@ -1694,7 +1694,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
           if (!symbol.isPackageClass)
             (new CollectMethodBodies)(tree)
 
-          val parents1 = transformTrees(parents) // TODO: do we need to run specialization on the parent trees?
+          val parents1 = parents // TODO: do we need to run specialization on the parent trees?
             // used to replace all trees by TypeTrees, which loses trait param arguments (a parent tree for a supertrait that takes trait params is an Apply)
             // map2Conserve(parents, currentOwner.info.parents)((parent, tpe) =>
             //   parent match {
