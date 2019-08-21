@@ -243,15 +243,6 @@ abstract class TreeGen extends scala.reflect.internal.TreeGen with TreeDSL {
     else Block(prefix, containing) setPos (prefix.head.pos union containing.pos)
   }
 
-  /** Creates a tree representing new Object { stats }.
-   *  To make sure an anonymous subclass of Object is created,
-   *  if there are no stats, a () is added.
-   */
-  def mkAnonymousNew(stats: List[Tree]): Tree = {
-    val stats1 = if (stats.isEmpty) List(Literal(Constant(()))) else stats
-    mkNew(Nil, noSelfType, stats1, NoPosition, NoPosition)
-  }
-
 
   // Construct a method to implement `fun`'s single abstract method (`apply`, when `fun.tpe` is a built-in function type)
   def mkMethodFromFunction(localTyper: analyzer.Typer)(owner: Symbol, fun: Function) = {

@@ -443,9 +443,19 @@ abstract class TreeGen {
     ClassDef(mods1, name, tparams, templ)
   }
 
+  /** Creates a tree representing new Object { stats }.
+   *  To make sure an anonymous subclass of Object is created,
+   *  if there are no stats, a () is added.
+   */
+  def mkAnonymousNew(stats: List[Tree]): Tree = {
+    val stats1 = if (stats.isEmpty) List(Literal(Constant(()))) else stats
+    mkNew(Nil, noSelfType, stats1, NoPosition, NoPosition)
+  }
+
   /** Create positioned tree representing an object creation <new parents { stats }
    *  @param npos  the position of the new
    *  @param cpos  the position of the anonymous class starting with parents
+   *  @param stats non-empty list of statements for the body for the template
    */
   def mkNew(parents: List[Tree], self: ValDef, stats: List[Tree], npos: Position, cpos: Position): Tree = {
     atPos(npos union cpos) {
