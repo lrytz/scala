@@ -3123,7 +3123,7 @@ self =>
         templateBody(isPre = false)
       } else {
         if (in.token == LPAREN) {
-          if (parenMeansSyntaxError) syntaxError(s"traits or objects may not have parameters", skipIt = true)
+          if (parenMeansSyntaxError) syntaxError(s"objects may not have parameters", skipIt = true)
           else abort("unexpected opening parenthesis")
         }
         (noSelfType, List())
