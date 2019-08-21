@@ -258,10 +258,10 @@ trait ContextErrors {
         issueNormalTypeError(constr, s"$clazz needs to have exactly one argument list because it extends ConstantAnnotation")
 
       // additional parentTypes errors
-      def ConstrArgsInParentWhichIsTraitError(arg: Tree, parent: Symbol) =
+      def ConstrArgsInParentAlreadyCalled(arg: Tree, parent: Symbol) =
         issueNormalTypeError(arg, parent + " is a trait; does not take constructor arguments")
 
-      def ConstrArgsInParentOfTraitError(arg: Tree, parent: Symbol) =
+      def ConstrArgsInParentOfTraitError(arg: Tree) =
         issueNormalTypeError(arg, "parents of traits may not have parameters")
 
       def MissingTypeArgumentsParentTpeError(supertpt: Tree) =

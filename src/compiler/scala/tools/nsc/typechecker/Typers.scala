@@ -2000,9 +2000,14 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       if (clazz.isCase)
         validateNoCaseAncestor(clazz)
 
-      // TODO enforce trait param rules:
-      //      if (clazz.isTrait && hasSuperArgs(parents1.head))
-      //        ConstrArgsInParentOfTraitError(parents1.head, clazz)
+      val parentsWithConstructorArgs = parents1.filter(_.isInstanceOf[Apply])
+      // A trait cannot pass arguments to superclasses. The parser models a template's parent with an argument list as
+      // the equivalent constructor call `Apply(Select(New(parent), _), args)`.
+      if (clazz.isTrait)
+        parentsWithConstructorArgs.foreach(ConstrArgsInParentOfTraitError)
+      else {
+
+      }
 
       if (!phase.erasedTypes && !clazz.info.resultType.isError) // @S: prevent crash for duplicated type members
         checkFinitary(clazz.info.resultType.asInstanceOf[ClassInfoType])
@@ -2015,6 +2020,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
 
+              // now that we've normalized our parents and we know firstParent is a class, already put that super call in the ctor body
+              // the remaining trait constructor calls will be done during erasure by addMixinConstructorCalls
               val superCall = firstParent match {
                 case app: Apply =>
                   val newToSuper = new InternalTransformer {

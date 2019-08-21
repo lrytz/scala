@@ -2995,8 +2995,8 @@ self =>
         val start = in.offset
         val parent = startAnnotType()
         parents += (in.token match {
-          case LPAREN => atPos(start)(New(parent, multipleArgumentExprs()))
-          case _      => parent
+          case LPAREN => atPos(start)(New(parent, multipleArgumentExprs())) // an applied parent `P(args)` is encoded as `new P(args)`
+          case _      => parent // no constructor args --> no Apply node (will be one of Select/Ident/TypTree)
         })
       }
       readAppliedParent()
