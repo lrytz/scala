@@ -428,7 +428,7 @@ abstract class UnCurry extends InfoTransform
         ))
       }
 
-      def withInConstructorFlag(inConstructorFlag: Long)(f: => Tree): Tree = {
+      def withInConstructorFlag[T](inConstructorFlag: Long)(f: => T): T = {
         val saved = this.inConstructorFlag
         this.inConstructorFlag = inConstructorFlag
         try f
@@ -534,8 +534,21 @@ abstract class UnCurry extends InfoTransform
           case fun @ Function(_, _) =>
             mainTransform(transformFunction(fun))
 
-          case Template(_, _, _) =>
-            withInConstructorFlag(0) { super.transform(tree) }
+          case Template(parents, self, body) =>
+            // inlined super.transform to customize handling of parent trees -- mainly to have any definitions in the parent constructor args be rooted at the constructor
+            curTree = tree
+            val ctorSym = treeInfo.firstConstructor(body).symbol
+            // erasure will move mixin parents into constructor as super calls
+            val parentsTransformed = //atOwner(ctorSym)
+              {
+                withInConstructorFlag(INCONSTRUCTOR) { transformTrees(parents) }
+              }
+
+            withInConstructorFlag(0) {
+              atOwner(currentOwner) {
+                treeCopy.Template(tree, parentsTransformed, transformValDef(self), transformStats(body, sym))
+              }
+            }
 
           case _ =>
             val tree1 = super.transform(tree)

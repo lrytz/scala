@@ -43,7 +43,7 @@ trait TypingTransformers {
       curTree = tree
       tree match {
         case Template(_, _, _) =>
-          // enter template into context chain
+          // enter template into context chain -- TODO: why is this currentOwner instead of tree.symbol?
           atOwner(currentOwner) { tree.transform(this) }
         case PackageDef(_, _) =>
           atOwner(tree.symbol) { tree.transform(this) }
