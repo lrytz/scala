@@ -15,26 +15,26 @@ package contexts
 
 import scala.reflect.internal.Reporter
 import scala.reflect.internal.util.FreshNameCreator
-import scala.tools.nsc.reporters.StoreReporter
+import scala.tools.nsc.reporters.StoreReporter, StoreReporter.Info
 
 trait Parsers {
   self: Context =>
   import global._
 
   def parse(code: String) = {
-    val sreporter = new StoreReporter(global.settings)
-    val oldReporter = global.reporter
+    val sreporter = new StoreReporter(globalSettings)
+    val oldReporter = reporter
     try {
-      global.reporter = sreporter
+      reporter = sreporter
       val parser = newUnitParser(new CompilationUnit(newSourceFile(code, "<macro>")) {
         override implicit val fresh: FreshNameCreator = currentFreshNameCreator
       })
       val tree = gen.mkTreeOrBlock(parser.parseStatsOrPackages())
       sreporter.infos.foreach {
-        case StoreReporter.Info(pos, msg, Reporter.ERROR) => throw ParseException(pos, msg)
+        case Info(pos, msg, Reporter.ERROR) => throw ParseException(pos, msg)
         case _ =>
       }
       tree
-    } finally global.reporter = oldReporter
+    } finally reporter = oldReporter
   }
 }

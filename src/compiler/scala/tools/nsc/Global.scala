@@ -40,7 +40,6 @@ import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
 import scala.tools.nsc.classpath._
 import scala.tools.nsc.profile.Profiler
 import java.io.Closeable
-
 import scala.annotation.tailrec
 
 class Global(var currentSettings: Settings, reporter0: Reporter)
@@ -86,15 +85,15 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
 
   override def settings = currentSettings
 
-  private[this] var currentReporter: FilteringReporter = _
+  private[this] var currentReporter: FilteringReporter = null
   locally { reporter = reporter0 }
 
   def reporter: FilteringReporter = currentReporter
-
-  def reporter_=(newReporter: Reporter): Unit = newReporter match {
-    case f: FilteringReporter => currentReporter = f
-    case r => currentReporter = new MakeFilteringForwardingReporter(r, settings) // for sbt
-  }
+  def reporter_=(newReporter: Reporter): Unit =
+    currentReporter = newReporter match {
+      case f: FilteringReporter => f
+      case r                    => new MakeFilteringForwardingReporter(r, settings) // for sbt
+    }
 
   /** Switch to turn on detailed type logs */
   var printTypings = settings.Ytyperdebug.value

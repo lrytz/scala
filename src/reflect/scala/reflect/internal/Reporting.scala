@@ -81,8 +81,9 @@ import util.Position
 
 /** Report information, warnings and errors.
  *
- *  This describes the (future) external interface for issuing information, warnings and errors.
- *  Currently, scala.tools.nsc.Reporter is used by sbt/ide.
+ *  This describes the internal interface for issuing information, warnings and errors.
+ *  Implementers of scala.tools.nsc.Reporter such as sbt/ide must define info0.
+ *  Implementers of scala.tools.nsc.FilteringReporter must define its extension point doReport.
  */
 abstract class Reporter {
   private[this] var _errorCount = 0
@@ -104,32 +105,29 @@ abstract class Reporter {
   // 2: don't count, don't display
   def filter(pos: Position, msg: String, severity: Severity): Int = 0
 
-  final def echo(msg: String): Unit = echo(util.NoPosition, msg)
-  final def echo(pos: Position, msg: String): Unit =
-    if (filter(pos, msg, INFO) == 0)
-      info0(pos, msg, INFO, force = true)
+  final def echo(msg: String): Unit                   = echo(util.NoPosition, msg)
+  final def echo(pos: Position, msg: String): Unit    = if (filter(pos, msg, INFO) == 0) info0(pos, msg, INFO, force = true)
+  final def warning(pos: Position, msg: String): Unit = filteredInfo(pos, msg, WARNING)
+  final def error(pos: Position, msg: String): Unit   = filteredInfo(pos, msg, ERROR)
 
-  final def warning(pos: Position, msg: String): Unit = {
-    val f = filter(pos, msg, WARNING)
-    if (f <= 1) increment(WARNING)
-    if (f == 0) info0(pos, msg, WARNING, force = false)
-  }
-
-  final def error(pos: Position, msg: String): Unit = {
-    val f = filter(pos, msg, ERROR)
-    if (f <= 1) increment(ERROR)
-    if (f == 0) info0(pos, msg, ERROR, force = false)
+  private def filteredInfo(pos: Position, msg: String, severity: Severity): Unit = {
+    val f = filter(pos, msg, severity)
+    if (f <= 1) increment(severity)
+    if (f == 0) info0(pos, msg, severity, force = false)
   }
 
   def increment(severity: Severity): Unit =
-    if (severity == ERROR) _errorCount += 1
-    else if (severity == WARNING) _warningCount += 1
+    severity match {
+      case _: Reporter.ERROR.type   => _errorCount += 1
+      case _: Reporter.WARNING.type => _warningCount += 1
+      case _ =>
+    }
 
-  def errorCount: Int = _errorCount
+  def errorCount: Int   = _errorCount
   def warningCount: Int = _warningCount
 
-  def hasErrors: Boolean = errorCount > 0
-  def hasWarnings: Boolean = warningCount > 0
+  def hasErrors: Boolean   = _errorCount > 0
+  def hasWarnings: Boolean = _warningCount > 0
 
   def reset(): Unit = {
     _errorCount = 0

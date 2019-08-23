@@ -13,22 +13,20 @@
 package scala.tools.nsc
 package reporters
 
+import scala.annotation.unused
 import scala.collection.mutable
-import scala.reflect.internal.util.{Position, ScalaClassLoader}
-import scala.reflect.internal.{Reporter => InternalReporter}
+import scala.reflect.internal, util.Position, util.ScalaClassLoader
 
 /** This class exists for sbt compatibility. Global.reporter holds a FilteringReporter.
-  * The only Reporter that is *not* a FilteringReporter is the one created by sbt.
-  * The Global.reporter_= setter wraps that in a delegating [[MakeFilteringForwardingReporter]].
+ *  The only Reporter that is *not* a FilteringReporter is the one created by sbt.
+ *  The Global.reporter_= setter wraps that in a delegating [[MakeFilteringForwardingReporter]].
  */
-abstract class Reporter extends InternalReporter {
+abstract class Reporter extends internal.Reporter {
   // used by sbt
-  @deprecated("Use echo, as internal.Reporter does not support unforced info", since="2.13.0")
-  final def info(pos: Position, msg: String, force: Boolean): Unit = info0(pos, msg, INFO, force = true)
+  final def info(pos: Position, msg: String, @unused force: Boolean): Unit = info0(pos, msg, INFO, force = true)
 
   // allow calling info0 in MakeFilteringForwardingReporter
-  private[reporters] final def nonProtectedInfo0(pos: Position, msg: String, severity: Severity): Unit =
-    info0(pos, msg, severity, force = true)
+  private[reporters] final def nonProtectedInfo0(pos: Position, msg: String, severity: Severity): Unit = info0(pos, msg, severity, force = true)
 
   // overridden by sbt, IDE -- should not be in the reporting interface
   // (IDE receives comments from ScaladocAnalyzer using this hook method)
@@ -50,6 +48,15 @@ abstract class Reporter extends InternalReporter {
 }
 
 object Reporter {
+  /** The usual way to create the configured reporter.
+   *  Errors are reported through `settings.errorFn` and also by throwing an exception.
+   */
+  def apply(settings: Settings): FilteringReporter = {
+    //val loader = ScalaClassLoader(getClass.getClassLoader)  // apply does not make delegate
+    val loader = new ClassLoader(getClass.getClassLoader) with ScalaClassLoader
+    loader.create[FilteringReporter](settings.reporter.value, settings.errorFn)(settings)
+  }
+
   /** Take the message with its explanation, if it has one. */
   def explanation(msg: String): String = splitting(msg, explaining = true)
 
@@ -64,26 +71,17 @@ object Reporter {
     } else {
       msg
     }
-
-  /** The usual way to create the configured reporter.
-    *  Errors are reported through `settings.errorFn` and also by throwing an exception.
-    */
-  def apply(settings: Settings): Reporter = {
-    //val loader = ScalaClassLoader(getClass.getClassLoader)  // apply does not make delegate
-    val loader = new ClassLoader(getClass.getClassLoader) with ScalaClassLoader
-    val res = loader.create[FilteringReporter](settings.reporter.value, settings.errorFn)(settings)
-    res
-  }
 }
 
 /** The reporter used in a Global instance.
-  *
-  * It filters messages based on
-  *   - settings.nowarn
-  *   - settings.maxerrs / settings.maxwarns
-  *   - positions (only one error at a position, no duplicate messages on a position)
-  */
+ *
+ *  It filters messages based on
+ *    - settings.nowarn
+ *    - settings.maxerrs / settings.maxwarns
+ *    - positions (only one error at a position, no duplicate messages on a position)
+ */
 abstract class FilteringReporter extends Reporter {
+
   def settings: Settings
 
   // this should be the abstract method all the way up in reflect.internal.Reporter, but sbt compat
@@ -99,13 +97,26 @@ abstract class FilteringReporter extends Reporter {
 
   private def noWarnings: Boolean = settings.nowarn.value
 
+  private var silent = 0
+
+  private def isSilent = silent > 0
+
+  /** Filter all messages while evaluating the block. */
+  final def silently[A](body: => A): A = {
+    silent += 1
+    try body finally silent -= 1
+  }
+
+  /**
+   * @return 0 to count and display, 1 for no display, 2 for also no count
+   */
   override def filter(pos: Position, msg: String, severity: Severity): Int = {
     def maxOk = severity match {
-      case InternalReporter.ERROR => maxErrors < 0 || errorCount < maxErrors
-      case InternalReporter.WARNING => !noWarnings && (maxWarnings < 0 || warningCount < maxWarnings)
+      case internal.Reporter.ERROR   => maxErrors < 0 || errorCount < maxErrors
+      case internal.Reporter.WARNING => !noWarnings && (maxWarnings < 0 || warningCount < maxWarnings)
       case _ => true
     }
-    if (!duplicateOk(pos, severity, msg)) {
+    if (isSilent || !duplicateOk(pos, severity, msg)) {
       notifySuppressed(pos, msg, severity)
       2 // don't count, don't display
     } else if (!maxOk) 1 // count, but don't display
@@ -126,7 +137,7 @@ abstract class FilteringReporter extends Reporter {
     pos == null || !pos.isDefined || {
       val fpos = pos.focus
       val show = positions(fpos) match {
-        case InternalReporter.ERROR  => false               // already error at position
+        case internal.Reporter.ERROR => false               // already error at position
         case s if s.id > severity.id => false               // already message higher than present severity
         case `severity`              => !matchAt(fpos, msg) // already issued this (in)exact message
         case _                       => true                // good to go

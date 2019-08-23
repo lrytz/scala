@@ -16,14 +16,16 @@ package reporters
 import scala.collection.mutable
 import scala.reflect.internal.Reporter.Severity
 import scala.reflect.internal.util.Position
-import scala.tools.nsc.reporters.StoreReporter._
 
 /** This class implements a Reporter that stores its reports in the set `infos`. */
 class StoreReporter(val settings: Settings) extends FilteringReporter {
+  import StoreReporter._
+
+  def this() = this(new Settings)
+
   val infos = new mutable.LinkedHashSet[Info]
 
-  def doReport(pos: Position, msg: String, severity: Severity): Unit =
-    infos += Info(pos, msg, severity)
+  override def doReport(pos: Position, msg: String, severity: Severity) = infos += Info(pos, msg, severity)
 
   override def reset(): Unit = {
     super.reset()

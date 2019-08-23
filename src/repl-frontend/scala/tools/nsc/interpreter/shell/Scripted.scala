@@ -281,9 +281,9 @@ object Scripted {
 }
 
 import java.io.Writer
-import java.nio.{ ByteBuffer, CharBuffer }
-import java.nio.charset.{ Charset, CodingErrorAction }
-import CodingErrorAction.{ REPLACE => Replace }
+import java.nio.{ByteBuffer, CharBuffer}
+import java.nio.charset.{Charset, CodingErrorAction}
+import CodingErrorAction.{REPLACE => Replace}
 
 /* An OutputStream that decodes bytes and flushes to the writer. */
 class WriterOutputStream(writer: Writer) extends OutputStream {
@@ -312,14 +312,13 @@ class WriterOutputStream(writer: Writer) extends OutputStream {
   override def toString = charBuffer.toString
 }
 
-
 private class SaveFirstErrorReporter(settings: Settings, out: PrintWriter) extends ReplReporterImpl(settings, out) {
+
   private var _firstError: Option[(Position, String)] = None
   def firstError = _firstError
 
-  override def doReport(pos: Position, msg: String, severity: Severity): Unit = {
+  override def doReport(pos: Position, msg: String, severity: Severity): Unit =
     if (severity == ERROR && _firstError.isEmpty) _firstError = Some((pos, msg))
-  }
 
   override def reset() = { super.reset(); _firstError = None }
 

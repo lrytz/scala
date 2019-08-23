@@ -13,10 +13,9 @@
 package scala.tools.nsc.reporters
 
 import scala.reflect.internal.util.Position
-import scala.tools.nsc.Settings
 
 /** A reporter that ignores reports.
  */
-class NoReporter(val settings: Settings) extends FilteringReporter {
-  def doReport(pos: Position, msg: String, severity: Severity): Unit = ()
+object NoReporter extends Reporter {
+  protected def info0(pos: Position, msg: String, severity: Severity, force: Boolean): Unit = ()
 }

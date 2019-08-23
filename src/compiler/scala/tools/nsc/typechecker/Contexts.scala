@@ -1548,7 +1548,7 @@ trait Contexts { self: Analyzer =>
 
     def issue(err: AbsTypeError)(implicit context: Context): Unit = error(context.fixPosition(err.errPos), addDiagString(err.errMsg))
 
-    def echo(pos: Position, msg: String): Unit = reporter.echo(pos, msg)
+    def echo(pos: Position, msg: String): Unit    = reporter.echo(pos, msg)
     def warning(pos: Position, msg: String): Unit = reporter.warning(pos, msg)
     def error(pos: Position, msg: String): Unit
 
@@ -1595,7 +1595,7 @@ trait Contexts { self: Analyzer =>
       }
     }
 
-    final def hasErrors: Boolean = _errorBuffer != null && errorBuffer.nonEmpty
+    final def hasErrors = _errorBuffer != null && errorBuffer.nonEmpty
 
     // TODO: everything below should be pushed down to BufferingReporter (related to buffering)
     // Implicit relies on this most heavily, but there you know reporter.isInstanceOf[BufferingReporter]
@@ -1611,7 +1611,7 @@ trait Contexts { self: Analyzer =>
           // no need to issue the problem again if we are still in silent mode
           if (context.reportErrors) {
             context.issue(divergent.withPt(paramTp))
-            errorBuffer.filterInPlace {
+            errorBuffer.retain {
               case dte: DivergentImplicitTypeError => false
               case _ => true
             }
@@ -1621,7 +1621,7 @@ trait Contexts { self: Analyzer =>
       }
 
     def retainDivergentErrorsExcept(saved: DivergentImplicitTypeError) =
-      errorBuffer.filterInPlace {
+      errorBuffer.retain {
         case err: DivergentImplicitTypeError => err ne saved
         case _ => false
       }
@@ -1669,21 +1669,21 @@ trait Contexts { self: Analyzer =>
 
   private[typechecker] class ImmediateReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {
     override def makeBuffering: ContextReporter = new BufferingReporter(errorBuffer, warningBuffer)
-    def error(pos: Position, msg: String): Unit = reporter.error(pos, msg)
+    override def error(pos: Position, msg: String) = reporter.error(pos, msg)
  }
 
 
   private[typechecker] class BufferingReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[(Position, String)] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {
     override def isBuffering = true
 
-    override def issue(err: AbsTypeError)(implicit context: Context): Unit             = errorBuffer += err
+    override def issue(err: AbsTypeError)(implicit context: Context): Unit = errorBuffer += err
 
     // this used to throw new TypeError(pos, msg) -- buffering lets us report more errors (test/files/neg/macro-basic-mamdmi)
     // the old throwing behavior was relied on by diagnostics in manifestOfType
-    def error(pos: Position, msg: String): Unit                        = errorBuffer += TypeErrorWrapper(new TypeError(pos, msg))
-    override def warning(pos: Position, msg: String): Unit             = warningBuffer += ((pos, msg))
+    override def error(pos: Position, msg: String)   = errorBuffer += TypeErrorWrapper(new TypeError(pos, msg))
+    override def warning(pos: Position, msg: String) = warningBuffer += ((pos, msg))
 
-    override protected def handleSuppressedAmbiguous(err: AbsAmbiguousTypeError): Unit = errorBuffer += err
+    override protected def handleSuppressedAmbiguous(err: AbsAmbiguousTypeError) = errorBuffer += err
 
     // TODO: emit all buffered errors, warnings
     override def makeImmediate: ContextReporter = new ImmediateReporter(errorBuffer, warningBuffer)
@@ -1695,12 +1695,12 @@ trait Contexts { self: Analyzer =>
    */
   private[typechecker] class ThrowingReporter extends ContextReporter {
     override def isThrowing = true
-    def error(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
+    override def error(pos: Position, msg: String): Unit = throw new TypeError(pos, msg)
   }
 
   /** Used during a run of [[scala.tools.nsc.typechecker.TreeCheckers]]? */
   private[typechecker] class CheckingReporter extends ContextReporter {
-    def error(pos: Position, msg: String): Unit = onTreeCheckerError(pos, msg)
+    override def error(pos: Position, msg: String) = onTreeCheckerError(pos, msg)
   }
 
   class ImportInfo(val tree: Import, val depth: Int, val isRootImport: Boolean) {

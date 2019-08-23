@@ -15,18 +15,17 @@ package scala.tools.nsc.interpreter.shell
 import java.io.PrintWriter
 
 import scala.reflect.internal.util.{NoSourceFile, Position, StringOps}
-import scala.reflect.internal.{Reporter => InternalReporter}
+import scala.tools.nsc.{ConsoleWriter, NewLinePrintWriter, Settings}
 import scala.tools.nsc.interpreter.{Naming, ReplReporter, ReplRequest}
 import scala.tools.nsc.reporters.{FilteringReporter, Reporter}
-import scala.tools.nsc.{ConsoleWriter, NewLinePrintWriter, Settings}
-
+import scala.reflect.internal.{Reporter => InternalReporter}
 
 object ReplReporterImpl {
   val defaultOut = new NewLinePrintWriter(new ConsoleWriter, true)
 }
 
 // settings are for AbstractReporter (noWarnings, isVerbose, isDebug)
-class ReplReporterImpl(val config: ShellConfig, val settings: Settings = new Settings, writer: PrintWriter = ReplReporterImpl.defaultOut) extends FilteringReporter with ReplReporter {
+class ReplReporterImpl(val config: ShellConfig, val settings: Settings = new Settings, writer: PrintWriter = ReplReporterImpl.defaultOut) extends FilteringReporter with ReplReporter  {
   def this(settings: Settings, writer: PrintWriter) = this(ShellConfig(settings), settings, writer)
   def this(settings: Settings) = this(ShellConfig(settings), settings)
 
@@ -200,7 +199,6 @@ class ReplReporterImpl(val config: ShellConfig, val settings: Settings = new Set
 
       if (isSynthetic) printMessage("\n(To diagnose errors in synthetic code, try adding `// show` to the end of your input.)")
     }
-    if (settings.prompt) displayPrompt()
   }
 
   def printMessage(msg: String): Unit =
@@ -226,6 +224,15 @@ class ReplReporterImpl(val config: ShellConfig, val settings: Settings = new Set
 
   override def rerunWithDetails(setting: reflect.internal.settings.MutableSettings#Setting, name: String): String =
     s"; for details, enable `:setting $name' or `:replay $name'"
+
+  def display(pos: Position, msg: String, severity: Severity): Unit = {
+    val ok = severity match {
+      case InternalReporter.ERROR   => errorCount   <= settings.maxerrs.value
+      case InternalReporter.WARNING => warningCount <= settings.maxwarns.value
+      case _     => true
+    }
+    if (ok) print(pos, msg, severity)
+  }
 
   override def finish() = {
     if (hasWarnings) printMessage(s"${StringOps.countElementsAsString(warningCount, label(WARNING))} found")

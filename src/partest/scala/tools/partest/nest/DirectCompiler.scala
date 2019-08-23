@@ -14,19 +14,15 @@ package scala.tools.partest
 package nest
 
 import scala.collection.mutable.ListBuffer
-import scala.tools.nsc.{CompilerCommand, Global, Settings}
+import scala.tools.nsc.{Global, Settings, CompilerCommand}
 import scala.tools.nsc.reporters.{ConsoleReporter, Reporter}
 import scala.reflect.internal.util.NoPosition
 import scala.reflect.io.AbstractFile
-import java.io.{FileWriter, PrintWriter}
+import scala.util.chaining._
+import java.io.{PrintWriter, FileWriter}
 
 object ExtConsoleReporter {
-  // `compile` exploits `close` method on default reporter
-  def apply(settings: Settings, writer: PrintWriter): ConsoleReporter = {
-    val r = new ConsoleReporter(settings, Console.in, writer, writer)
-    r.shortname = true
-    r
-  }
+  def apply(settings: Settings, writer: PrintWriter) = new ConsoleReporter(settings, Console.in, writer, writer).tap(_.shortname = true)
 }
 
 class TestSettings(cp: String, error: String => Unit) extends Settings(error) {
