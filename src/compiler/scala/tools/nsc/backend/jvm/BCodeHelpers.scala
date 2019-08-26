@@ -96,8 +96,8 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
     val origOwner = sym.originalOwner
 
     // TODO: drop: this is to show changeOwner is not enough and typedParentType should really use the actual ctor context
-    if (sym.originalOwner != sym.rawowner)
-      println(s"owner discrepancy for $sym: ${sym.originalOwner} --> ${sym.rawowner}")
+//    if (sym.originalOwner != sym.rawowner)
+//      println(s"owner discrepancy for $sym: ${sym.originalOwner} --> ${sym.rawowner}")
 
     // phase travel necessary: after flatten, the name includes the name of outer classes.
     // if some outer name contains $anon, a non-anon class is considered anon.
