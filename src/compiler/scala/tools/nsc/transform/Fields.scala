@@ -794,6 +794,11 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
       if (stat.isTerm) atOwner(exprOwner)(transform(stat))
       else transform(stat)
 
+    // TODO revert --
+    override def transformTemplate(tree: global.Template): global.Template = {
+      treeCopy.Template(tree, tree.parents, tree.self, transformStats(tree.body, tree.symbol))
+    }
+
     override def transformStats(stats: List[Tree], exprOwner: Symbol): List[Tree] = {
       val addedStats =
         if (!currentOwner.isClass || currentOwner.isPackageClass) Nil

@@ -119,9 +119,4 @@ trait StdAttachments {
   class QualTypeSymAttachment(val sym: Symbol)
 
   case object ConstructorNeedsFence extends PlainAttachment
-
-  // When inferring parent types we have to invent symbols for a class's vparamss, because, unlike its tparams,
-  // they are not linked to the class symbol, and are reinvented multiple times. The vparam symbols are only known
-  // when the primary constructor is fully type checked, but we already need to type check the parent types before that can happen.
-  case class TemporaryCtorVparamSymssAttachment(tempClassVparamSymss: List[List[Symbol]], ctorTyper: Any)
 }

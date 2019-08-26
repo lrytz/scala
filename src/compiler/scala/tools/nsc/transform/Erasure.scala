@@ -426,31 +426,15 @@ abstract class Erasure extends InfoTransform
    *  to tree, which is assumed to be the body of a constructor of class clazz.
    */
   private def addMixinConstructorCalls(tree: Tree, clazz: Symbol, parents: List[Tree]): Tree = {
-    def mkSuperCall(parent: Tree) = parent match {
-      case app: Apply =>
-        val newToSuper = new InternalTransformer {
-          override def transform(t: Tree): Tree =
-            t match {
-              case New(tpt) => Super(clazz, tpnme.EMPTY) setType tpt.tpe
-              case _      => super.transform(t)
-            }
-        }
-
-        def stripApply(t: Tree): Tree = t match {
-          case Apply(fun, _) => stripApply(fun)
-          case TypeApply(fun, args) => stripApply(fun)
-          case _ => t
-        }
-
-        val core = stripApply(app)
-        //            println(s"core: $core")
-        val superCall = newToSuper.transform(app)
-        //            println(s"super call from $clazz to $parent: ${core.tpe.resultType.typeSymbol} --> $superCall")
-        (core.tpe.resultType.typeSymbol, superCall)
-
+    def mkSuperCall(parent: Tree): (Symbol, Tree) = parent match {
+      case app@Apply(TypeApply(sel@Select(New(tpt), nme.CONSTRUCTOR), _), args) =>
+        val superCall = treeCopy.Apply(app, treeCopy.Select(sel, Super(clazz, tpnme.EMPTY) setType tpt.tpe, nme.CONSTRUCTOR), args)
+        (tpt.tpe.typeSymbol, superCall)
+      case app@Apply(sel@Select(New(tpt), nme.CONSTRUCTOR), args) =>
+        val superCall = treeCopy.Apply(app, treeCopy.Select(sel, Super(clazz, tpnme.EMPTY) setType tpt.tpe, nme.CONSTRUCTOR), args)
+        (tpt.tpe.typeSymbol, superCall)
       case sel =>
         val parentClazz = sel.tpe.typeSymbol
-        //            println(s"super call from $clazz to $parent: ${parentClazz} --> ${sel.tpe.typeSymbol}")
         (parentClazz, Apply(Select(Super(clazz, tpnme.EMPTY) setType sel.tpe, parentClazz.primaryConstructor), Nil))
     }
 

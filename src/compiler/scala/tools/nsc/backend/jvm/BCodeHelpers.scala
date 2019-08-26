@@ -95,10 +95,10 @@ abstract class BCodeHelpers extends BCodeIdiomatic {
   def nextEnclosing(sym: Symbol): Symbol = {
     val origOwner = sym.originalOwner
 
-    if (sym.originalOwner != sym.rawowner) { // TODO: drop: this is to show changeOwner is not enough and typedParentType should really use the actual ctor context
+    // TODO: drop: this is to show changeOwner is not enough and typedParentType should really use the actual ctor context
+    if (sym.originalOwner != sym.rawowner)
       println(s"owner discrepancy for $sym: ${sym.originalOwner} --> ${sym.rawowner}")
-      sym.rawowner
-    } else
+
     // phase travel necessary: after flatten, the name includes the name of outer classes.
     // if some outer name contains $anon, a non-anon class is considered anon.
     if (delambdafyInline() && exitingPickler(sym.rawowner.isAnonymousFunction)) {

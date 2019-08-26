@@ -539,10 +539,11 @@ abstract class UnCurry extends InfoTransform
             curTree = tree
             val ctorSym = treeInfo.firstConstructor(body).symbol
             // erasure will move mixin parents into constructor as super calls
-            val parentsTransformed = //atOwner(ctorSym)
-              {
-                withInConstructorFlag(INCONSTRUCTOR) { transformTrees(parents) }
+            val parentsTransformed = atOwner(ctorSym) {
+              withInConstructorFlag(INCONSTRUCTOR) {
+                transformTrees(parents)
               }
+            }
 
             withInConstructorFlag(0) {
               atOwner(currentOwner) {

@@ -1152,8 +1152,14 @@ trait Namers extends MethodSynthesis {
 
     private def templateSig(templ: Template): Type = {
       val clazz = context.owner
+      val decls = newScope
+      val templateNamer = newNamer(context.make(templ, clazz, decls))
 
-      val parentTrees = typer.typedParentTypes(templ)
+      val ctor = treeInfo.firstConstructor(templ.body)
+      assert(ctor.symbol == NoSymbol, templ)
+      templateNamer enterSym ctor // for typedParentTypes
+
+      val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context))
 
       val pending = mutable.ListBuffer[AbsTypeError]()
       parentTrees foreach { tpt =>
@@ -1180,9 +1186,7 @@ trait Namers extends MethodSynthesis {
 
       enterSelf(templ.self)
 
-      val decls = newScope
-      val templateNamer = newNamer(context.make(templ, clazz, decls))
-      templateNamer enterSyms templ.body
+      templateNamer enterSyms templ.body.filter(_ ne ctor)
 
       // add apply and unapply methods to companion objects of case classes,
       // unless they exist already; here, "clazz" is the module class
