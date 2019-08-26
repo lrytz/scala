@@ -1576,7 +1576,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
             case _                =>
           }
 
-          ctorTyper.namer.enterValueParams(vparamss) // TODO: need to dupe?
+          // use existing symbols -- TODO relation to constructor parameter accessors
+          vparamss.foreach(_.foreach(vparam => ctorContext.scope.enter(vparam.symbol)))
 
           ctorTyper
         case _                                       =>

@@ -1157,7 +1157,8 @@ trait Namers extends MethodSynthesis {
 
       val ctor = treeInfo.firstConstructor(templ.body)
       assert(ctor.symbol == NoSymbol, templ)
-      templateNamer enterSym ctor // for typedParentTypes
+      templateNamer enterSym ctor // for typedParentTypes/mkCtorTyper
+      ctor.symbol.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead in mkCtorTyper?
 
       val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context))
 
