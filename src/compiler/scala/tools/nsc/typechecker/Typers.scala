@@ -1883,7 +1883,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val clazz = context.owner
 
       val firstCtor   = treeInfo.firstConstructor(templ0.body)
-      val parents1    = clazzTyper.typedParentTypes(templ0, if (!firstCtor.symbol.exists) this else mkCtorTyper(firstCtor, clazzTyper.context))
+      val ctorTyper   = if (firstCtor == EmptyTree || !firstCtor.symbol.exists) this else mkCtorTyper(firstCtor, clazzTyper.context)
+      val parents1    = clazzTyper.typedParentTypes(templ0, ctorTyper)
       val parentTypes = parents1.map(_.tpe)
 
       // The parents may have been normalized by typedParentTypes.
