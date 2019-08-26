@@ -1548,7 +1548,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
      */
 
     def mkCtorTyper(firstCtor: Tree, clazzContext: Context): Typer = {
-
       // Create our own little constructor typer to type check the parent types, which we need to do before we
       // can type check the actual constructor (in templateSig and typedTemplate).
       // This typer puts the class's type params, any early vals and the primary constructor arguments into scope.
@@ -1558,15 +1557,15 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       //         account of the "ignore symbols without complete info that succeed the implicit search"
       //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
       //              if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
-
-
+      val ctorSym = firstCtor.symbol
       firstCtor match {
-        case DefDef(_, _, _, vparamss, _, body) =>
-          assert(firstCtor.symbol.exists, s"No ctor symbol for $firstCtor in ${clazzContext.tree}")
-          val ctorContext = clazzContext.outer.makeNewScope(firstCtor, firstCtor.symbol)
+        case DefDef(_, _, _, vparamss, _, body) if ctorSym.exists && !ctorSym.isJava =>
+          ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
+
+          val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
           val ctorTyper = newTyper(ctorContext)
 
-          val clazz = firstCtor.symbol.owner
+          val clazz = ctorSym.owner
           clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
           body match {
             case Block(cstats, _) =>
@@ -1577,10 +1576,13 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           }
 
           // use existing symbols -- TODO relation to constructor parameter accessors
+          // TODO are params of secondary param lists actually in scope for parent types according to spec?
           vparamss.foreach(_.foreach(vparam => ctorContext.scope.enter(vparam.symbol)))
 
           ctorTyper
         case _                                       =>
+          // TODO: add some diagnostics/asserts under which conditions it's ok not to have a constructor
+          // assert(ctorSym.exists, s"No ctor symbol for $firstCtor in ${clazzContext.tree}")
           this
       }
     }
@@ -1883,7 +1885,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val clazz = context.owner
 
       val firstCtor   = treeInfo.firstConstructor(templ0.body)
-      val ctorTyper   = if (firstCtor == EmptyTree || !firstCtor.symbol.exists) this else mkCtorTyper(firstCtor, clazzTyper.context)
+      val ctorTyper   = mkCtorTyper(firstCtor, clazzTyper.context)
       val parents1    = clazzTyper.typedParentTypes(templ0, ctorTyper)
       val parentTypes = parents1.map(_.tpe)
 
