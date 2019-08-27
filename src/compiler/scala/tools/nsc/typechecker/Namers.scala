@@ -1150,7 +1150,7 @@ trait Namers extends MethodSynthesis {
       self.symbol = context.scope enter sym
     }
 
-    private def templateSig(templ: Template): Type = {
+    private def templateSig(templ: Template, setTempInfo: Type => Unit): Type = {
       val clazz = context.owner
       val decls = newScope
       val templateNamer = newNamer(context.make(templ, clazz, decls))
@@ -1159,6 +1159,9 @@ trait Namers extends MethodSynthesis {
       if (ctor != EmptyTree && ctor.symbol == NoSymbol) {
         templateNamer enterSym ctor // for typedParentTypes/mkCtorTyper
       }
+
+      // TODO: for test/files/pos/t0039.scala  -- see TempClassInfo in dotc
+      setTempInfo(ClassInfoType(Nil, decls, clazz))
 
       val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context))
 
@@ -1238,7 +1241,7 @@ trait Namers extends MethodSynthesis {
       val clazz = cdef.symbol
       val ClassDef(_, _, tparams, impl) = cdef
       val tparams0   = typer.reenterTypeParams(tparams)
-      val resultType = templateSig(impl)
+      val resultType = templateSig(impl, tp => clazz setInfo pluginsTypeSig(GenPolyType(tparams0, tp), typer, cdef, WildcardType))
 
       val res = GenPolyType(tparams0, resultType)
 
@@ -1264,7 +1267,7 @@ trait Namers extends MethodSynthesis {
       val moduleSym = mdef.symbol
       // The info of both the module and the moduleClass symbols need to be assigned. monoTypeCompleter assigns
       // the result of typeSig to the module symbol. The module class info is assigned here as a side-effect.
-      val result = templateSig(mdef.impl)
+      val result = templateSig(mdef.impl, tp => moduleSym.moduleClass setInfo pluginsTypeSig(tp, typer, mdef, WildcardType))
       val pluginsTp = pluginsTypeSig(result, typer, mdef, WildcardType)
       // Assign the moduleClass info (templateSig returns a ClassInfoType)
       val clazz = moduleSym.moduleClass
