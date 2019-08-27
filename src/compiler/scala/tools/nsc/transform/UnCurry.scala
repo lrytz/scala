@@ -117,7 +117,10 @@ abstract class UnCurry extends InfoTransform
     // which hit at this point should not be hard to come by, but the immediate
     // motivation can be seen in continuations-neg/t3718.
     override def transform(tree: Tree): Tree =
-      try postTransform(mainTransform(tree))
+      try {
+        println(s"transforming $tree")
+        postTransform(mainTransform(tree))
+      }
       catch { case ex: TypeError =>
         reporter.error(ex.pos, ex.msg)
         debugStack(ex)
@@ -532,10 +535,11 @@ abstract class UnCurry extends InfoTransform
             super.transform(fun)
 
           case fun @ Function(_, _) =>
-            mainTransform(transformFunction(fun))
+            transform(transformFunction(fun))
 
           case Template(parents, self, body) =>
-            // inlined super.transform to customize handling of parent trees -- mainly to have any definitions in the parent constructor args be rooted at the constructor
+            // inlined `withInConstructorFlag(0) { super.transform(tree) }` to customize handling of parent trees
+            // -- any definitions in the parent constructor args must be owned by the constructor
             curTree = tree
             val ctorSym = treeInfo.firstConstructor(body).symbol
             // erasure will move mixin parents into constructor as super calls
@@ -555,12 +559,9 @@ abstract class UnCurry extends InfoTransform
             val tree1 = super.transform(tree)
             if (isByNameRef(tree1)) {
               val tree2 = tree1 setType functionType(Nil, tree1.tpe)
-              return {
-                if (noApply contains tree2) tree2
-                else localTyper.typedPos(tree1.pos)(Apply(Select(tree2, nme.apply), Nil))
-              }
-            }
-            tree1
+              if (noApply contains tree2) tree2
+              else localTyper.typedPos(tree1.pos)(Apply(Select(tree2, nme.apply), Nil))
+            } else tree1
         }
 
       result.setType(uncurry(result.tpe))
@@ -671,6 +672,8 @@ abstract class UnCurry extends InfoTransform
         case TypeTree() =>
           tree
         case _ =>
+          println(s"skipping post-transform of $tree")
+
           if (tree.isType) TypeTree(tree.tpe) setPos tree.pos else tree
       }
     }

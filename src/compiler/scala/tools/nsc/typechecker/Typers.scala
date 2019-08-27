@@ -1974,7 +1974,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 // the remaining trait constructor calls will be done during erasure by addMixinConstructorCalls
                 def rec(p: Tree): Tree = p match {
                   case tapp@TypeApply(fun, targs)            =>
-                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.TypeApply(tapp, res , targs) }
+                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.TypeApply(tapp, res, targs) }
                   case app@Apply(fun, args)                  =>
                     rec(fun) match { case err@EmptyTree => err case res => treeCopy.Apply(app, res, args) }
                   case sel@Select(New(tpt), nme.CONSTRUCTOR) =>
@@ -1988,6 +1988,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                   case _ => Apply(gen.mkSuperInitCall, Nil)
                 }
               }
+
+              println(s"turning $firstParent into call $superCall")
 
               val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
 
