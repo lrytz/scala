@@ -1969,18 +1969,24 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
 
-              def superSel(superTp: Type) =
-                Super(gen.mkAttributedThis(clazz), tpnme.EMPTY) setType SuperType(clazz.thisType, superTp)
+              val superCall = {
+                // now that we've normalized our parents and we know firstParent is a class, already put that super call in the ctor body
+                // the remaining trait constructor calls will be done during erasure by addMixinConstructorCalls
+                def rec(p: Tree): Tree = p match {
+                  case tapp@TypeApply(fun, targs)            =>
+                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.TypeApply(tapp, res , targs) }
+                  case app@Apply(fun, args)                  =>
+                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.Apply(app, res, args) }
+                  case sel@Select(New(tpt), nme.CONSTRUCTOR) =>
+                    treeCopy.Select(sel, Super(gen.mkAttributedThis(clazz), tpnme.EMPTY) setType SuperType(clazz.thisType, tpt.tpe), nme.CONSTRUCTOR)
+                  case _                                     =>
+                    EmptyTree
+                }
 
-              // now that we've normalized our parents and we know firstParent is a class, already put that super call in the ctor body
-              // the remaining trait constructor calls will be done during erasure by addMixinConstructorCalls
-              val superCall = firstParent match {
-                case app@Apply(tapp@TypeApply(sel@Select(New(tpt), nme.CONSTRUCTOR), targs), args) =>
-                  treeCopy.Apply(app, treeCopy.TypeApply(tapp, treeCopy.Select(sel, superSel(tpt.tpe), nme.CONSTRUCTOR), targs), args)
-                case app@Apply(sel@Select(New(tpt), nme.CONSTRUCTOR), args)                        =>
-                  treeCopy.Apply(app, treeCopy.Select(sel, superSel(tpt.tpe), nme.CONSTRUCTOR), args)
-                case _ =>
-                  Apply(gen.mkSuperInitCall, Nil)
+                firstParent match {
+                  case _: Apply => rec(firstParent) orElse Apply(gen.mkSuperInitCall, Nil)
+                  case _ => Apply(gen.mkSuperInitCall, Nil)
+                }
               }
 
               val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
