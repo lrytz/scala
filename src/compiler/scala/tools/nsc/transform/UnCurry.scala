@@ -118,7 +118,6 @@ abstract class UnCurry extends InfoTransform
     // motivation can be seen in continuations-neg/t3718.
     override def transform(tree: Tree): Tree =
       try {
-        println(s"transforming $tree")
         postTransform(mainTransform(tree))
       }
       catch { case ex: TypeError =>
@@ -672,8 +671,6 @@ abstract class UnCurry extends InfoTransform
         case TypeTree() =>
           tree
         case _ =>
-          println(s"skipping post-transform of $tree")
-
           if (tree.isType) TypeTree(tree.tpe) setPos tree.pos else tree
       }
     }
