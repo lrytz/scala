@@ -1985,6 +1985,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
                 firstParent match {
                   case _: Apply => rec(firstParent) orElse Apply(gen.mkSuperInitCall, Nil)
+                  case namedApply@Block(stats, app) =>
+                    rec(app) match { case err@EmptyTree => err case res => treeCopy.Block(namedApply, stats /* TODO: duplicate, but then need to subst in res...*/, res) }
                   case _ => Apply(gen.mkSuperInitCall, Nil)
                 }
               }
