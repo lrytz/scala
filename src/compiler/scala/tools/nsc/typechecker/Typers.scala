@@ -1557,20 +1557,22 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       //         account of the "ignore symbols without complete info that succeed the implicit search"
       //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
       //              if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
+
+      // relevant tests: pos/CustomGlobal.scala, pos/t7591
+
       val ctorSym = firstCtor.symbol
       firstCtor match {
         case DefDef(_, _, _, vparamss, _, body) if ctorSym.exists && !ctorSym.isJava =>
           ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
 
           val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
+          ctorContext.enclClass = clazzContext // should still consider the clazz as a valid enclosing class (for typing a This(clazz) reference)
           val ctorTyper = newTyper(ctorContext)
 
           val clazz = ctorSym.owner
           clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
           body match {
             case Block(cstats, _) =>
-              // TODO: don't duplicate, but test/files/pos/CustomGlobal.scala is still broken (completing in wrong context?)
-              //  then again pos/t7591 works if you duplicate here, but that breaks the InferFromOtherRhs mechanism
               ctorTyper.namer.enterSyms(cstats.collect{ case vd: ValDef if vd.mods hasFlag PRESUPER => vd })
             case _                =>
           }

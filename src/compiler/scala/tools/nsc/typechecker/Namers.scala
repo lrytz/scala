@@ -88,7 +88,7 @@ trait Namers extends MethodSynthesis {
     }
     def createPrimaryConstructorParameterNamer: Namer = { //todo: can we merge this with SCCmode?
       val classContext = context.enclClass
-      val outerContext = classContext.outer.outer
+      val outerContext = classContext.outer.outer // skip over both template-context and class-context, to the context that has this class in its scope
       val paramContext = outerContext.makeNewScope(outerContext.tree, outerContext.owner)
 
       owner.unsafeTypeParams foreach (paramContext.scope enter _)
@@ -1689,9 +1689,6 @@ trait Namers extends MethodSynthesis {
           if (rhs.isEmpty) {
             vdef.getAndRemoveAttachment[InferFromOtherRhs] match {
               case Some(InferFromOtherRhs(concreteVd)) => // used only for early vals!
-                vdef.symbol.owner.initialize
-                println(s"inferring tpt for $vdef from ${concreteVd.symbol.rawInfo} in ${vdef.symbol.ownerChain}")
-                println(s"inferring tpt for $vdef from ${concreteVd} --> ${concreteVd.symbol.info}")
                 concreteVd.symbol.info // literally the same type is totally fine
               case _                                   =>
                 MissingParameterOrValTypeError(tpt)
