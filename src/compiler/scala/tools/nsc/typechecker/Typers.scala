@@ -1974,9 +1974,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 // the remaining trait constructor calls will be done during erasure by addMixinConstructorCalls
                 def rec(p: Tree): Tree = p match {
                   case tapp@TypeApply(fun, targs)            =>
-                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.TypeApply(tapp, res, targs) }
+                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.TypeApply(tapp, res, targs.map(_.duplicate)) }
                   case app@Apply(fun, args)                  =>
-                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.Apply(app, res, args) }
+                    rec(fun) match { case err@EmptyTree => err case res => treeCopy.Apply(app, res, args.map(_.duplicate)) }
                   case sel@Select(New(tpt), nme.CONSTRUCTOR) =>
                     treeCopy.Select(sel, Super(gen.mkAttributedThis(clazz), tpnme.EMPTY) setType SuperType(clazz.thisType, tpt.tpe), nme.CONSTRUCTOR)
                   case _                                     =>
