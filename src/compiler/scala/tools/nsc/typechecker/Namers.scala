@@ -1684,14 +1684,16 @@ trait Namers extends MethodSynthesis {
 
     private def valDefSig(vdef: ValDef) = {
       val ValDef(_, _, tpt, rhs) = vdef
-      // For early vals, go to the original tpt for the presuper field. It has an empty TypeTree for its tpt that has the original type ascription (the tpt itself is empty)
-      // See mkTemplate: `tpt = atPos(vdef.pos.focus)(TypeTree() setOriginal tpt setPos tpt.pos.focus),`
-      val tptOrOrig = tpt match { case tpt: TypeTree if tpt.isEmpty && tpt.original != null => tpt.original case _ => tpt }
       val result =
-        if (tptOrOrig.isEmpty) {
+        if (tpt.isEmpty) {
           if (rhs.isEmpty) {
-            MissingParameterOrValTypeError(tpt)
-            ErrorType
+            vdef.getAndRemoveAttachment[InferFromOtherRhs] match {
+              case Some(InferFromOtherRhs(concreteVd)) => // used only for early vals!
+                concreteVd.symbol.info // literally the same type is totally fine
+              case _                                   =>
+                MissingParameterOrValTypeError(tpt)
+                ErrorType
+            }
           } else {
             // enterGetterSetter assigns the getter's symbol to a ValDef when there's no underlying field
             // (a deferred val or most vals defined in a trait -- see Field.noFieldFor)
@@ -1735,7 +1737,7 @@ trait Namers extends MethodSynthesis {
             tptFromRhsUnderPt
           }
         } else {
-          val tptTyped = typer.typedType(tptOrOrig)
+          val tptTyped = typer.typedType(tpt)
           context.unit.transformed(tpt) = tptTyped
           tptTyped.tpe
         }

@@ -401,13 +401,18 @@ abstract class TreeGen {
     val (evdefs, etdefs) = edefs partition treeInfo.isEarlyValDef
     val gvdefs = evdefs map {
       case vdef @ ValDef(_, _, tpt, _) =>
-        copyValDef(vdef)(
-        // atPos for the new tpt is necessary, since the original tpt might have no position
-        // (when missing type annotation for ValDef for example), so even though setOriginal modifies the
-        // position of TypeTree, it would still be NoPosition. That's what the author meant.
-        tpt = atPos(vdef.pos.focus)(TypeTree() setOriginal tpt setPos tpt.pos.focus),
-        rhs = EmptyTree
-      )
+        val copy = copyValDef(vdef)(
+          // atPos for the new tpt is necessary, since the original tpt might have no position
+          // (when missing type annotation for ValDef for example), so even though setOriginal modifies the
+          // position of TypeTree, it would still be NoPosition. That's what the author meant.
+          tpt = atPos(vdef.pos.focus)(TypeTree() setOriginal tpt setPos tpt.pos.focus),
+          rhs = EmptyTree)
+        // This deferred version of the early valdef goes to the template. Since it won't have a RHS,
+        // we can't infer its type if it's missing. We link it to the concrete valdef in the constructor,
+        // which will have been assigned a symbol by mkCtorTyper by either templateSig or typedTemplate,
+        // before we can get to this val (which is a member included in the info computed by templateSig).
+        copy.updateAttachment(InferFromOtherRhs(vdef))
+        copy
     }
     val lvdefs = evdefs collect { case vdef: ValDef => copyValDef(vdef)(mods = vdef.mods | PRESUPER) }
 

@@ -119,4 +119,7 @@ trait StdAttachments {
   class QualTypeSymAttachment(val sym: Symbol)
 
   case object ConstructorNeedsFence extends PlainAttachment
+
+  // Used for early vals, which appear twice: once deferred in the template, once concrete in the constructor -- see note in mkTemplate
+  case class InferFromOtherRhs(vd: ValDef) extends PlainAttachment
 }
