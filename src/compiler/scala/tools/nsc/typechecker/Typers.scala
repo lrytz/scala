@@ -1569,9 +1569,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
           body match {
             case Block(cstats, _) =>
-              // gen.mkTemplate only puts early vals in the primary constructor body, but then typedTemplate adds the super call -- i suppose we see both kinds of tree here (pre/post typer)?
-              val preSuperStats = cstats.filter(treeInfo.isEarlyValDef)
-              ctorTyper.namer.enterSyms(preSuperStats.map(_.duplicate)) // TODO: need to dupe?
+              // TODO: don't duplicate, but test/files/pos/CustomGlobal.scala is still broken (completing in wrong context?)
+              //  then again pos/t7591 works if you duplicate here, but that breaks the InferFromOtherRhs mechanism
+              ctorTyper.namer.enterSyms(cstats.collect{ case vd: ValDef if vd.mods hasFlag PRESUPER => vd })
             case _                =>
           }
 

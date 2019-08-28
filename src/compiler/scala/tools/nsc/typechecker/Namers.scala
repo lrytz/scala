@@ -1689,6 +1689,9 @@ trait Namers extends MethodSynthesis {
           if (rhs.isEmpty) {
             vdef.getAndRemoveAttachment[InferFromOtherRhs] match {
               case Some(InferFromOtherRhs(concreteVd)) => // used only for early vals!
+                vdef.symbol.owner.initialize
+                println(s"inferring tpt for $vdef from ${concreteVd.symbol.rawInfo} in ${vdef.symbol.ownerChain}")
+                println(s"inferring tpt for $vdef from ${concreteVd} --> ${concreteVd.symbol.info}")
                 concreteVd.symbol.info // literally the same type is totally fine
               case _                                   =>
                 MissingParameterOrValTypeError(tpt)
