@@ -1991,7 +1991,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 }
               }
 
-              println(s"turning $firstParent into call $superCall")
+//              println(s"turning $firstParent into call $superCall")
 
               val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
 
