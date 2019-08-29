@@ -1963,13 +1963,12 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val body3 =
         if (clazz.isTrait || phase.erasedTypes) typedStats(body1, templ.symbol)
         else {
-          val primaryCtor  = treeInfo.firstConstructor(body1)
-          val rest = body1.filter(_ ne primaryCtor)
+          val rest = body1.filter(_ ne firstCtor)
 
-          val primaryCtorTyped = primaryCtor match {
+          val primaryCtorTyped = firstCtor match {
             case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) if earlyValsCtor.forall(treeInfo.isEarlyValDef) =>
               val firstParent = parents1.head
-              val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
+              val pos         = wrappingPos(firstParent.pos, firstCtor :: Nil).makeTransparent
 
               val superCall = {
                 // now that we've normalized our parents and we know firstParent is a class, already put that super call in the ctor body
@@ -1995,14 +1994,14 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
 //              println(s"turning $firstParent into call $superCall")
 
-              val ctorTyped = typedByValueExpr(deriveDefDef(primaryCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
+              val ctorTyped = typedByValueExpr(deriveDefDef(firstCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
 
               val preSuperVals = treeInfo.preSuperFields(rest)
               foreach2(preSuperVals, earlyValsCtor)((abstractDef, concreteDef) => abstractDef.tpt setType concreteDef.symbol.tpe)
 
               ctorTyped
 
-            case _ => typedByValueExpr(primaryCtor)
+            case _ => typedByValueExpr(firstCtor)
           }
 
           primaryCtorTyped :: typedStats(rest, templ.symbol)
