@@ -1967,7 +1967,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           val rest = body1.filter(_ ne primaryCtor)
 
           val primaryCtorTyped = primaryCtor match {
-            case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) =>
+            case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) if earlyValsCtor.forall(treeInfo.isEarlyValDef) =>
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, primaryCtor :: Nil).makeTransparent
 
