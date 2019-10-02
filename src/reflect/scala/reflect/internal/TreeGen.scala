@@ -469,7 +469,7 @@ abstract class TreeGen {
           ClassDef(Modifiers(FINAL), tpnme.ANON_CLASS_NAME, Nil,
             mkTemplate(mkParents(NoMods, parents), self, NoMods, ListOfNil, stats, cpos.focus))
         }),
-        atPos(npos)(New(Ident(tpnme.ANON_CLASS_NAME) setPos npos.focus, Nil))
+        atPos(npos)(Apply(Select(New(Ident(tpnme.ANON_CLASS_NAME) setPos npos.focus), nme.CONSTRUCTOR), Nil))
       )
     }
   }
