@@ -1567,8 +1567,11 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
 
-          // pos/CustomGlobal.scala vs pos/presuperContext.scala
-//          ctorContext.enclClass = clazzContext // should still consider the clazz as a valid enclosing class (for typing a This(clazz) reference)
+          // pos/presuperContext.scala
+          //   (spec:) "any reference to `this` in the right-hand side of an early definition refers to the identity of `this` just outside the template."
+          // VS pos/CustomGlobal.scala
+          //   a nested class's early definition can refer to the outer class's this
+//          ctorContext.enclClass = ???
           println(s"enclClass ${ctorContext.enclClass}")
           val ctorTyper = newTyper(ctorContext)
 
