@@ -462,17 +462,15 @@ abstract class TreeGen {
    *  @param cpos  the position of the anonymous class starting with parents
    *  @param stats non-empty list of statements for the body for the template
    */
-  def mkNew(parents: List[Tree], self: ValDef, stats: List[Tree], npos: Position, cpos: Position): Tree = {
-    atPos(npos union cpos) {
+  def mkNew(parents: List[Tree], self: ValDef, stats: List[Tree], npos: Position, cpos: Position): Tree =
+    atPos(npos union cpos)(
       Block(List(
-        atPos(cpos) {
+        atPos(cpos)(
           ClassDef(Modifiers(FINAL), tpnme.ANON_CLASS_NAME, Nil,
-            mkTemplate(mkParents(NoMods, parents), self, NoMods, ListOfNil, stats, cpos.focus))
-        }),
-        atPos(npos)(Apply(Select(New(Ident(tpnme.ANON_CLASS_NAME) setPos npos.focus), nme.CONSTRUCTOR), Nil))
-      )
-    }
-  }
+            mkTemplate(mkParents(NoMods, parents), self, NoMods, ListOfNil, stats, cpos.focus)))),
+        atPos(npos)(
+          Apply(Select(New(Ident(tpnme.ANON_CLASS_NAME) setPos npos.focus), nme.CONSTRUCTOR), Nil))
+      ))
 
   /** Create a tree representing the function type (argtpes) => restpe */
   def mkFunctionTypeTree(argtpes: List[Tree], restpe: Tree): Tree =

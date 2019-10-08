@@ -1765,7 +1765,7 @@ self =>
 
             (parents, self, stats) match {
               case (parent :: Nil, `noSelfType`, List()) => // if there was no block at all, we get the empty list for stats -- an empty block is encoded as List(EmptyTree)
-                atPos(npos)(
+                atPos(npos union cpos)(
                   if (parent.isInstanceOf[Apply]) parent // templateParents adds the New application when constructor arguments were supplied (but it doesn't know the position of the new keyword)
                   else Apply(Select(New(parent), nme.CONSTRUCTOR), Nil)) // unapplied parent
               case _ => // need an anonymous class (either multiple parents or a block for a refinement)
