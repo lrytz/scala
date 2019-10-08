@@ -1566,7 +1566,10 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
 
           val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
-          ctorContext.enclClass = clazzContext // should still consider the clazz as a valid enclosing class (for typing a This(clazz) reference)
+
+          // pos/CustomGlobal.scala vs pos/presuperContext.scala
+//          ctorContext.enclClass = clazzContext // should still consider the clazz as a valid enclosing class (for typing a This(clazz) reference)
+          println(s"enclClass ${ctorContext.enclClass}")
           val ctorTyper = newTyper(ctorContext)
 
           val clazz = ctorSym.owner

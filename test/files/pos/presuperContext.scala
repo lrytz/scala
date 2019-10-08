@@ -8,6 +8,7 @@ class D {
   class C(x: Int) extends B({val test: D = this; x}) {
     def this() {
       this({val test: D = this; 1})
+      val test: C = this
     }
   }
 }
