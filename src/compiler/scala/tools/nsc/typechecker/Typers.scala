@@ -461,15 +461,21 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
      *  of a this or super with prefix `qual`.
      *  packageOk is equal false when qualifying class symbol
      */
-    def qualifyingClass(tree: Tree, qual: Name, packageOK: Boolean, immediate: Boolean) =
-      context.enclClass.owner.ownersIterator.find(o => qual.isEmpty || o.isClass && o.name == qual) match {
-        case Some(c) if packageOK || !c.isPackageClass => c
+    def qualifyingClass(tree: Tree, qual: Name, packageOK: Boolean, immediate: Boolean) = {
+      val enclosingClass = context.enclClass.owner
+      val candidate =
+        if (qual.isEmpty) enclosingClass
+        else enclosingClass.ownersIterator.find(o => o.isClass && o.name == qual).getOrElse(NoSymbol)
+
+      candidate match {
+        case ok if ok != NoSymbol && (packageOK || !ok.isPackageClass) => ok
         case _ =>
           QualifyingClassError(tree, qual)
           // Delay `setError` in namer, scala/bug#10748
           if (immediate) setError(tree) else unit.toCheck += (() => setError(tree))
           NoSymbol
       }
+    }
 
     /** The typer for an expression, depending on where we are. If we are before a superclass
      *  call, this is a typer over a constructor context; otherwise it is the current typer.
