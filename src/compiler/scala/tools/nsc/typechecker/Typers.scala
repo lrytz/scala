@@ -467,6 +467,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         if (qual.isEmpty) enclosingClass
         else enclosingClass.ownersIterator.find(o => o.isClass && o.name == qual).getOrElse(NoSymbol)
 
+      println(s"qualifying class in ${context} / ${System.identityHashCode(context)} / ${System.identityHashCode(context.outer)}")
+
       candidate match {
         case ok if ok != NoSymbol && (packageOK || !ok.isPackageClass) => ok
         case _ =>
@@ -1553,7 +1555,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
     }
      */
 
-    def mkCtorTyper(firstCtor: Tree, clazzContext: Context): Typer = {
+    def mkCtorTyper(firstCtor: Tree, clazzContext: Context, templateNamer: Namer): Typer = {
       // Create our own little constructor typer to type check the parent types, which we need to do before we
       // can type check the actual constructor (in templateSig and typedTemplate).
       // This typer puts the class's type params, any early vals and the primary constructor arguments into scope.
@@ -1577,15 +1579,16 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           //   (spec:) "any reference to `this` in the right-hand side of an early definition refers to the identity of `this` just outside the template."
           // VS pos/CustomGlobal.scala
           //   a nested class's early definition can refer to the outer class's this
-//          ctorContext.enclClass = ???
-          println(s"enclClass ${ctorContext.enclClass}")
+//          ctorContext.enclClass = clazzContext.enclClass
+          println(s"enclClass for ${ctorContext.owner} / ${System.identityHashCode(ctorContext)} : ${ctorContext.enclClass.owner}")
           val ctorTyper = newTyper(ctorContext)
 
           val clazz = ctorSym.owner
           clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
           body match {
             case Block(cstats, _) =>
-              ctorTyper.namer.enterSyms(cstats.collect{ case vd: ValDef if vd.mods hasFlag PRESUPER => vd })
+              val presupers = cstats.collect { case vd: ValDef if vd.mods hasFlag PRESUPER => vd.symbol }
+              presupers.foreach(ctorContext.scope.enter)
             case _                =>
           }
 
@@ -1899,7 +1902,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val clazz = context.owner
 
       val firstCtor   = treeInfo.firstConstructor(templ0.body)
-      val ctorTyper   = mkCtorTyper(firstCtor, clazzTyper.context)
+      val ctorTyper   = mkCtorTyper(firstCtor, clazzTyper.context, namer)
       val parents1    = clazzTyper.typedParentTypes(templ0, ctorTyper)
       val parentTypes = parents1.map(_.tpe)
 

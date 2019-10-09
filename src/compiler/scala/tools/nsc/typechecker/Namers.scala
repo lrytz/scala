@@ -15,6 +15,7 @@ package typechecker
 
 import scala.annotation.tailrec
 import scala.collection.mutable
+import scala.reflect.internal.Trees
 import symtab.Flags._
 import scala.reflect.internal.util.ListOfNil
 
@@ -1158,12 +1159,19 @@ trait Namers extends MethodSynthesis {
       val ctor = treeInfo.firstConstructor(templ.body)
       if (ctor != EmptyTree && ctor.symbol == NoSymbol) {
         templateNamer enterSym ctor // for typedParentTypes/mkCtorTyper
+        ctor match {
+          case DefDef(_, _, _, _, _,  Block(cstats, _)) =>
+            // If there are early vals, there must also be a constructor
+            val presupers = cstats.collect { case vd: ValDef if vd.mods hasFlag PRESUPER => vd }
+            templateNamer.enterSyms(presupers)
+          case _ =>
+        }
       }
 
       // TODO: for test/files/pos/t0039.scala  -- see TempClassInfo in dotc
       setTempInfo(ClassInfoType(Nil, decls, clazz))
 
-      val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context))
+      val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context, templateNamer))
 
       val pending = mutable.ListBuffer[AbsTypeError]()
       parentTrees foreach { tpt =>
@@ -1190,7 +1198,9 @@ trait Namers extends MethodSynthesis {
 
       enterSelf(templ.self)
 
-      templateNamer enterSyms templ.body.filter(_ ne ctor)
+      templateNamer enterSyms templ.body.filterNot( already => // these needed to be entered early for mkCtorTyper:
+        (already eq ctor) || treeInfo.isEarlyDef(already)
+      )
 
       // add apply and unapply methods to companion objects of case classes,
       // unless they exist already; here, "clazz" is the module class
