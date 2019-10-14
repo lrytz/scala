@@ -552,6 +552,7 @@ trait ReificationSupport { self: SymbolTable =>
           if (name != nme.CONSTRUCTOR) rhs
           else rhs match {
             case Block(_, _) => rhs
+            case Literal(Constant(())) => Block(Nil, rhs) // SyntacticBlock.apply stripped the block created by gen.mkTemplate for the constructor's RHS -- reconstitute so that typedTemplate recognizes it
             case _ => Block(List(rhs), gen.mkSyntheticUnit)
           }
         }
