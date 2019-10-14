@@ -467,7 +467,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         if (qual.isEmpty) enclosingClass
         else enclosingClass.ownersIterator.find(o => o.isClass && o.name == qual).getOrElse(NoSymbol)
 
-      println(s"qualifying class in ${context} / ${System.identityHashCode(context)} / ${System.identityHashCode(context.outer)}")
+//      println(s"qualifying class in ${context} / ${System.identityHashCode(context)} / ${System.identityHashCode(context.outer)}")
 
       candidate match {
         case ok if ok != NoSymbol && (packageOK || !ok.isPackageClass) => ok
@@ -1580,7 +1580,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           // VS pos/CustomGlobal.scala
           //   a nested class's early definition can refer to the outer class's this
 //          ctorContext.enclClass = clazzContext.enclClass
-          println(s"enclClass for ${ctorContext.owner} / ${System.identityHashCode(ctorContext)} : ${ctorContext.enclClass.owner}")
+//          println(s"enclClass for ${ctorContext.owner} / ${System.identityHashCode(ctorContext)} : ${ctorContext.enclClass.owner}")
           val ctorTyper = newTyper(ctorContext)
 
           val clazz = ctorSym.owner
@@ -2327,7 +2327,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
         if (meth.isClassConstructor && !isPastTyper && !meth.owner.isTrait && !meth.owner.isSubClass(AnyValClass) && !meth.isJava) {
           // There are no supercalls for AnyVal or constructors from Java sources, which
-        // would blow up in analyzeSuperConsructor; there's nothing to be computed for them
+          // would blow up in analyzeSuperConstructor; there's nothing to be computed for them
           // anyway.
           if (meth.isPrimaryConstructor)
             analyzeSuperConstructor(meth, vparamss1, rhs1)
