@@ -781,7 +781,6 @@ trait StdNames {
     val materializeTypeTag: NameType   = "materializeTypeTag"
     val moduleClass : NameType         = "moduleClass"
     val mkAnnotation: NameType         = "mkAnnotation"
-    val mkEarlyDef: NameType           = "mkEarlyDef"
     val mkIdent: NameType              = "mkIdent"
     val mkPackageStat: NameType        = "mkPackageStat"
     val mkRefineStat: NameType         = "mkRefineStat"

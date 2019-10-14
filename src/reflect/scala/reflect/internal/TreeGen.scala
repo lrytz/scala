@@ -366,16 +366,14 @@ abstract class TreeGen {
 
   /** Generates a template with constructor corresponding to
    *
-   *  constrmods (vparams1_) ... (vparams_n) preSuper { presupers }
+   *  constrmods (vparams1_) ... (vparams_n)
    *  extends superclass(args_1) ... (args_n) with mixins { self => body }
    *
    *  This gets translated to
    *
    *  extends superclass with mixins { self =>
-   *    presupers' // presupers without rhs
    *    vparamss   // abstract fields corresponding to value parameters
    *    def <init>(vparamss) {
-   *      presupers
    *      super.<init>(args)
    *    }
    *    body
@@ -397,32 +395,13 @@ abstract class TreeGen {
     if (vparamss1.isEmpty || !vparamss1.head.isEmpty && vparamss1.head.head.mods.isImplicit)
       vparamss1 = List() :: vparamss1
 
-    val (edefs, rest) = body span treeInfo.isEarlyDef
-    val (evdefs, etdefs) = edefs partition treeInfo.isEarlyValDef
-    val gvdefs = evdefs map {
-      case vdef @ ValDef(_, _, tpt, _) =>
-        val copy = copyValDef(vdef)(
-          // atPos for the new tpt is necessary, since the original tpt might have no position
-          // (when missing type annotation for ValDef for example), so even though setOriginal modifies the
-          // position of TypeTree, it would still be NoPosition. That's what the author meant.
-          tpt = atPos(vdef.pos.focus)(TypeTree() setOriginal tpt setPos tpt.pos.focus),
-          rhs = EmptyTree)
-        // This deferred version of the early valdef goes to the template. Since it won't have a RHS,
-        // we can't infer its type if it's missing. We link it to the concrete valdef in the constructor,
-        // which will have been assigned a symbol by mkCtorTyper by either templateSig or typedTemplate,
-        // before we can get to this val (which is a member included in the info computed by templateSig).
-        copy.updateAttachment(InferFromOtherRhs(vdef))
-        copy
-    }
-    val lvdefs = evdefs collect { case vdef: ValDef => copyValDef(vdef)(mods = vdef.mods | PRESUPER) }
-
-    val constr = atPos(wrappingPos(superPos, lvdefs ::: vparamss1.flatten).makeTransparent)(
+    val constr = atPos(wrappingPos(superPos, vparamss1.flatten).makeTransparent)(
       DefDef(constrMods,
         nme.CONSTRUCTOR, // we'll change the name later -- we need a unified name to simplify typedParentType
         Nil, vparamss1, TypeTree(),
-        Block(lvdefs, mkLiteralUnit)))
+        Block(Nil, mkLiteralUnit)))
 
-    ensureNonOverlapping(constr, parents ::: gvdefs, focus = false)
+    ensureNonOverlapping(constr, parents, focus = false)
     // Field definitions for the class - remove defaults.
 
     val fieldDefs = vparamss.flatten map (vd => {
@@ -434,7 +413,7 @@ abstract class TreeGen {
       field
     })
 
-    global.Template(parents, self, gvdefs ::: fieldDefs ::: (constr :: etdefs) ::: rest)
+    global.Template(parents, self, fieldDefs ::: (constr :: body))
   }
 
   def mkParents(ownerMods: Modifiers, parents: List[Tree], parentPos: Position = NoPosition) =

@@ -180,17 +180,6 @@ trait ReificationSupport { self: SymbolTable =>
       }
     }
 
-    def mkEarlyDef(defn: Tree): Tree = defn match {
-      case vdef @ ValDef(mods, _, _, _) if !mods.isDeferred =>
-        copyValDef(vdef)(mods = mods | PRESUPER)
-      case tdef @ TypeDef(mods, _, _, _) =>
-        copyTypeDef(tdef)(mods = mods | PRESUPER)
-      case _ =>
-        throw new IllegalArgumentException(s"not legal early def: $defn")
-    }
-
-    def mkEarlyDef(defns: List[Tree]): List[Tree] = defns.map(mkEarlyDef)
-
     def mkRefTree(qual: Tree, sym: Symbol) = self.RefTree(qual, sym.name) setSymbol sym
 
     def freshTermName(prefix: String = nme.FRESH_TERM_NAME_PREFIX): TermName = self.freshTermName(prefix)
@@ -279,33 +268,23 @@ trait ReificationSupport { self: SymbolTable =>
 
     // undo gen.mkTemplate
     protected class UnMkTemplate(isCaseClass: Boolean) {
-      def unapply(templ: Template): Option[(List[Tree], ValDef, Modifiers, List[List[ValDef]], List[Tree], List[Tree])] = {
+      def unapply(templ: Template): Option[(List[Tree], ValDef, Modifiers, List[List[ValDef]], List[Tree])] = {
         val Template(parents, selfType, _) = templ
         val tbody = treeInfo.untypecheckedTemplBody(templ)
 
-        def result(ctorMods: Modifiers, vparamss: List[List[ValDef]], edefs: List[Tree], body: List[Tree]) =
-          Some((parents, selfType, ctorMods, vparamss, edefs, body))
+        def result(ctorMods: Modifiers, vparamss: List[List[ValDef]], body: List[Tree]) =
+          Some((parents, selfType, ctorMods, vparamss, body))
         def indexOfCtor(trees: List[Tree]) =
           trees.indexWhere { case UnCtor(_, _, _) => true ; case _ => false }
 
         if (tbody forall treeInfo.isInterfaceMember)
-          result(NoMods | Flag.TRAIT, Nil, Nil, tbody)
+          result(NoMods | Flag.TRAIT, Nil, tbody)
         else if (indexOfCtor(tbody) == -1)
           None
         else {
-          val (rawEdefs, rest) = tbody.span(treeInfo.isEarlyDef)
-          val (gvdefs, etdefs) = rawEdefs.partition(treeInfo.isEarlyValDef)
-          val (fieldDefs, UnCtor(ctorMods, ctorVparamss, lvdefs) :: body) = rest.splitAt(indexOfCtor(rest))
-          val evdefs = gvdefs.zip(lvdefs).map {
-            // TODO: in traits, early val defs are defdefs
-            case (gvdef @ ValDef(_, _, tpt: TypeTree, _), ValDef(_, _, _, rhs)) =>
-              copyValDef(gvdef)(tpt = tpt.original, rhs = rhs)
-            case (tr1, tr2) =>
-              throw new MatchError((tr1, tr2))
-          }
-          val edefs = evdefs ::: etdefs
+          val (fieldDefs, UnCtor(ctorMods, ctorVparamss, _) :: body) = tbody.splitAt(indexOfCtor(tbody))
           if (ctorMods.isTrait)
-            result(ctorMods, Nil, edefs, body)
+            result(ctorMods, Nil, body)
           else {
             // undo conversion from (implicit ... ) to ()(implicit ... ) when it's the only parameter section
             // except that case classes require the explicit leading empty parameter list
@@ -322,7 +301,7 @@ trait ReificationSupport { self: SymbolTable =>
                 val originalMods = modsMap(vd.name) | (vd.mods.flags & DEFAULTPARAM)
                 atPos(vd.pos)(ValDef(originalMods, vd.name, vd.tpt, vd.rhs))
               }
-              result(ctorMods, vparamss, edefs, body)
+              result(ctorMods, vparamss, body)
             }
           }
         }
@@ -364,9 +343,9 @@ trait ReificationSupport { self: SymbolTable =>
         case ClassDef(mods, name, tparams, impl) =>
           val X = if (mods.isCase) UnMkTemplate.asCase else UnMkTemplate
           impl match {
-            case X(parents, selfType, ctorMods, vparamss, earlyDefs, body)
+            case X(parents, selfType, ctorMods, vparamss, body)
                 if (!ctorMods.isTrait && !ctorMods.hasFlag(JAVA)) =>
-              Some((mods, name, tparams, ctorMods, vparamss, earlyDefs, parents, selfType, body))
+              Some((mods, name, tparams, ctorMods, vparamss, Nil, parents, selfType, body))
             case _ =>
               None
           }
@@ -385,9 +364,9 @@ trait ReificationSupport { self: SymbolTable =>
 
       def unapply(tree: Tree): Option[(Modifiers, TypeName, List[TypeDef],
                                        List[Tree], List[Tree], ValDef, List[Tree])] = tree match {
-        case ClassDef(mods, name, tparams, UnMkTemplate(parents, selfType, ctorMods, vparamss, earlyDefs, body))
+        case ClassDef(mods, name, tparams, UnMkTemplate(parents, selfType, ctorMods, vparamss, body))
           if mods.isTrait =>
-          Some((mods, name, tparams, earlyDefs, parents, selfType, body))
+          Some((mods, name, tparams, Nil, parents, selfType, body))
         case _ => None
       }
     }
@@ -398,8 +377,8 @@ trait ReificationSupport { self: SymbolTable =>
         ModuleDef(mods, name, gen.mkTemplate(parents, mkSelfType(selfType), NoMods, Nil, earlyDefs ::: body))
 
       def unapply(tree: Tree): Option[(Modifiers, TermName, List[Tree], List[Tree], ValDef, List[Tree])] = tree match {
-        case ModuleDef(mods, name, UnMkTemplate(parents, selfType, _, _, earlyDefs, body)) =>
-          Some((mods, name, earlyDefs, parents, selfType, body))
+        case ModuleDef(mods, name, UnMkTemplate(parents, selfType, _, _, body)) =>
+          Some((mods, name, Nil, parents, selfType, body))
         case _ =>
           None
       }

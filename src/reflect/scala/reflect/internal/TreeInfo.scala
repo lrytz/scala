@@ -323,7 +323,7 @@ abstract class TreeInfo {
   //
   // We would like to avoid emitting unnecessary fields, but the required knowledge isn't available until after typer.
   // The only way to avoid emitting & suppressing, is to not emit at all until we are sure to need the field, as dotty does.
-  def noFieldFor(vd: ValDef, owner: Symbol) = vd.mods.isDeferred || vd.mods.isLazy || (owner.isTrait && !vd.mods.hasFlag(PRESUPER))
+  def noFieldFor(vd: ValDef, owner: Symbol) = vd.mods.isDeferred || vd.mods.isLazy || owner.isTrait
 
 
   def isDefaultGetter(tree: Tree) = {
@@ -529,24 +529,6 @@ abstract class TreeInfo {
   def firstConstructorArgs(stats: List[Tree]): List[Tree] = firstConstructor(stats) match {
     case DefDef(_, _, _, args :: _, _, _) => args
     case _                                => Nil
-  }
-
-  /** The value definitions marked PRESUPER in this statement sequence */
-  def preSuperFields(stats: List[Tree]): List[ValDef] =
-    stats collect { case vd@ValDef(mods, _, _, _) if mods hasFlag PRESUPER => vd }
-
-  def hasUntypedPreSuperFields(stats: List[Tree]): Boolean =
-    preSuperFields(stats) exists (_.tpt.isEmpty)
-
-  def isEarlyDef(tree: Tree) = tree match {
-    case TypeDef(mods, _, _, _) => mods hasFlag PRESUPER
-    case ValDef(mods, _, _, _) => mods hasFlag PRESUPER
-    case _ => false
-  }
-
-  def isEarlyValDef(tree: Tree) = tree match {
-    case ValDef(mods, _, _, _) => mods hasFlag PRESUPER
-    case _ => false
   }
 
   /** Is tpt a vararg type of the form T* ? */

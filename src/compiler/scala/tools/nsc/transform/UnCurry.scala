@@ -471,11 +471,9 @@ abstract class UnCurry extends InfoTransform
                     case Block(stats, expr) =>
                       def transformInConstructor(stat: Tree) =
                         withInConstructorFlag(INCONSTRUCTOR) { transform(stat) }
-                      val presupers = treeInfo.preSuperFields(stats) map transformInConstructor
-                      val rest = stats drop presupers.length
-                      val supercalls = rest take 1 map transformInConstructor
-                      val others = rest drop 1 map transform
-                      treeCopy.Block(rhs, presupers ::: supercalls ::: others, transform(expr))
+                      val supercalls = stats take 1 map transformInConstructor
+                      val others = stats drop 1 map transform
+                      treeCopy.Block(rhs, supercalls ::: others, transform(expr))
                   }
                   treeCopy.DefDef(
                     dd, mods, name, transformTypeDefs(tparams),

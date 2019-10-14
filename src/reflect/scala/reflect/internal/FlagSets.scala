@@ -52,7 +52,6 @@ trait FlagSets extends api.FlagSets { self: SymbolTable =>
     val COVARIANT     : FlagSet = Flags.COVARIANT
     val CONTRAVARIANT : FlagSet = Flags.CONTRAVARIANT
     val DEFAULTPARAM  : FlagSet = Flags.DEFAULTPARAM
-    val PRESUPER      : FlagSet = Flags.PRESUPER
     val DEFAULTINIT   : FlagSet = Flags.DEFAULTINIT
     val ENUM          : FlagSet = Flags.JAVA_ENUM
     val PARAMACCESSOR : FlagSet = Flags.PARAMACCESSOR

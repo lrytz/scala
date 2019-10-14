@@ -237,8 +237,6 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
         }
         else {
           assert(member.isTerm && !member.isDeferred, member)
-          // disable assert to support compiling against code compiled by an older compiler (until we re-starr)
-          // assert(member hasFlag PRESUPER, s"unexpected $member in $clazz ${member.debugFlagString}")
           clazz.info.decls.unlink(member)
         }
 
@@ -569,7 +567,7 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
 
       if (clazz.isTrait)
         implementedAccessors filter {
-          case vd: ValDef => assert(vd.symbol.hasFlag(PRESUPER | PARAMACCESSOR), s"unexpected valdef $vd in trait $clazz"); false
+          case vd: ValDef => assert(vd.symbol.hasFlag(PARAMACCESSOR), s"unexpected valdef $vd in trait $clazz"); false
           case _ => true
         }
       else {
@@ -624,7 +622,7 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
           treeCopy.Template(tree, parents1, self, statsWithNewDefs)
 
         case Select(qual, name) if sym.owner.isTrait && !sym.isMethod =>
-          assert(sym.hasFlag(PARAMACCESSOR | PRESUPER), s"!!! Unexpected reference to field $sym in trait $currentOwner")
+          assert(sym.hasFlag(PARAMACCESSOR), s"!!! Unexpected reference to field $sym in trait $currentOwner")
 
           // refer to fields in some trait an abstract getter in the interface.
           val ifaceGetter = sym getterIn sym.owner

@@ -170,11 +170,6 @@ trait Parsers { self: Quasiquotes =>
           result
         } else super.refineStat()
 
-      override def ensureEarlyDef(tree: Tree) = tree match {
-        case Ident(name: TermName) if isHole(name) => EarlyDefPlaceholder(name)
-        case _ => super.ensureEarlyDef(tree)
-      }
-
       override def isTypedParam(tree: Tree) = super.isTypedParam(tree) || (tree match {
         case Ident(name) if isHole(name) => true
         case _ => false

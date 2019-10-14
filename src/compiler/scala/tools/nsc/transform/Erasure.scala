@@ -458,10 +458,9 @@ abstract class Erasure extends InfoTransform
         Block(List(Apply(gen.mkSuperInitCall, Nil)), expr)
 
       case Block(stats, expr) =>
-        // needs `hasSymbolField` check because `supercall` could be a block (named / default args)
-        val (presuper, supercall :: rest) = stats span (t => t.hasSymbolWhich(_ hasFlag PRESUPER))
-        // println(s"adding mixin super calls after $presuper, $supercall: $mixinConstructorCalls\n rest: $rest, $expr")
-        treeCopy.Block(tree, presuper ::: (supercall :: mixinConstructorCalls ::: rest), expr)
+        val supercall :: rest = stats
+        // println(s"adding mixin super calls after $supercall: $mixinConstructorCalls\n rest: $rest, $expr")
+        treeCopy.Block(tree, supercall :: mixinConstructorCalls ::: rest, expr)
     }
   }
 

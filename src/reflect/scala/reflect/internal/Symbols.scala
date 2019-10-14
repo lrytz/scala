@@ -644,7 +644,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     def isCapturedVariable  = false
     def isClassConstructor  = false
     def isConstructor       = false
-    def isEarlyInitialized  = false
     def isGetter            = false
     def isDefaultGetter     = false
     def isLocalDummy        = false
@@ -2185,7 +2184,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
       *  as they are an implementation detail that's irrelevant to type checking.
       */
     def accessedOrSelf: Symbol =
-      if (hasAccessorFlag && (!owner.isTrait || hasFlag(PRESUPER))) accessed
+      if (hasAccessorFlag && !owner.isTrait) accessed
       else this
 
     /** For an outer accessor: The class from which the outer originates.
@@ -2875,7 +2874,6 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     override def moduleClass = if (isModule) referenced else NoSymbol
 
     override def isBridge           = this hasFlag BRIDGE
-    override def isEarlyInitialized = this hasFlag PRESUPER
     override def isMethod           = this hasFlag METHOD
     override def isModule           = this hasFlag MODULE
     override def isOverloaded       = this hasFlag OVERLOADED

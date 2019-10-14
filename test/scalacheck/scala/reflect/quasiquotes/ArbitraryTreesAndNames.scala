@@ -27,7 +27,7 @@ trait ArbitraryTreesAndNames {
     IMPLICIT, LAZY, OVERRIDE, PRIVATE,
     PROTECTED, LOCAL, CASE, ABSOVERRIDE,
     BYNAMEPARAM, PARAM, COVARIANT, CONTRAVARIANT,
-    DEFAULTPARAM, PRESUPER, DEFAULTINIT
+    DEFAULTPARAM, DEFAULTINIT
   )
 
   def genModifiers = for(flagset <- genFlagSet) yield Modifiers(flagset)

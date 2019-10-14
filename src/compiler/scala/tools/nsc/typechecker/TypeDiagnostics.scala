@@ -508,8 +508,6 @@ trait TypeDiagnostics {
           && !nme.isLocalName(sym.name)
           && !sym.isParameter
           && !sym.isParamAccessor       // could improve this, but it's a pain
-          && !sym.isEarlyInitialized    // lots of false positives in the way these are encoded
-          && !(sym.isGetter && sym.accessed.isEarlyInitialized)
         )
       def qualifiesType(sym: Symbol) = !sym.isDefinedInPackage
       def qualifies(sym: Symbol) = (

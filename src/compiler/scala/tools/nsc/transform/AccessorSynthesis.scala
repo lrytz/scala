@@ -42,7 +42,7 @@ trait AccessorSynthesis extends Transform with ast.TreeDSL {
   trait AccessorTreeSynthesis {
     protected def typedPos(pos: Position)(tree: Tree): Tree
 
-    // used while we still need to synthesize some accessors in mixins: paramaccessors and presupers
+    // used while we still need to synthesize some accessors in mixins: paramaccessors
     class UncheckedAccessorSynth(protected val clazz: Symbol){
       protected val _newDefs = mutable.ListBuffer[Tree]()
 
@@ -152,7 +152,7 @@ trait AccessorSynthesis extends Transform with ast.TreeDSL {
 
         if (field.isLazy)
           if (field hasAnnotation TransientAttr) BITMAP_TRANSIENT else BITMAP_NORMAL
-        else if (doCheckInit && !(field hasFlag DEFAULTINIT | PRESUPER | PARAMACCESSOR))
+        else if (doCheckInit && !(field hasFlag DEFAULTINIT | PARAMACCESSOR))
           if (field hasAnnotation TransientAttr) BITMAP_CHECKINIT_TRANSIENT else BITMAP_CHECKINIT
         else NO_NAME
       }

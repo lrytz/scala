@@ -1585,12 +1585,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           val clazz = ctorSym.owner
           clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
-          body match {
-            case Block(cstats, _) =>
-              val presupers = cstats.collect { case vd: ValDef if vd.mods hasFlag PRESUPER => vd.symbol }
-              presupers.foreach(ctorContext.scope.enter)
-            case _                =>
-          }
 
           // use existing symbols -- TODO relation to constructor parameter accessors
           // TODO are params of secondary param lists actually in scope for parent types according to spec?
@@ -1981,7 +1975,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           val rest = body1.filter(_ ne firstCtor)
 
           val primaryCtorTyped = firstCtor match {
-            case DefDef(_, _, _, _, _, Block(earlyValsCtor, unit)) if earlyValsCtor.forall(treeInfo.isEarlyValDef) =>
+            case DefDef(_, _, _, _, _, Block(Nil, unit)) =>
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, firstCtor :: Nil).makeTransparent
 
@@ -2009,10 +2003,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
 //              println(s"turning $firstParent into call $superCall")
 
-              val ctorTyped = typedByValueExpr(deriveDefDef(firstCtor)(block => Block(earlyValsCtor :+ atPos(pos)(superCall), unit) setPos pos) setPos pos).asInstanceOf[DefDef]
-
-              val preSuperVals = treeInfo.preSuperFields(rest)
-              foreach2(preSuperVals, earlyValsCtor)((abstractDef, concreteDef) => abstractDef.tpt setType concreteDef.symbol.tpe)
+              val ctorTyped = typedByValueExpr(deriveDefDef(firstCtor)(block => Block(atPos(pos)(superCall) :: Nil, unit) setPos pos) setPos pos).asInstanceOf[DefDef]
 
               ctorTyped
 
@@ -2032,13 +2023,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           case _ => ConstantAnnotationNeedsSingleArgumentList(p, clazz)
         }
         for (c <- auxConstrs) AuxConstrInConstantAnnotation(c, clazz)
-      }
-
-
-      if (clazz.isTrait) {
-        for (decl <- clazz.info.decls if decl.isTerm && decl.isEarlyInitialized) {
-          context.warning(decl.pos, "Implementation restriction: early definitions in traits are not initialized before the super class is initialized.")
-        }
       }
 
       treeCopy.Template(templ, parents1, self1, body3) setType clazz.tpe_*
@@ -2065,7 +2049,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       try {
         val valDefTyper = {
           val maybeConstrCtx =
-            if ((sym.isParameter || sym.isEarlyInitialized) && sym.owner.isConstructor) context.makeConstructorContext
+            if (sym.isParameter && sym.owner.isConstructor) context.makeConstructorContext
             else context
           newTyper(maybeConstrCtx.makeNewScope(vdef, sym))
         }

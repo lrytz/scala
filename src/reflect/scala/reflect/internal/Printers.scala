@@ -869,15 +869,6 @@ trait Printers extends api.Printers { self: SymbolTable =>
           val primaryCtr = treeInfo.firstConstructor(body)
           val ap: Option[Apply] = primaryCtr match {
               case DefDef(_, _, _, _, _, Block(ctBody, _)) =>
-                val earlyDefs = treeInfo.preSuperFields(ctBody) ::: body.filter {
-                  case td: TypeDef => treeInfo.isEarlyDef(td)
-                  case _ => false
-                }
-                if (earlyDefs.nonEmpty) {
-                  print("{")
-                  printColumn(earlyDefs, "", ";", "")
-                  print("} " + (if (printedParents.nonEmpty) "with " else ""))
-                }
                 ctBody collectFirst {
                   case apply: Apply => apply
                 }
@@ -901,11 +892,10 @@ trait Printers extends api.Printers { self: SymbolTable =>
            * right contains all constructors
            */
           val (left, right) = body.filter {
-            // remove valdefs defined in constructor and presuper vals
-            case vd: ValDef => !vd.mods.isParamAccessor && !treeInfo.isEarlyValDef(vd)
+            // remove valdefs defined in constructor
+            case vd: ValDef => !vd.mods.isParamAccessor
             // remove $this$ from traits
             case dd: DefDef => dd.name != nme.MIXIN_CONSTRUCTOR
-            case td: TypeDef => !treeInfo.isEarlyDef(td)
             case EmptyTree => false
             case _ => true
           } span {

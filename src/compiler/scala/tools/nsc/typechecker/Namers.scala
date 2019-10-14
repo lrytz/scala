@@ -72,7 +72,7 @@ trait Namers extends MethodSynthesis {
         case _                  => tree.symbol
       }
       def isConstrParam(vd: ValDef) = {
-        (sym hasFlag PARAM | PRESUPER) &&
+        (sym hasFlag PARAM) &&
         !vd.mods.isJavaDefined &&
         sym.owner.isConstructor
       }
@@ -163,7 +163,6 @@ trait Namers extends MethodSynthesis {
           val owner = context.owner
           if (!owner.isTerm || owner.isAnonymousFunction) 0L
           else if (owner.isConstructor) if (context.inConstructorSuffix) 0L else INCONSTRUCTOR
-          else if (owner.isEarlyInitialized) INCONSTRUCTOR
           else go(context.outer)
         }
 
@@ -1159,13 +1158,6 @@ trait Namers extends MethodSynthesis {
       val ctor = treeInfo.firstConstructor(templ.body)
       if (ctor != EmptyTree && ctor.symbol == NoSymbol) {
         templateNamer enterSym ctor // for typedParentTypes/mkCtorTyper
-        ctor match {
-          case DefDef(_, _, _, _, _,  Block(cstats, _)) =>
-            // If there are early vals, there must also be a constructor
-            val presupers = cstats.collect { case vd: ValDef if vd.mods hasFlag PRESUPER => vd }
-            templateNamer.enterSyms(presupers)
-          case _ =>
-        }
       }
 
       // TODO: for test/files/pos/t0039.scala  -- see TempClassInfo in dotc
@@ -1199,7 +1191,7 @@ trait Namers extends MethodSynthesis {
       enterSelf(templ.self)
 
       templateNamer enterSyms templ.body.filterNot( already => // these needed to be entered early for mkCtorTyper:
-        (already eq ctor) || treeInfo.isEarlyDef(already)
+        (already eq ctor)
       )
 
       // add apply and unapply methods to companion objects of case classes,
@@ -1989,8 +1981,6 @@ trait Namers extends MethodSynthesis {
           if(sym.isType)
             fail(AbstractOverrideOnTypeMember)
       }
-      if (sym.isLazy && sym.hasFlag(PRESUPER))
-        fail(LazyAndEarlyInit)
       if (sym.info.typeSymbol == FunctionClass(0) && sym.isValueParameter && sym.owner.isCaseClass)
         fail(ByNameParameter)
       if (sym.isTrait && sym.isFinal && !sym.isSubClass(AnyValClass))

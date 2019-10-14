@@ -203,7 +203,7 @@ self =>
 
     override def blockExpr(): Tree = skipBraces(EmptyTree)
 
-    override def templateBody(isPre: Boolean) = skipBraces((noSelfType, EmptyTree.asList))
+    override def templateBody() = skipBraces((noSelfType, EmptyTree.asList))
   }
 
   class UnitParser(override val unit: global.CompilationUnit, patches: List[BracePatch]) extends SourceFileParser(unit.source) { uself =>
@@ -2925,7 +2925,7 @@ self =>
     /** {{{
      *  ClassDef ::= Id [TypeParamClause] ConstrAnnotations
      *               [AccessModifier] ClassParamClauses RequiresTypeOpt ClassTemplateOpt
-     *  TraitDef ::= Id [TypeParamClause] ClassParamClauses RequiresTypeOpt TraitTemplateOpt
+     *  TraitDef ::= Id [TypeParamClause] ClassParamClauses RequiresTypeOpt ClassTemplateOpt
      *  }}}
      */
     def classDef(start: Offset, mods: Modifiers): ClassDef = {
@@ -2994,7 +2994,6 @@ self =>
 
     /** {{{
      *  ClassParents       ::= AnnotType {`(` [Exprs] `)`} {with AnnotType}
-     *  TraitParents       ::= AnnotType {with AnnotType}
      *  }}}
      */
     def templateParents(): List[Tree] = {
@@ -3003,78 +3002,46 @@ self =>
         val start = in.offset
         val parent = startAnnotType()
         parents += (in.token match {
+            // TODO fix positions (trait param rework)
           case LPAREN => New(parent, multipleArgumentExprs()).setPos(parent.pos.makeTransparent) // an applied parent `P(args)` is encoded as `new P(args)`
           case _      => parent // no constructor args --> no Apply node (will be one of Select/Ident/TypTree)
         })
       }
-      readAppliedParent()
-      while (in.token == WITH) { in.nextToken(); readAppliedParent() }
-      parents.toList
+
+      // skip if there are no parents -- a structural type is not allowed here (if it turns out to be an early initializer block, we'll error out later)
+      if (in.token == LBRACE) Nil
+      else {
+        readAppliedParent()
+        while (in.token == WITH) { in.nextToken(); readAppliedParent() }
+        parents.toList
+      }
     }
 
     /** {{{
-     *  ClassTemplate ::= [EarlyDefs with] ClassParents [TemplateBody]
-     *  TraitTemplate ::= [EarlyDefs with] TraitParents [TemplateBody]
-     *  EarlyDefs     ::= `{` [EarlyDef {semi EarlyDef}] `}`
-     *  EarlyDef      ::= Annotations Modifiers PatDef
+     *  ClassTemplate ::= ClassParents [TemplateBody]
      *  }}}
      */
     def template(): (List[Tree], ValDef, List[Tree]) = {
       newLineOptWhenFollowedBy(LBRACE)
-      if (in.token == LBRACE) {
-        val braceOffset = in.offset
-        // @S: pre template body cannot stub like post body can!
-        val (self, body) = templateBody(isPre = true)
-        if (in.token == WITH && (self eq noSelfType)) {
-          val advice =
-            if (currentRun.isScala214) "use trait parameters instead."
-            else "they will be replaced by trait parameters in 2.14, see the migration guide on avoiding var/val in traits."
-          deprecationWarning(braceOffset, s"early initializers are deprecated; $advice", "2.13.0")
-          val earlyDefs: List[Tree] = body.map(ensureEarlyDef).filter(_.nonEmpty)
-          in.nextToken()
-          val parents = templateParents()
-          val (self1, body1) = templateBodyOpt(parenMeansSyntaxError = false)
-          (parents, self1, earlyDefs ::: body1)
-        } else {
-          (List(), self, body)
-        }
-      } else {
-        val parents = templateParents()
-        val (self, body) = templateBodyOpt(parenMeansSyntaxError = false)
-        (parents, self, body)
-      }
-    }
+      val braceOffset = in.offset
+      val parents = templateParents()
+      val (self, body) = templateBodyOpt(parenMeansSyntaxError = false)
 
-    def ensureEarlyDef(tree: Tree): Tree = tree match {
-      case vdef @ ValDef(mods, _, _, _) if !mods.isDeferred =>
-        copyValDef(vdef)(mods = mods | Flags.PRESUPER)
-      case tdef @ TypeDef(mods, name, tparams, rhs) =>
-        def msg(what: String): String = s"early type members are $what: move them to the regular body; the semantics are the same"
-        if (currentRun.isScala214) syntaxError(tdef.pos.point, msg("unsupported"))
-        else deprecationWarning(tdef.pos.point, msg("deprecated"), "2.11.0")
-        treeCopy.TypeDef(tdef, mods | Flags.PRESUPER, name, tparams, rhs)
-      case docdef @ DocDef(comm, rhs) =>
-        treeCopy.DocDef(docdef, comm, rhs)
-      case stat if !stat.isEmpty =>
-        syntaxError(stat.pos, "only concrete field definitions allowed in early object initialization section", skipIt = false)
-        EmptyTree
-      case _ =>
-        EmptyTree
+      // there were no parents, and then we parsed block.... danger zone! next token better not be "with"
+      // TODO: wouldn't WITH also be an error even if there was a self type?
+      if (parents.isEmpty && (self eq noSelfType) && in.token == WITH)
+        syntaxError(braceOffset, s"early initializers are no longer supported; use trait parameters instead")
+
+      (parents, self, body)
     }
 
     /** {{{
      *  ClassTemplateOpt ::= `extends` ClassTemplate | [[`extends`] TemplateBody]
-     *  TraitTemplateOpt ::= TraitExtends TraitTemplate | [[TraitExtends] TemplateBody]
-     *  TraitExtends     ::= `extends` | `<:` (deprecated)
      *  }}}
      */
     def templateOpt(mods: Modifiers, name: Name, constrMods: Modifiers, vparamss: List[List[ValDef]], tstart: Offset): Template = {
-      def deprecatedUsage(): Boolean = {
-        deprecationWarning(in.offset, "Using `<:` for `extends` is deprecated", since = "2.12.5")
-        true
-      }
       val (parents, self, body) = (
-        if (in.token == EXTENDS || in.token == SUBTYPE && mods.isTrait && deprecatedUsage()) {
+        if (in.token == EXTENDS) {
           in.nextToken()
           template()
         }
@@ -3112,16 +3079,15 @@ self =>
     /** {{{
      *  TemplateBody ::= [nl] `{` TemplateStatSeq `}`
      *  }}}
-     * @param isPre specifies whether in early initializer (true) or not (false)
      */
-    def templateBody(isPre: Boolean) = inBraces(templateStatSeq(isPre = isPre)) match {
+    def templateBody() = inBraces(templateStatSeq()) match {
       case (self, Nil)  => (self, EmptyTree.asList)
       case result       => result
     }
     def templateBodyOpt(parenMeansSyntaxError: Boolean): (ValDef, List[Tree]) = {
       newLineOptWhenFollowedBy(LBRACE)
       if (in.token == LBRACE) {
-        templateBody(isPre = false)
+        templateBody()
       } else {
         if (in.token == LPAREN) {
           if (parenMeansSyntaxError) syntaxError(s"objects may not have parameters", skipIt = true)
@@ -3183,9 +3149,8 @@ self =>
     /** {{{
      *  TemplateStatSeq  ::= [id [`:` Type] `=>`] TemplateStats
      *  }}}
-     * @param isPre specifies whether in early initializer (true) or not (false)
      */
-    def templateStatSeq(isPre : Boolean): (ValDef, List[Tree]) = {
+    def templateStatSeq(): (ValDef, List[Tree]) = {
       var self: ValDef = noSelfType
       var firstOpt: Option[Tree] = None
       if (isExprIntro) checkNoEscapingPlaceholders {

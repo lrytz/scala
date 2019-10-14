@@ -173,9 +173,6 @@ trait FlagSets { self: Universe =>
     /** Flag indicating that tree represents a parameter that has a default value */
     val DEFAULTPARAM: FlagSet
 
-    /** Flag indicating that tree represents an early definition */
-    val PRESUPER: FlagSet
-
     /** Flag indicating that tree represents a variable or a member initialized to the default value */
     val DEFAULTINIT: FlagSet
 

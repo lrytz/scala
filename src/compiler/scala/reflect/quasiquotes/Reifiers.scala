@@ -150,7 +150,6 @@ trait Reifiers { self: Quasiquotes =>
       case FunctionTypePlaceholder(argtpes, restpe) => reifyFunctionType(argtpes, restpe)
       case CasePlaceholder(hole) => hole.tree
       case RefineStatPlaceholder(hole) => reifyRefineStat(hole)
-      case EarlyDefPlaceholder(hole) => reifyEarlyDef(hole)
       case PackageStatPlaceholder(hole) => reifyPackageStat(hole)
       case ParamPlaceholder(hole) => hole.tree
       // for enumerators are checked not during splicing but during
@@ -297,8 +296,6 @@ trait Reifiers { self: Quasiquotes =>
 
     def reifyRefineStat(hole: Hole) = reifyConstructionCheck(nme.mkRefineStat, hole)
 
-    def reifyEarlyDef(hole: Hole) = reifyConstructionCheck(nme.mkEarlyDef, hole)
-
     def reifyAnnotation(hole: Hole) = reifyConstructionCheck(nme.mkAnnotation, hole)
 
     def reifyPackageStat(hole: Hole) = reifyConstructionCheck(nme.mkPackageStat, hole)
@@ -358,7 +355,6 @@ trait Reifiers { self: Quasiquotes =>
       case Placeholder(Hole(tree, DotDot)) => tree
       case CasePlaceholder(Hole(tree, DotDot)) => tree
       case RefineStatPlaceholder(h @ Hole(_, DotDot)) => reifyRefineStat(h)
-      case EarlyDefPlaceholder(h @ Hole(_, DotDot)) => reifyEarlyDef(h)
       case PackageStatPlaceholder(h @ Hole(_, DotDot)) => reifyPackageStat(h)
       case ForEnumPlaceholder(Hole(tree, DotDot)) => tree
       case ParamPlaceholder(Hole(tree, DotDot)) => tree

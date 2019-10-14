@@ -298,7 +298,7 @@ abstract class ExplicitOuter extends InfoTransform
             assert(outerParam.name startsWith nme.OUTER, outerParam.name)
           case _                                                                                                             =>
         }
-        if ((treeInfo isSelfOrSuperConstrCall tree) || (treeInfo isEarlyDef tree)) {
+        if ((treeInfo isSelfOrSuperConstrCall tree)) {
           selfOrSuperCalls push currentOwner.owner
           val transformed = super.transform(tree)
           selfOrSuperCalls.pop()

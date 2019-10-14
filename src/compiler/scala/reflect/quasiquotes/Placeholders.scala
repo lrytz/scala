@@ -181,15 +181,6 @@ trait Placeholders { self: Quasiquotes =>
     }
   }
 
-  object EarlyDefPlaceholder {
-    def apply(name: Name) =
-      ValDef(Modifiers(Flag.PRESUPER), nme.QUASIQUOTE_EARLY_DEF, Ident(name), EmptyTree)
-    def unapply(tree: Tree): Option[Hole] = tree match {
-      case ValDef(_, nme.QUASIQUOTE_EARLY_DEF, Ident(Placeholder(hole)), _) => Some(hole)
-      case _ => None
-    }
-  }
-
   object PackageStatPlaceholder {
     def apply(name: Name) =
       ValDef(NoMods, nme.QUASIQUOTE_PACKAGE_STAT, Ident(name), EmptyTree)

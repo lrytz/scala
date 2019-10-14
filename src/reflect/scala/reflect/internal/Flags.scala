@@ -57,7 +57,7 @@ package internal
 // 34:               LIFTED
 // 35:          EXISTENTIAL       MIXEDIN
 // 36:         EXPANDEDNAME
-// 37:           PRESUPER/M
+// 37:
 // 38:           TRANS_FLAG
 // 39:               LOCKED
 // 40:          SPECIALIZED
@@ -122,7 +122,6 @@ class ModifierFlags {
                                           // for parameters of a primary constructor ('val' or not)
                                           // for the accessor methods generated for 'val' or 'var' parameters
   final val LAZY          = 1L << 31      // symbol is a lazy val. can't have MUTABLE unless transformed by typer
-  final val PRESUPER      = 1L << 37      // value is evaluated before super call
   final val DEFAULTINIT   = 1L << 41      // symbol is initialized to the default value: used by -Xcheckinit
   final val ARTIFACT      = 1L << 46      // symbol should be ignored when typechecking; will be marked ACC_SYNTHETIC in bytecode
                                           // to see which symbols are marked as ARTIFACT, see scaladocs for FlagValues.ARTIFACT
@@ -283,14 +282,14 @@ class Flags extends ModifierFlags {
    *  PRIVATE, LOCAL.
    */
   final val FieldFlags =
-    MUTABLE | CASEACCESSOR | PARAMACCESSOR | STATIC | FINAL | PRESUPER | LAZY | DEFAULTINIT
+    MUTABLE | CASEACCESSOR | PARAMACCESSOR | STATIC | FINAL | LAZY | DEFAULTINIT
 
   /** Masks for getters and setters, where the flags are derived from those
    *  on the field's modifiers.  Both getters and setters get the ACCESSOR flag.
    *  Getters of immutable values also get STABLE.
    */
-  final val GetterFlags = ~(PRESUPER | MUTABLE)
-  final val SetterFlags = ~(PRESUPER | MUTABLE | STABLE | CASEACCESSOR | IMPLICIT)
+  final val GetterFlags = ~(MUTABLE)
+  final val SetterFlags = ~(MUTABLE | STABLE | CASEACCESSOR | IMPLICIT)
 
   /** Since DEFAULTPARAM is overloaded with TRAIT, we need some additional
    *  means of determining what that bit means. Usually DEFAULTPARAM is coupled
@@ -343,8 +342,8 @@ class Flags extends ModifierFlags {
     (paramFlags & DefaultGetterFlags) | SYNTHETIC | METHOD | DEFAULTPARAM
 
   def getterFlags(fieldFlags: Long): Long = ACCESSOR + (
-    if ((fieldFlags & MUTABLE) != 0) fieldFlags & ~MUTABLE & ~PRESUPER
-    else fieldFlags & ~PRESUPER | STABLE
+    if ((fieldFlags & MUTABLE) != 0) fieldFlags & ~MUTABLE
+    else fieldFlags | STABLE
   )
 
   def setterFlags(fieldFlags: Long): Long =
@@ -451,7 +450,7 @@ class Flags extends ModifierFlags {
     case              LIFTED => "<lifted>"                            // (1L << 34)
     case         EXISTENTIAL => "<existential/mixedin>"               // (1L << 35)
     case        EXPANDEDNAME => "<expandedname>"                      // (1L << 36)
-    case            PRESUPER => "<presuper>"                          // (1L << 37)
+    // 37 was presuper (early initializers)
     case          TRANS_FLAG => "<trans_flag>"                        // (1L << 38)
     case              LOCKED => "<locked>"                            // (1L << 39)
     case         SPECIALIZED => "<specialized>"                       // (1L << 40)

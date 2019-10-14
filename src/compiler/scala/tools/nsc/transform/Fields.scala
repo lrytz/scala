@@ -90,9 +90,6 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
     if (sym.isJavaDefined || sym.isPackageClass || !sym.isClass) tp
     else synthFieldsAndAccessors(tp)
 
-  // TODO: drop PRESUPER support when we implement trait parameters in 2.13
-  private def excludedAccessorOrFieldByFlags(statSym: Symbol): Boolean = statSym hasFlag PRESUPER
-
   // used for internal communication between info and tree transform of this phase -- not pickled, not in initialflags
   // TODO: reuse MIXEDIN for NEEDS_TREES?
   override def phaseNewFlags: Long = NEEDS_TREES | OVERRIDDEN_TRAIT_SETTER
@@ -748,7 +745,7 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
         // (until then, trees should not be constant-folded -- only their type tracks the resulting constant)
         // also remove ACCESSOR flag since there won't be an underlying field to access?
         case DefDef(_, _, _, _, _, rhs) if (statSym hasFlag ACCESSOR)
-                                           && (rhs ne EmptyTree) && !excludedAccessorOrFieldByFlags(statSym)
+                                           && (rhs ne EmptyTree)
                                            && !currOwner.isTrait // we've already done this for traits.. the asymmetry will be solved by the above todo
                                            && fieldMemoizationIn(statSym, currOwner).constantTyped =>
           deriveDefDef(stat)(_ => gen.mkAttributedQualifier(rhs.tpe))
@@ -769,7 +766,7 @@ abstract class Fields extends InfoTransform with ast.TreeDSL with TypingTransfor
           }
 
         // drop the val for (a) constant (pure & not-stored) and (b) not-stored (but still effectful) fields
-        case ValDef(mods, _, _, rhs) if (rhs ne EmptyTree) && !excludedAccessorOrFieldByFlags(statSym)
+        case ValDef(mods, _, _, rhs) if (rhs ne EmptyTree)
                                         && currOwner.isClass && fieldMemoizationIn(statSym, currOwner).constantTyped =>
           EmptyThicket
 

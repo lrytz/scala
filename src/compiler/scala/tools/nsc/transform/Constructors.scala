@@ -413,13 +413,6 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
      * 'specInstance$' is added in phase specialize.
      */
     def guardSpecializedInitializer(stats: List[Tree]): List[Tree] = if (settings.nospecialization.value) stats else {
-      // // split the statements in presuper and postsuper
-      // var (prefix, postfix) = stats0.span(tree => !((tree.symbol ne null) && tree.symbol.isConstructor))
-      // if (postfix.nonEmpty) {
-      //   prefix = prefix :+ postfix.head
-      //   postfix = postfix.tail
-      // }
-
       if (guardSpecializedFieldInit && usesSpecializedField && stats.nonEmpty) {
         // save them for duplication in the specialized subclass
         guardedCtorStats(clazz) = stats
@@ -608,22 +601,9 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
         // Constant typed vals are not memoized.
         def memoizeValue(sym: Symbol) = !sym.info.resultType.isInstanceOf[FoldableConstantType]
 
-        // The early initialized field definitions of the class (these are the class members)
-        val presupers = treeInfo.preSuperFields(stats)
-
         // generate code to copy pre-initialized fields
         for (stat <- primaryConstrBody.stats) {
           constrStatBuf += stat
-          stat match {
-            case ValDef(mods, name, _, _) if mods.hasFlag(PRESUPER) => // TODO trait presupers
-              // stat is the constructor-local definition of the field value
-              val fields = presupers filter (_.getterName == name)
-              assert(fields.length == 1, s"expected exactly one field by name $name in $presupers of $clazz's early initializers")
-              val to = fields.head.symbol
-
-              if (memoizeValue(to)) constrStatBuf += mkAssign(to, Ident(stat.symbol))
-            case _ =>
-          }
         }
 
         val primaryConstrSym = primaryConstr.symbol
@@ -645,7 +625,7 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
             if (initializingRhs ne EmptyTree) {
               val initPhase =
                 if (mods hasFlag STATIC) classInitStatBuf
-                else if (mods hasFlag PRESUPER | PARAMACCESSOR) constrPrefixBuf
+                else if (mods hasFlag PARAMACCESSOR) constrPrefixBuf
                 else constrStatBuf
 
               initPhase += mkAssign(assignSym, initializingRhs)

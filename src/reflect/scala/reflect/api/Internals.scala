@@ -580,10 +580,6 @@ trait Internals { self: Universe =>
 
     def mkPackageStat(stats: List[Tree]): List[Tree]
 
-    def mkEarlyDef(defn: Tree): Tree
-
-    def mkEarlyDef(defns: List[Tree]): List[Tree]
-
     def mkRefTree(qual: Tree, sym: Symbol): Tree
 
     def freshTermName(prefix: String): TermName
