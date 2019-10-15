@@ -2030,7 +2030,11 @@ trait Namers extends MethodSynthesis {
     val tree: Tree
     override def forceDirectSuperclasses: Unit = {
       tree.foreach {
-        case dt: DefTree => global.withPropagateCyclicReferences(Option(dt.symbol).map(_.maybeInitialize))
+        // TODO traitparams figure out why I had to exclude synthetic symbols
+        //   (pos/t7046-2 fails with an InvalidConstructorDefError because it doesn't see the constructor in its decls -- it exists as a tree though)
+        // don't force synthetic symbols because they may not have finished adding all their members to the decls of their info
+        case dt: DefTree if !dt.symbol.isSynthetic =>
+          global.withPropagateCyclicReferences(Option(dt.symbol).map(_.maybeInitialize))
         case _ =>
       }
     }
