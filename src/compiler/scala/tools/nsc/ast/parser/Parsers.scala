@@ -1760,14 +1760,18 @@ self =>
             val nstart = in.skipToken()
             val npos = r2p(nstart, nstart, in.lastOffset)
             val tstart = in.offset
-            val (parents, self, stats) = template()
+            val (parents, self, stats) = template(npos)
             val cpos = r2p(tstart, tstart, in.lastOffset max tstart)
 
+//            println(s"npos: $npos -- parent: ${parents.head} at ${parents.head.pos}")
             (parents, self, stats) match {
-              case (parent :: Nil, `noSelfType`, List()) => // if there was no block at all, we get the empty list for stats -- an empty block is encoded as List(EmptyTree)
-                atPos(npos union cpos)(
-                  if (parent.isInstanceOf[Apply]) parent // templateParents adds the New application when constructor arguments were supplied (but it doesn't know the position of the new keyword)
-                  else Apply(Select(New(parent), nme.CONSTRUCTOR), Nil)) // unapplied parent
+              // if there was no block at all, we get the empty list for stats -- an empty block is encoded as List(EmptyTree)
+              case (parent :: Nil, `noSelfType`, List()) =>
+                parent match {
+                    // templateParents adds the New application when constructor arguments were supplied
+                  case _: Apply => parent
+                  case parent => atPos(npos)(Apply(Select(New(parent.setPos(npos.focus)), nme.CONSTRUCTOR), Nil)) // unapplied parent
+                }
               case _ => // need an anonymous class (either multiple parents or a block for a refinement)
                 gen.mkNew(parents, self, stats, npos, cpos)
             }
@@ -2996,14 +3000,18 @@ self =>
      *  ClassParents       ::= AnnotType {`(` [Exprs] `)`} {with AnnotType}
      *  }}}
      */
-    def templateParents(): List[Tree] = {
+    def templateParents(precedingNewPos: Position): List[Tree] = {
       val parents = new ListBuffer[Tree]
       def readAppliedParent() = {
         val start = in.offset
         val parent = startAnnotType()
         parents += (in.token match {
-            // TODO fix positions (trait param rework)
-          case LPAREN => New(parent, multipleArgumentExprs()).setPos(parent.pos.makeTransparent) // an applied parent `P(args)` is encoded as `new P(args)`
+          case LPAREN => // an applied parent `P(args)` is encoded as `new P(args)`
+            val ctorCall = Select(New(parent).setPos(precedingNewPos), nme.CONSTRUCTOR).setPos(precedingNewPos)
+            atPos(precedingNewPos /* TODO should union with the whole apply expr? */)(multipleArgumentExprs() match {
+              case Nil        => Apply(ctorCall, Nil).setPos(precedingNewPos)
+              case xs :: rest => rest.foldLeft(Apply(ctorCall, xs).setPos(precedingNewPos))(Apply.apply)
+            })
           case _      => parent // no constructor args --> no Apply node (will be one of Select/Ident/TypTree)
         })
       }
@@ -3021,10 +3029,10 @@ self =>
      *  ClassTemplate ::= ClassParents [TemplateBody]
      *  }}}
      */
-    def template(): (List[Tree], ValDef, List[Tree]) = {
+    def template(precedingNewPos: Position): (List[Tree], ValDef, List[Tree]) = {
       newLineOptWhenFollowedBy(LBRACE)
       val braceOffset = in.offset
-      val parents = templateParents()
+      val parents = templateParents(precedingNewPos)
       val (self, body) = templateBodyOpt(parenMeansSyntaxError = false)
 
       // there were no parents, and then we parsed block.... danger zone! next token better not be "with"
@@ -3043,7 +3051,7 @@ self =>
       val (parents, self, body) = (
         if (in.token == EXTENDS) {
           in.nextToken()
-          template()
+          template(NoPosition)
         }
         else {
           newLineOptWhenFollowedBy(LBRACE)
