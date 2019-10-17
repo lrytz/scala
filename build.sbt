@@ -1261,6 +1261,7 @@ intellij := {
       moduleDeps(interactive).value,
       moduleDeps(junit).value,
       moduleDeps(library).value,
+      moduleDeps(compilerBridge).value,
       moduleDeps(manual).value,
       moduleDeps(testkit).value,
       moduleDeps(partest).value,
