@@ -22,7 +22,6 @@ import scala.reflect.internal.Depth
 /** This trait contains methods related to type parameter inference.
  *
  *  @author Martin Odersky
- *  @version 1.0
  */
 trait Infer extends Checkable {
   self: Analyzer =>
@@ -49,12 +48,21 @@ trait Infer extends Checkable {
          (removeRepeated || numFormals != numArgs)
       && isVarArgTypes(formals1)
     )
-    def lastType = formals1.last.dealiasWiden.typeArgs.head
-    def expanded(n: Int) = (1 to n).toList map (_ => lastType)
 
-    if (expandLast)
-      formals1.init ::: expanded(numArgs - numFormals + 1)
-    else
+    if (expandLast) {
+      // extract the T from T*
+      val lastType = formals1.last.dealiasWiden.typeArgs.head
+
+      val n = numArgs - numFormals + 1
+      // Optimized version of: formals1.init ::: List.fill(n)(lastType)
+      val result = mutable.ListBuffer[Type]()
+      var fs = formals1
+      while ((fs ne Nil) && (fs.tail ne Nil)) {
+        result.addOne(fs.head)
+        fs = fs.tail
+      }
+      result.prependToList(fillList(n)(lastType))
+    } else
       formals1
   }
 
@@ -259,7 +267,7 @@ trait Infer extends Checkable {
 
     /** Check that `sym` is defined and accessible as a member of
      *  tree `site` with type `pre` in current context.
-     *  @PP: In case it's not abundantly obvious to anyone who might read
+     *  @note PP: In case it's not abundantly obvious to anyone who might read
      *  this, the method does a lot more than "check" these things, as does
      *  nearly every method in the compiler, so don't act all shocked.
      *  This particular example "checks" its way to assigning both the
@@ -284,7 +292,7 @@ trait Infer extends Checkable {
       }
       // XXX So... what's this for exactly?
       if (context.unit.exists)
-        context.unit.depends += sym.enclosingTopLevelClass
+        context.unit.registerDependency(sym.enclosingTopLevelClass)
 
       if (sym.isError)
         tree setSymbol sym setType ErrorType
@@ -312,11 +320,11 @@ trait Infer extends Checkable {
 
     /** "Compatible" means conforming after conversions.
      *  "Raising to a thunk" is not implicit; therefore, for purposes of applicability and
-     *  specificity, an arg type `A` is considered compatible with cbn formal parameter type `=>A`.
+     *  specificity, an arg type `A` is considered compatible with cbn formal parameter type `=> A`.
      *  For this behavior, the type `pt` must have cbn params preserved; for instance, `formalTypes(removeByName = false)`.
      *
-     *  `isAsSpecific` no longer prefers A by testing applicability to A for both m(A) and m(=>A)
-     *  since that induces a tie between m(=>A) and m(=>A,B*) [scala/bug#3761]
+     *  `isAsSpecific` no longer prefers A by testing applicability to A for both m(A) and m(=> A)
+     *  since that induces a tie between m(=> A) and m(=> A, B*) [scala/bug#3761]
      */
     private def isCompatible(tp: Type, pt: Type): Boolean = {
       def isCompatibleByName(tp: Type, pt: Type): Boolean = (
@@ -563,7 +571,7 @@ trait Infer extends Checkable {
         if (!isFullyDefined(tvar)) tvar.constr.inst = NoType
 
       // Then define remaining type variables from argument types.
-      map2(argtpes, formals) { (argtpe, formal) =>
+      foreach2(argtpes, formals) { (argtpe, formal) =>
         val tp1 = argtpe.deconst.instantiateTypeParams(tparams, tvars)
         val pt1 = formal.instantiateTypeParams(tparams, tvars)
 
@@ -717,7 +725,7 @@ trait Infer extends Checkable {
     }
 
     /** The type of an argument list after being coerced to a tuple.
-     *  @pre: the argument list is eligible for tuple conversion.
+     *  @note Pre-condition: The argument list is eligible for tuple conversion.
      */
     private def typeAfterTupleConversion(argtpes: List[Type]): Type =
       if (argtpes.isEmpty) UnitTpe                 // aka "Tuple0"
@@ -933,6 +941,9 @@ trait Infer extends Checkable {
       || isProperSubClassOrObject(sym1.safeOwner, sym2.owner)
     )
 
+    // Note that this doesn't consider undetparams -- any type params in `ftpe1/2` need to be bound by their type (i.e. in a PolyType)
+    // since constructors of poly classes do not have their own polytype in their infos, this must be fixed up
+    // before calling this method (see memberTypeForSpecificity)
     def isStrictlyMoreSpecific(ftpe1: Type, ftpe2: Type, sym1: Symbol, sym2: Symbol): Boolean = {
       // ftpe1 / ftpe2 are OverloadedTypes (possibly with one single alternative) if they
       // denote the type of an "apply" member method (see "followApply")
@@ -1330,6 +1341,25 @@ trait Infer extends Checkable {
 
     /* -- Overload Resolution ---------------------------------------------- */
 
+    /** Adjust polymorphic class's constructor info to be polymorphic as well
+     *
+     * Normal polymorphic methods have a PolyType as their info, but a constructor reuses the type params of the class.
+     * We wrap them in a PolyType here so that we get consistent behavior in determining specificity.
+     *
+     * @param pre
+     * @param sym must not be overloaded!
+     * @return `pre memberType sym`, unless `sym`` is a polymorphic class's constructor,
+     *         in which case a `PolyType` is wrapped around the ctor's info
+     */
+    private def memberTypeForSpecificity(pre: Type, sym: Symbol) = {
+      val tparsToAdd = if (sym.isConstructor) sym.owner.info.typeParams else Nil
+
+      if (tparsToAdd.isEmpty) pre memberType sym
+      // Need to make sure tparsToAdd are owned by sym (the constructor), and not the class (`sym.owner`).
+      // Otherwise, asSeenFrom will rewrite them to the corresponding symbols in `pre` (the new this type for `sym.owner`).
+      else createFromClonedSymbolsAtOwner(tparsToAdd, sym, sym.info)(PolyType(_, _)).asSeenFrom(pre, sym.owner)
+    }
+
     /** Assign `tree` the symbol and type of the alternative which
      *  matches prototype `pt`, if it exists.
      *  If several alternatives match `pt`, take parameterless one.
@@ -1342,8 +1372,8 @@ trait Infer extends Checkable {
           val alts0 = alts filter (alt => isWeaklyCompatible(pre memberType alt, pt))
           val alts1 = if (alts0.isEmpty) alts else alts0
           val bests = bestAlternatives(alts1) { (sym1, sym2) =>
-            val tp1 = pre memberType sym1
-            val tp2 = pre memberType sym2
+            val tp1 = memberTypeForSpecificity(pre, sym1)
+            val tp2 = memberTypeForSpecificity(pre, sym2)
 
             (    (tp2 eq ErrorType)
               || isWeaklyCompatible(tp1, pt) && !isWeaklyCompatible(tp2, pt)
@@ -1440,7 +1470,7 @@ trait Infer extends Checkable {
      *    the type is replaces by `Unit`, i.e. the argument is treated as an
      *    assignment expression.
      *
-     *  @pre  tree.tpe is an OverloadedType.
+     *  @note Pre-condition `tree.tpe` is an `OverloadedType`.
      */
     def inferMethodAlternative(tree: Tree, undetparams: List[Symbol], argtpes0: List[Type], pt0: Type): Unit = {
       // This potentially makes up to four attempts: tryOnce may execute
@@ -1455,7 +1485,7 @@ trait Infer extends Checkable {
           case tp               => tp
         }
 
-        private def followType(sym: Symbol) = followApply(pre memberType sym)
+        private def followType(sym: Symbol) = followApply(memberTypeForSpecificity(pre, sym))
         // separate method to help the inliner
         private def isAltApplicable(pt: Type)(alt: Symbol) = context inSilentMode { isApplicable(undetparams, followType(alt), argtpes, pt) && !context.reporter.hasErrors }
         private def rankAlternatives(sym1: Symbol, sym2: Symbol) = isStrictlyMoreSpecific(followType(sym1), followType(sym2), sym1, sym2)

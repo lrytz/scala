@@ -8,11 +8,11 @@ object Test {
 
   val DefaultTimeout = Duration(5, TimeUnit.SECONDS)
 
-  def main(args: Array[String]): Unit = {
-    (new FutureTests).check()
-    (new PromiseTests).check()
-    (new TryTests).check()
-  }
+  def main(args: Array[String]): Unit =
+    List(
+      (new FutureTests),
+      (new PromiseTests),
+    ).foreach(_.check())
 
 }
 
@@ -42,12 +42,12 @@ trait MinimalScalaTest extends Output with Features with Vigil {
 
   implicit def stringops(s: String) = new {
 
-    def should[U](snippets: =>U) = {
+    def should[U](snippets: => U) = {
       bufferPrintln(s + " should:")
       snippets
     }
 
-    def in[U](snippet: =>U) = {
+    def in[U](snippet: => U) = {
       try {
         bufferPrintln("- " + s)
         snippet
@@ -69,7 +69,7 @@ trait MinimalScalaTest extends Output with Features with Vigil {
 
   }
 
-  def intercept[T <: Throwable: Manifest](body: =>Any): T = {
+  def intercept[T <: Throwable: Manifest](body: => Any): T = {
     try {
       body
       throw new Exception("Exception of type %s was not thrown".format(manifest[T]))
@@ -132,7 +132,7 @@ class TestLatch(count: Int = 1) extends Awaitable[Unit] {
     this
   }
 
-  @throws(classOf[Exception])
+  @throws(classOf[TimeoutException])
   def result(atMost: Duration)(implicit permit: CanAwait): Unit = {
     ready(atMost)
   }

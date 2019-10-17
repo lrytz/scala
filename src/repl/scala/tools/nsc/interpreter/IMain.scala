@@ -37,6 +37,7 @@ import scala.tools.nsc.util.{stackTraceString, stringFromWriter}
 import scala.tools.nsc.interpreter.Results.{Error, Incomplete, Result, Success}
 import scala.tools.nsc.util.Exceptional.rootCause
 import scala.util.control.NonFatal
+import scala.annotation.tailrec
 
 
 /** An interpreter for Scala code.
@@ -58,7 +59,7 @@ import scala.util.control.NonFatal
   *  all variables defined by that code.  To extract the result of an
   *  interpreted line to show the user, a second "result object" is created
   *  which imports the variables exported by the above object and then
-  *  exports members called "$eval" and "$print". To accommodate user expressions
+  *  exports members called "\$eval" and "\$print". To accommodate user expressions
   *  that read from variables or methods defined in previous statements, "import"
   *  statements are used.
   *
@@ -108,8 +109,8 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
     try body finally label = saved
   }
 
-  override def visibleSettings: SettingSet = settings.visibleSettings
-  override def userSetSettings: SettingSet = settings.userSetSettings
+  override def visibleSettings: List[Setting] = settings.visibleSettings
+  override def userSetSettings: List[Setting] = settings.userSetSettings
   override def updateSettings(arguments: List[String]): Boolean = {
     val (ok, rest) = settings.processArguments(arguments, processAll = false)
     ok && rest.isEmpty
@@ -134,11 +135,11 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
   override def initializeCompiler(): Boolean = global != null
 
   lazy val global: Global = {
-    // Can't use our own reporter until global is initialized
-    val startupReporter = new StoreReporter
-
-    compilerSettings.outputDirs setSingleOutput replOutput.dir
+    compilerSettings.outputDirs.setSingleOutput(replOutput.dir)
     compilerSettings.exposeEmptyPackage.value = true
+
+    // Can't use our own reporter until global is initialized
+    val startupReporter = new StoreReporter(compilerSettings)
 
     val compiler = new Global(compilerSettings, startupReporter) with ReplGlobal
 
@@ -322,7 +323,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
 
   /** If path represents a class resource in the default package,
     *  see if the corresponding symbol has a class file that is a REPL artifact
-    *  residing at a different resource path. Translate X.class to $line3/$read$$iw$$iw$X.class.
+    *  residing at a different resource path. Translate X.class to \$line3/\$read\$\$iw\$\$iw\$X.class.
     */
   def translateSimpleResource(path: String): Option[String] = {
     if (!(path contains '/') && (path endsWith ".class")) {
@@ -339,7 +340,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
   /** If unable to find a resource foo.class, try taking foo as a symbol in scope
     *  and use its java class name as a resource to load.
     *
-    *  $intp.classLoader classBytes "Bippy" or $intp.classLoader getResource "Bippy.class" just work.
+    *  \$intp.classLoader classBytes "Bippy" or \$intp.classLoader getResource "Bippy.class" just work.
     */
   private class TranslatingClassLoader(parent: ClassLoader) extends AbstractFileClassLoader(replOutput.dir, parent) {
     override protected def findAbstractFile(name: String): AbstractFile = super.findAbstractFile(name) match {
@@ -499,7 +500,7 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
     *  a custom `eval` object that wraps the bound value.
     *
     *  If the bound value is successfully installed, then bind the name
-    *  by interpreting `val name = $line42.$eval.value`.
+    *  by interpreting `val name = \$line42.\$eval.value`.
     *
     *  @param name      the variable name to bind
     *  @param boundType the type of the variable, as a string
@@ -708,6 +709,30 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
 
       success
     }
+  }
+
+  @inline private final def tyParens[T](ts: Iterable[T]): String       = ts.mkString("[", ", ", "]")
+  @inline private final def implicitParens[T](ts: Iterable[T]): String = ts.mkString("(implicit ", ", ", ")")
+  @inline private final def parens[T](ts: Iterable[T]): String         = ts.mkString("(", ", ", ")")
+
+  private def methodTypeAsDef(tp: Type): String = {
+
+    def withoutImplicit(sym: Symbol): Symbol = sym.cloneSymbol(sym.owner, sym.flags & ~Flag.IMPLICIT)
+
+    def formatParams(params: List[Symbol]): String = {
+      if (params.headOption.exists(_.isImplicit)) implicitParens(params.map(withoutImplicit(_).defString))
+      else parens(params.map(_.defString))
+    }
+
+    @tailrec
+    def loop(tpe: Type, acc: StringBuilder): StringBuilder = tpe match {
+      case NullaryMethodType(resultType)  => acc ++= s": $resultType"
+      case PolyType(tyParams, resultType) => loop(resultType, acc ++= tyParens(tyParams.map(_.defString)))
+      case MethodType(params, resultType) => loop(resultType, acc ++= formatParams(params))
+      case other                          => acc ++= s": $other"
+    }
+
+    loop(tp, new StringBuilder).toString
   }
 
   /** One line of code submitted by the user for interpretation */
@@ -933,6 +958,10 @@ class IMain(val settings: Settings, parentClassLoaderOverride: Option[ClassLoade
     lazy val compilerTypeOf = typeMap[Type](x => x) withDefaultValue NoType
     /** String representations of same. */
     lazy val typeOf         = typeMap[String](tp => exitingTyper(tp.toString))
+    /** String representations as if a method type. */
+    private[this] lazy val defTypeOfMap = typeMap[String](tp => exitingTyper(methodTypeAsDef(tp)))
+
+    def defTypeOf(name: Name)(implicit show: Name => String): String = show(name) + defTypeOfMap(name)
 
     lazy val definedSymbols = (
       termNames.map(x => x -> applyToResultMember(x, x => x)) ++

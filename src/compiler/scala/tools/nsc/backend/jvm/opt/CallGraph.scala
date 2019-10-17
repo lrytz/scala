@@ -14,10 +14,10 @@ package scala.tools.nsc
 package backend.jvm
 package opt
 
-import scala.collection.JavaConverters._
 import scala.collection.concurrent.TrieMap
 import scala.collection.immutable.IntMap
 import scala.collection.{concurrent, mutable}
+import scala.jdk.CollectionConverters._
 import scala.reflect.internal.util.{NoPosition, Position}
 import scala.tools.asm.tree._
 import scala.tools.asm.{Opcodes, Type}
@@ -34,7 +34,7 @@ abstract class CallGraph {
   import postProcessor._
   import bTypes._
   import bTypesFromClassfile._
-  import frontendAccess.{compilerSettings, recordPerRunCache}
+  import frontendAccess.recordPerRunCache
 
   /**
    * The call graph contains the callsites in the program being compiled.
@@ -307,7 +307,7 @@ abstract class CallGraph {
    * Analyze a callsite and gather meta-data that can be used for inlining decisions.
    */
   private def analyzeCallsite(calleeMethodNode: MethodNode, calleeDeclarationClassBType: ClassBType, call: MethodInsnNode, paramTps: FLazy[Array[Type]], calleeSourceFilePath: Option[String], callsiteClass: ClassBType): CallsiteInfo = {
-    val methodSignature = calleeMethodNode.name + calleeMethodNode.desc
+    val methodSignature = (calleeMethodNode.name, calleeMethodNode.desc)
 
     try {
       // The inlineInfo.methodInfos of a ClassBType holds an InlineInfo for each method *declared*

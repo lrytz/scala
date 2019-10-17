@@ -18,6 +18,7 @@ import java.util.Arrays
 import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.Stepper.EfficientSplit
 import scala.collection.mutable.{ArrayBuffer, ArrayBuilder, Builder, ArraySeq => MutableArraySeq}
+import scala.collection.convert.impl._
 import scala.reflect.ClassTag
 import scala.runtime.ScalaRunTime
 import scala.util.Sorting
@@ -55,33 +56,7 @@ sealed abstract class ArraySeq[+A]
   protected def evidenceIterableFactory: ArraySeq.type = ArraySeq
   protected def iterableEvidence: ClassTag[A @uncheckedVariance] = elemTag.asInstanceOf[ClassTag[A]]
 
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
-    import scala.collection.convert.impl._
-    val isRefShape = shape.shape == StepperShape.ReferenceShape
-    val s = if (isRefShape) unsafeArray match {
-      case a: Array[Int]     => AnyStepper.ofParIntStepper   (new IntArrayStepper(a, 0, a.length))
-      case a: Array[Long]    => AnyStepper.ofParLongStepper  (new LongArrayStepper(a, 0, a.length))
-      case a: Array[Double]  => AnyStepper.ofParDoubleStepper(new DoubleArrayStepper(a, 0, a.length))
-      case a: Array[Byte]    => AnyStepper.ofParIntStepper   (new WidenedByteArrayStepper(a, 0, a.length))
-      case a: Array[Short]   => AnyStepper.ofParIntStepper   (new WidenedShortArrayStepper(a, 0, a.length))
-      case a: Array[Char]    => AnyStepper.ofParIntStepper   (new WidenedCharArrayStepper(a, 0, a.length))
-      case a: Array[Float]   => AnyStepper.ofParDoubleStepper(new WidenedFloatArrayStepper(a, 0, a.length))
-      case a: Array[Boolean] => new BoxedBooleanArrayStepper(a, 0, a.length)
-      case a: Array[AnyRef]  => new ObjectArrayStepper(a, 0, a.length)
-    } else {
-      unsafeArray match {
-        case a: Array[AnyRef] => shape.parUnbox(new ObjectArrayStepper(a, 0, a.length).asInstanceOf[AnyStepper[B] with EfficientSplit])
-        case a: Array[Int]    => new IntArrayStepper(a, 0, a.length)
-        case a: Array[Long]   => new LongArrayStepper(a, 0, a.length)
-        case a: Array[Double] => new DoubleArrayStepper(a, 0, a.length)
-        case a: Array[Byte]   => new WidenedByteArrayStepper(a, 0, a.length)
-        case a: Array[Short]  => new WidenedShortArrayStepper(a, 0, a.length)
-        case a: Array[Char]   => new WidenedCharArrayStepper(a, 0, a.length)
-        case a: Array[Float]  => new WidenedFloatArrayStepper(a, 0, a.length)
-      }
-    }
-    s.asInstanceOf[S with EfficientSplit]
-  }
+  def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit
 
   @throws[ArrayIndexOutOfBoundsException]
   def apply(i: Int): A
@@ -208,18 +183,9 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
 
   def empty[A : ClassTag]: ArraySeq[A] = emptyImpl
 
-  def from[A : ClassTag](it: scala.collection.IterableOnce[A]): ArraySeq[A] = unsafeWrapArray {
-    val n = it.knownSize
-    if (n > -1) {
-      val elements = Array.ofDim[A](n)
-      val iterator = it.iterator
-      var i = 0
-      while (i < n) {
-        ScalaRunTime.array_update(elements, i, iterator.next())
-        i = i + 1
-      }
-      elements
-    } else ArrayBuffer.from(it).toArray
+  def from[A](it: scala.collection.IterableOnce[A])(implicit tag: ClassTag[A]): ArraySeq[A] = it match {
+    case as: ArraySeq[A] => as
+    case _ => unsafeWrapArray(Array.from[A](it))
   }
 
   def newBuilder[A : ClassTag]: Builder[A, ArraySeq[A]] =
@@ -239,7 +205,7 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
 
   /**
    * Wrap an existing `Array` into an `ArraySeq` of the proper primitive specialization type
-   * without copying.
+   * without copying. Any changes to wrapped array will break the expected immutability.
    *
    * Note that an array containing boxed primitives can be wrapped in an `ArraySeq` without
    * copying. For example, `val a: Array[Any] = Array(1)` is an array of `Object` at runtime,
@@ -285,6 +251,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         new ArraySeq.ofRef(a)
       }
     }
+    override def iterator: Iterator[T] = new ArrayOps.ArrayIterator[T](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[T, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        new ObjectArrayStepper(unsafeArray, 0, unsafeArray.length)
+      else shape.parUnbox(new ObjectArrayStepper(unsafeArray, 0, unsafeArray.length).asInstanceOf[AnyStepper[T] with EfficientSplit])
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -305,6 +277,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Arrays.sort(a)
         new ArraySeq.ofByte(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Byte] = new ArrayOps.ArrayIterator[Byte](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Byte, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParIntStepper(new WidenedByteArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new WidenedByteArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -325,6 +303,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Arrays.sort(a)
         new ArraySeq.ofShort(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Short] = new ArrayOps.ArrayIterator[Short](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Short, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParIntStepper(new WidenedShortArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new WidenedShortArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -345,6 +329,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Arrays.sort(a)
         new ArraySeq.ofChar(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Char] = new ArrayOps.ArrayIterator[Char](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Char, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParIntStepper(new WidenedCharArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new WidenedCharArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
 
     override def addString(sb: StringBuilder, start: String, sep: String, end: String): StringBuilder =
       (new MutableArraySeq.ofChar(unsafeArray)).addString(sb, start, sep, end)
@@ -368,6 +358,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Arrays.sort(a)
         new ArraySeq.ofInt(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Int] = new ArrayOps.ArrayIterator[Int](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Int, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParIntStepper(new IntArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new IntArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -388,6 +384,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Arrays.sort(a)
         new ArraySeq.ofLong(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Long] = new ArrayOps.ArrayIterator[Long](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Long, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParLongStepper(new LongArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new LongArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -401,6 +403,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
       case that: ofFloat => Arrays.equals(unsafeArray, that.unsafeArray)
       case _ => super.equals(that)
     }
+    override def iterator: Iterator[Float] = new ArrayOps.ArrayIterator[Float](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Float, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParDoubleStepper(new WidenedFloatArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new WidenedFloatArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -414,6 +422,12 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
       case that: ofDouble => Arrays.equals(unsafeArray, that.unsafeArray)
       case _ => super.equals(that)
     }
+    override def iterator: Iterator[Double] = new ArrayOps.ArrayIterator[Double](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Double, S]): S with EfficientSplit = (
+      if(shape.shape == StepperShape.ReferenceShape)
+        AnyStepper.ofParDoubleStepper(new DoubleArrayStepper(unsafeArray, 0, unsafeArray.length))
+      else new DoubleArrayStepper(unsafeArray, 0, unsafeArray.length)
+    ).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -434,6 +448,9 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
         Sorting.stableSort(a)
         new ArraySeq.ofBoolean(a)
       } else super.sorted[B]
+    override def iterator: Iterator[Boolean] = new ArrayOps.ArrayIterator[Boolean](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Boolean, S]): S with EfficientSplit =
+      new BoxedBooleanArrayStepper(unsafeArray, 0, unsafeArray.length).asInstanceOf[S with EfficientSplit]
   }
 
   @SerialVersionUID(3L)
@@ -447,5 +464,8 @@ object ArraySeq extends StrictOptimizedClassTagSeqFactory[ArraySeq] { self =>
       case that: ofUnit => unsafeArray.length == that.unsafeArray.length
       case _ => super.equals(that)
     }
+    override def iterator: Iterator[Unit] = new ArrayOps.ArrayIterator[Unit](unsafeArray)
+    override def stepper[S <: Stepper[_]](implicit shape: StepperShape[Unit, S]): S with EfficientSplit =
+      new ObjectArrayStepper[AnyRef](unsafeArray.asInstanceOf[Array[AnyRef]], 0, unsafeArray.length).asInstanceOf[S with EfficientSplit]
   }
 }

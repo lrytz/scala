@@ -54,10 +54,10 @@ import scala.collection.{Stepper, StepperShape, mutable}
   * There are two possibilities to process elements of a primitive Accumulator without boxing:
   * specialized operations of the Accumulator, or the Stepper interface. The most common collection
   * operations are overloaded or overridden in the primitive Accumulator classes, for example
-  * [[IntAccumulator.map(f:Int=>Int)* IntAccumulator.map]] or [[IntAccumulator.exists]]. Thanks to Scala's function specialization,
+  * [[IntAccumulator.map(f: Int => Int)* IntAccumulator.map]] or [[IntAccumulator.exists]]. Thanks to Scala's function specialization,
   * `intAcc.exists(x => testOn(x))` does not incur boxing.
   *
-  * The [[Stepper]] interface provides iterator-like `hasStep` and `nextStep` methods, and is
+  * The [[scala.collection.Stepper]] interface provides iterator-like `hasStep` and `nextStep` methods, and is
   * specialized for `Int`, `Long` and `Double`. The `intAccumulator.stepper` method creates an
   * [[scala.collection.IntStepper]] that yields the elements of the accumulator without boxing.
   *
@@ -86,9 +86,9 @@ abstract class Accumulator[@specialized(Double, Int, Long) A, +CC[X] <: mutable.
     else 1 << 24
   }
 
-  protected def efficientStepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit
+  protected def efficientStepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit
 
-  final override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
+  final override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit =
     efficientStepper(shape)
 
   final override def length: Int =

@@ -16,15 +16,13 @@ package collection.mutable
 import scala.collection.Stepper.EfficientSplit
 import scala.collection.generic.DefaultSerializable
 import scala.collection.mutable.{RedBlackTree => RB}
-import scala.collection.{SortedIterableFactory, SortedSetFactoryDefaults, Stepper, StepperShape, StrictOptimizedIterableOps, StrictOptimizedSortedSetOps}
+import scala.collection.{SortedIterableFactory, SortedSetFactoryDefaults, Stepper, StepperShape, StrictOptimizedIterableOps, StrictOptimizedSortedSetOps, mutable}
 
 /**
   * A mutable sorted set implemented using a mutable red-black tree as underlying data structure.
   *
   * @param ordering the implicit ordering used to compare objects of type `A`.
   * @tparam A the type of the keys contained in this tree set.
-  *
-  * @since 2.10
   *
   * @define Coll mutable.TreeSet
   * @define coll mutable tree set
@@ -55,14 +53,14 @@ sealed class TreeSet[A] private (private val tree: RB.Tree[A, Null])(implicit va
 
   def iteratorFrom(start: A): collection.Iterator[A] = RB.keysIterator(tree, Some(start))
 
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit = {
     import scala.collection.convert.impl._
     type T = RB.Node[A, Null]
     val s = shape.shape match {
       case StepperShape.IntShape    => IntBinaryTreeStepper.from[T]   (size, tree.root, _.left, _.right, _.key.asInstanceOf[Int])
       case StepperShape.LongShape   => LongBinaryTreeStepper.from[T]  (size, tree.root, _.left, _.right, _.key.asInstanceOf[Long])
       case StepperShape.DoubleShape => DoubleBinaryTreeStepper.from[T](size, tree.root, _.left, _.right, _.key.asInstanceOf[Double])
-      case _         => shape.parUnbox(AnyBinaryTreeStepper.from[B, T](size, tree.root, _.left, _.right, _.key.asInstanceOf[B]))
+      case _         => shape.parUnbox(AnyBinaryTreeStepper.from[A, T](size, tree.root, _.left, _.right, _.key))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -154,10 +152,10 @@ sealed class TreeSet[A] private (private val tree: RB.Tree[A, Null])(implicit va
 
     override def size = if (RB.size(tree) == 0) 0 else iterator.length
     override def knownSize: Int = if (RB.size(tree) == 0) 0 else -1
-    override def isEmpty = RB.size(tree) == 0 || !iterator.hasNext
+    override def isEmpty: Boolean = RB.size(tree) == 0 || !iterator.hasNext
 
-    override def head = headOption.get
-    override def headOption = {
+    override def head: A = headOption.get
+    override def headOption: Option[A] = {
       val elem = if (from.isDefined) RB.minKeyAfter(tree, from.get) else RB.minKey(tree)
       (elem, until) match {
         case (Some(e), Some(unt)) if ordering.compare(e, unt) >= 0 => None
@@ -165,7 +163,7 @@ sealed class TreeSet[A] private (private val tree: RB.Tree[A, Null])(implicit va
       }
     }
 
-    override def last = lastOption.get
+    override def last: A = lastOption.get
     override def lastOption = {
       val elem = if (until.isDefined) RB.maxKeyBefore(tree, until.get) else RB.maxKey(tree)
       (elem, from) match {
@@ -179,7 +177,7 @@ sealed class TreeSet[A] private (private val tree: RB.Tree[A, Null])(implicit va
     // https://github.com/scala/scala/pull/4608#discussion_r34307985 for a discussion about this.
     override def foreach[U](f: A => U): Unit = iterator.foreach(f)
 
-    override def clone() = super.clone().rangeImpl(from, until)
+    override def clone(): mutable.TreeSet[A] = super.clone().rangeImpl(from, until)
 
   }
 

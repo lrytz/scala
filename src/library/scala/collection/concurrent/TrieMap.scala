@@ -14,7 +14,6 @@ package scala
 package collection
 package concurrent
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
 import java.util.concurrent.atomic._
 
 import scala.annotation.tailrec
@@ -620,16 +619,6 @@ private[collection] final class CNode[K, V](val bitmap: Int, val array: Array[Ba
 
   private[concurrent] def string(lev: Int): String = "CNode %x\n%s".format(bitmap, array.map(_.string(lev + 1)).mkString("\n"))
 
-  /* quiescently consistent - don't call concurrently to anything involving a GCAS!! */
-  private def collectElems: Seq[(K, V)] = array.flatMap({
-    case sn: SNode[K, V] => Iterable.single(sn.kvPair)
-    case in: INode[K, V] => in.mainnode match {
-      case tn: TNode[K, V] => Iterable.single(tn.kvPair)
-      case ln: LNode[K, V] => ln.entries.to(immutable.List)
-      case cn: CNode[K, V] => cn.collectElems
-    }
-  })
-
   private def collectLocalElems: Seq[String] = array.flatMap({
     case sn: SNode[K, V] => Iterable.single(sn.kvPair._2.toString)
     case in: INode[K, V] => Iterable.single(scala.Predef.augmentString(in.toString).drop(14) + "(" + in.gen + ")")
@@ -677,8 +666,6 @@ private[concurrent] case class RDCSS_Descriptor[K, V](old: INode[K, V], expected
   *  distributed across subsequent updates, thus making snapshot evaluation horizontally scalable.
   *
   *  For details, see: [[http://lampwww.epfl.ch/~prokopec/ctries-snapshot.pdf]]
-  *
-  *  @since 2.10
   */
 final class TrieMap[K, V] private (r: AnyRef, rtupd: AtomicReferenceFieldUpdater[TrieMap[K, V], AnyRef], hashf: Hashing[K], ef: Equiv[K])
   extends scala.collection.mutable.AbstractMap[K, V]
@@ -728,15 +715,16 @@ final class TrieMap[K, V] private (r: AnyRef, rtupd: AtomicReferenceFieldUpdater
     hashingobj = in.readObject().asInstanceOf[Hashing[K]]
     equalityobj = in.readObject().asInstanceOf[Equiv[K]]
 
-    var obj: AnyRef = null
-    do {
+    var obj: AnyRef = in.readObject()
+
+    while (obj != TrieMapSerializationEnd) {
       obj = in.readObject()
       if (obj != TrieMapSerializationEnd) {
         val k = obj.asInstanceOf[K]
         val v = in.readObject().asInstanceOf[V]
         update(k, v)
       }
-    } while (obj != TrieMapSerializationEnd)
+    }
   }
 
   private def CAS_ROOT(ov: AnyRef, nv: AnyRef) = rootupdater.compareAndSet(this, ov, nv)
@@ -944,7 +932,7 @@ final class TrieMap[K, V] private (r: AnyRef, rtupd: AtomicReferenceFieldUpdater
     *  @param op     the expression that computes the value
     *  @return       the newly added value
     */
-  override def getOrElseUpdate(k: K, op: =>V): V = {
+  override def getOrElseUpdate(k: K, op: => V): V = {
     val hc = computeHash(k)
     lookuphc(k, hc) match {
       case INodeBase.NO_SUCH_ELEMENT_SENTINEL =>
@@ -1023,15 +1011,15 @@ object TrieMap extends MapFactory[TrieMap] {
 
   def empty[K, V]: TrieMap[K, V] = new TrieMap[K, V]
 
-  def from[K, V](it: IterableOnce[(K, V)]) = new TrieMap[K, V]() ++= it
+  def from[K, V](it: IterableOnce[(K, V)]): TrieMap[K, V] = new TrieMap[K, V]() ++= it
 
-  def newBuilder[K, V] = new GrowableBuilder(empty[K, V])
+  def newBuilder[K, V]: mutable.GrowableBuilder[(K, V), TrieMap[K, V]] = new GrowableBuilder(empty[K, V])
 
   @transient
-  val inodeupdater = AtomicReferenceFieldUpdater.newUpdater(classOf[INodeBase[_, _]], classOf[MainNode[_, _]], "mainnode")
+  val inodeupdater: AtomicReferenceFieldUpdater[INodeBase[_, _], MainNode[_, _]] = AtomicReferenceFieldUpdater.newUpdater(classOf[INodeBase[_, _]], classOf[MainNode[_, _]], "mainnode")
 
   class MangledHashing[K] extends Hashing[K] {
-    def hash(k: K)= scala.util.hashing.byteswap32(k.##)
+    def hash(k: K): Int = scala.util.hashing.byteswap32(k.##)
   }
 }
 
@@ -1103,9 +1091,9 @@ private[collection] class TrieMapIterator[K, V](var level: Int, private var ct: 
     }
   } else current = null
 
-  protected def newIterator(_lev: Int, _ct: TrieMap[K, V], _mustInit: Boolean) = new TrieMapIterator[K, V](_lev, _ct, _mustInit)
+  protected def newIterator(_lev: Int, _ct: TrieMap[K, V], _mustInit: Boolean): TrieMapIterator[K, V] = new TrieMapIterator[K, V](_lev, _ct, _mustInit)
 
-  protected def dupTo(it: TrieMapIterator[K, V]) = {
+  protected def dupTo(it: TrieMapIterator[K, V]): Unit = {
     it.level = this.level
     it.ct = this.ct
     it.depth = this.depth

@@ -28,8 +28,6 @@ import scala.util.hashing.MurmurHash3
   * See paper https://michael.steindorfer.name/publications/oopsla15.pdf for more details.
   *
   *  @tparam A      the type of the elements contained in this hash set.
-  *
-  *  @since   2.13
   *  @define Coll `immutable.HashSet`
   *  @define coll immutable champ hash set
   */
@@ -39,6 +37,9 @@ final class HashSet[A] private[immutable](private[immutable] val rootNode: Bitma
     with IterableFactoryDefaults[A, HashSet]
     with DefaultSerializable {
 
+  def this() = this(SetNode.empty)
+
+  // This release fence is present because rootNode may have previously been mutated during construction.
   releaseFence()
 
   private[this] def newHashSetOrThis(newRootNode: BitmapIndexedSetNode[A]): HashSet[A] =
@@ -59,13 +60,13 @@ final class HashSet[A] private[immutable](private[immutable] val rootNode: Bitma
 
   protected[immutable] def reverseIterator: Iterator[A] = new SetReverseIterator[A](rootNode)
 
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => IntChampStepper.from[   SetNode[A]](size, rootNode, (node, i) => node.getPayload(i).asInstanceOf[Int])
       case StepperShape.LongShape   => LongChampStepper.from[  SetNode[A]](size, rootNode, (node, i) => node.getPayload(i).asInstanceOf[Long])
       case StepperShape.DoubleShape => DoubleChampStepper.from[SetNode[A]](size, rootNode, (node, i) => node.getPayload(i).asInstanceOf[Double])
-      case _         => shape.parUnbox(AnyChampStepper.from[B, SetNode[A]](size, rootNode, (node, i) => node.getPayload(i)))
+      case _         => shape.parUnbox(AnyChampStepper.from[A, SetNode[A]](size, rootNode, (node, i) => node.getPayload(i)))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -464,7 +465,7 @@ private final class BitmapIndexedSetNode[A](
       } else {
         val element0UnimprovedHash = getHash(index)
         val element0Hash = improve(element0UnimprovedHash)
-        if (originalHash == element0UnimprovedHash && element0.equals(element)) {
+        if (originalHash == element0UnimprovedHash && element0 == element) {
           return this
         } else {
           val subNodeNew = mergeTwoKeyValPairs(element0, element0UnimprovedHash, element0Hash, element, originalHash, elementHash, shift + BitPartitionSize)

@@ -18,9 +18,6 @@ import scala.language.implicitConversions
 import java.math.{ MathContext, BigDecimal => BigDec }
 import scala.collection.immutable.NumericRange
 
-/**
- *  @since 2.7
- */
 object BigDecimal {
   private final val maximumHashScale = 4934           // Quit maintaining hash identity with BigInt beyond this scale
   private final val hashCodeNotComputed = 0x5D50690F  // Magic value (happens to be "BigDecimal" old MurmurHash3 value)
@@ -691,7 +688,7 @@ extends ScalaNumber with ScalaNumericConversions with Serializable with Ordered[
     new Range.Partial(until(end, _))
 
   /** Same as the one-argument `until`, but creates the range immediately. */
-  def until(end: BigDecimal, step: BigDecimal) = Range.BigDecimal(this, end, step)
+  def until(end: BigDecimal, step: BigDecimal): NumericRange.Exclusive[BigDecimal] = Range.BigDecimal(this, end, step)
 
   /** Like `until`, but inclusive of the end value. */
   def to(end: BigDecimal): Range.Partial[BigDecimal, NumericRange.Inclusive[BigDecimal]] =

@@ -46,15 +46,18 @@ abstract class Attachments { self =>
   /** The underlying payload with the guarantee that no two elements have the same type. */
   def all: Set[Any] = Set.empty
 
-  private def matchesTag[T: ClassTag](datum: Any) =
-    classTag[T].runtimeClass.isInstance(datum)
+  private def matchesTag[T: ClassTag]: (Any => Boolean) = {
+    // OPT: avoid lambda allocation for each call to `remove`, etc.
+    Attachments.matchesTagCache.get(classTag[T].runtimeClass)
+  }
 
   /** An underlying payload of the given class type `T`. */
   def get[T: ClassTag]: Option[T] = {
     val it = all.iterator
+    val matchesTagFn = matchesTag[T]
     while (it.hasNext) { // OPT: hotspot, hand roll `Set.find`.
       val datum = it.next()
-      if (matchesTag[T](datum)) return Some(datum.asInstanceOf[T])
+      if (matchesTagFn(datum)) return Some(datum.asInstanceOf[T])
     }
     None
   }
@@ -71,12 +74,21 @@ abstract class Attachments { self =>
 
   /** Creates a copy of this attachment with the payload of the given class type `T` removed. */
   def remove[T: ClassTag]: Attachments { type Pos = self.Pos } = {
-    val newAll = all filterNot matchesTag[T]
-    if (newAll.isEmpty) pos.asInstanceOf[Attachments { type Pos = self.Pos }]
-    else new NonemptyAttachments[Pos](this.pos, newAll)
+    if (!all.exists(matchesTag[T])) this // OPT immutable.Set.filter doesn't structurally share on 2.12 collections.
+    else {
+      val newAll = all filterNot matchesTag[T]
+      if (newAll.isEmpty) pos.asInstanceOf[Attachments { type Pos = self.Pos }]
+      else new NonemptyAttachments[Pos](this.pos, newAll)
+    }
   }
 
   def isEmpty: Boolean = true
+}
+
+private object Attachments {
+  private val matchesTagCache = new ClassValue[Function1[Any, Boolean]] {
+    override def computeValue(cls: Class[_]): Function[Any, Boolean] = cls.isInstance(_)
+  }
 }
 
 // scala/bug#7018: This used to be an inner class of `Attachments`, but that led to a memory leak in the

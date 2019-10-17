@@ -203,7 +203,7 @@ trait MarkupParsers {
     }
 
     /** adds entity/character to ts as side-effect
-     *  @precond ch == '&'
+     *  @note Pre-condition: ch == '&'
      */
     def content_AMP(ts: ArrayBuffer[Tree]): Unit = {
       nextch()
@@ -223,8 +223,8 @@ trait MarkupParsers {
     }
 
     /**
-     *  @precond ch == '{'
-     *  @postcond: xEmbeddedBlock == false!
+     *  @note Pre-condition: ch == '{'
+     *  @note Post-condition: xEmbeddedBlock == false!
      */
     def content_BRACE(p: Position, ts: ArrayBuffer[Tree]): Unit =
       if (xCheckEmbeddedBlock) ts += xEmbeddedExpr
@@ -395,7 +395,7 @@ trait MarkupParsers {
           handle.makeXMLseq(r2p(start, start, curOffset), ts)
         }
         else {
-          assert(ts.length == 1)
+          assert(ts.length == 1, "Require one tree")
           ts(0)
         }
       },

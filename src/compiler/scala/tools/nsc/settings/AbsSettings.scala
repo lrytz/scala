@@ -22,19 +22,19 @@ trait AbsSettings extends scala.reflect.internal.settings.AbsSettings {
   type Setting <: AbsSetting      // Fix to the concrete Setting type
   type ResultOfTryToSet           // List[String] in mutable, (Settings, List[String]) in immutable
   def errorFn: String => Unit
-  protected def allSettings: scala.collection.Set[Setting]
+  protected def allSettings: scala.collection.Map[String, Setting]
 
   // settings minus internal usage settings
-  def visibleSettings = allSettings filterNot (_.isInternalOnly)
+  def visibleSettings: List[Setting] = allSettings.valuesIterator.filterNot(_.isInternalOnly).toList
 
   // only settings which differ from default
-  def userSetSettings = visibleSettings filterNot (_.isDefault)
+  def userSetSettings: List[Setting] = visibleSettings.filterNot(_.isDefault)
 
   // an argument list which (should) be usable to recreate the Settings
-  def recreateArgs = userSetSettings.toList flatMap (_.unparse)
+  def recreateArgs: List[String] = userSetSettings flatMap (_.unparse)
 
   // checks both name and any available abbreviations
-  def lookupSetting(cmd: String): Option[Setting] = allSettings find (_ respondsTo cmd)
+  def lookupSetting(cmd: String): Option[Setting] = allSettings.valuesIterator find (_ respondsTo cmd)
 
   // two AbsSettings objects are equal if their visible settings are equal.
   override def hashCode() = visibleSettings.size  // going for cheap
@@ -71,7 +71,7 @@ trait AbsSettings extends scala.reflect.internal.settings.AbsSettings {
      *  we can't use "this.type", at least not in a non-casty manner, which
      *  is unfortunate because we lose type information without it.
      *
-     *  ...but now they're this.type because of #3462.  The immutable
+     *  ...but now they're this.type because of scala/bug#3462.  The immutable
      *  side doesn't exist yet anyway.
      */
     def withAbbreviation(name: String): this.type
@@ -130,8 +130,8 @@ trait AbsSettings extends scala.reflect.internal.settings.AbsSettings {
     def isAdvanced   = name.startsWith("-X") && name != "-X"
     def isPrivate    = name.startsWith("-Y") && name != "-Y"
     def isVerbose    = name.startsWith("-V") && name != "-V"
-    def isWarning    = name match { case "-W" | "-Werror" => false ; case "-Xlint" => true ; case _  => name.startsWith("-W") }
-    def isStandard   = !isAdvanced && !isPrivate && !isWarning && !isVerbose
+    def isWarning    = name.startsWith("-W") && name != "-W" || name == "-Xlint"
+    def isStandard   = !isAdvanced && !isPrivate && !isWarning && !isVerbose || name == "-Werror"
     def isDeprecated = deprecationMessage.isDefined
 
     def compare(that: Setting): Int = name compare that.name

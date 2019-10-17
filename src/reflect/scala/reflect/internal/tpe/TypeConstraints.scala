@@ -34,8 +34,12 @@ private[internal] trait TypeConstraints {
     //OPT this method is public so we can do `manual inlining`
     var log: UndoPairs = List()
 
-    // register with the auto-clearing cache manager
-    perRunCaches.recordCache(this)
+    if (isCompilerUniverse) {
+      // register with the auto-clearing cache manager
+      // perRunCaches isn't threadsafe so don't do this in runtime reflection, which doesn't (can't)
+      // ever call `perRunCaches.clearAll()` anyway
+      perRunCaches.recordCache(this)
+    }
 
     /** Undo all changes to constraints to type variables up to `limit`. */
     //OPT this method is public so we can do `manual inlining`
@@ -97,7 +101,7 @@ private[internal] trait TypeConstraints {
       *  only guards against being created with them.]
       */
     private[this] var lobounds = lo0 filterNot typeIsNothing
-    private[this] var hibounds = hi0 filterNot typeIsAny
+    private[this] var hibounds = hi0 filterNot typeIsAnyOrJavaObject
     private[this] var numlo = numlo0
     private[this] var numhi = numhi0
     private[this] var avoidWidening = avoidWidening0
@@ -143,7 +147,7 @@ private[internal] trait TypeConstraints {
     def addHiBound(tp: Type, isNumericBound: Boolean = false): Unit = {
       // My current test case only demonstrates the need to let Nothing through as
       // a lower bound, but I suspect the situation is symmetrical.
-      val mustConsider = typeIsAny(tp) || !(hibounds contains tp)
+      val mustConsider = typeIsAnyOrJavaObject(tp) || !(hibounds contains tp)
       if (mustConsider) {
         checkWidening(tp)
         if (isNumericBound && isNumericValueType(tp)) {
@@ -182,7 +186,7 @@ private[internal] trait TypeConstraints {
           case tp :: Nil => " >: " + tp
           case tps       => tps.mkString(" >: (", ", ", ")")
         }
-        val hi = hiBounds filterNot typeIsAny match {
+        val hi = hiBounds filterNot typeIsAnyOrJavaObject match {
           case Nil       => ""
           case tp :: Nil => " <: " + tp
           case tps       => tps.mkString(" <: (", ", ", ")")
@@ -213,58 +217,56 @@ private[internal] trait TypeConstraints {
       if (hi) tparam.info.upperBound else tparam.info.lowerBound
 
     def solveOne(tvar: TypeVar, isContravariant: Boolean): Unit = {
-      val tparam = tvar.origin.typeSymbol
       if (tvar.constr.inst == NoType) {
         tvar.constr.inst = null // mark tvar as being solved
 
         val up = if (isContravariant) !upper else upper
+        val tparam = tvar.origin.typeSymbol
 
-        val tparamTycon = tparam.typeConstructor
+        // don't use =:= -- we just want to know whether the tparam occurs
+        // (using =:= may side-effect additional constraints / unify too much, e.g. with wildcard -- scala/bug#11558)
+        @inline def tvarIsBoundOf(tparamOther: Symbol) =
+          toBound(!up, tparamOther).dealias match {
+            case TypeRef(_, `tparam`, Nil) => true // make sure typeArgs.isEmpty: it gets complicated with type constructor variables -- don't flip those around
+            // TODO could add the PolyType equivalent for eta-expanded type constructors
+            case _                         => false
+          }
+
         val bound = toBound(up, tparam)
-
-        var cyclic = bound contains tparam
+        var otherTypeVarBeingSolved = false
 
         // Solve other type vars, they are relevant when:
         //   - our current bound mentions the other tparam
         //   - our current tparam equals the other tparam's bound (we'll add the symmetric bound below)
-        foreachWithIndex(tvars) { (tvar2, ix) =>
-          val tparam2 = tvar2.origin.typeSymbol
-          if ((tparam2 ne tparam) && ((bound contains tparam2) || tparamTycon =:= toBound(!up, tparam2))) {
-            if (tvar2.constr.inst eq null) cyclic = true // came back to a tvar that's being solved --> cycle! (note that we capture the `cyclic` var)
-            solveOne(tvar2, areContravariant(ix))
+        foreachWithIndex(tvars) { (tvarOther, ix) =>
+          val tparamOther = tvarOther.origin.typeSymbol
+          if ((tparamOther ne tparam) && ((bound contains tparamOther) || tvarIsBoundOf(tparamOther))) {
+            if (tvarOther.constr.inst eq null) otherTypeVarBeingSolved = true
+            solveOne(tvarOther, areContravariant(ix))
           }
         }
 
-        if (!cyclic) {
+
+        if (!(otherTypeVarBeingSolved || (bound contains tparam))) {
           val boundSym = bound.typeSymbol
           if (up) {
             if (boundSym != AnyClass)
               tvar.addHiBound(bound.instantiateTypeParams(tparams, tvars))
-
-            // Try to derive more constraints for `tvar` (and `tparam`) from its symmetric occurrences in the bounds of other tparams.
-            // `tparam` is the lower bound of `tvarOther`. Flip that, and add `tvarOther` as an upper bound for `tvar`.
-            // Use =:=, so that we equate eta-expanded type constructors (polytypes) and the equivalent no-arg typeref.
-            tvars.foreach { tvarOther =>
-              val tparamOther = tvarOther.origin.typeSymbol
-              if ((tparamOther ne tparam) && tparamOther.info.lowerBound =:= tparamTycon)
-                tvar.addHiBound(tvarOther)
-            }
           } else {
             if (boundSym != tparam && boundSym != NothingClass)
               tvar.addLoBound(bound.instantiateTypeParams(tparams, tvars))
+          }
 
-            // Try to derive more constraints for `tvar` (and `tparam`) from its symmetric occurrences in the bounds of other tparams.
-            // `tparam` is the upper bound of `tvarOther`. Flip that, and add `tvarOther` as an lower bound for `tvar`.
-            // Use =:=, so that we equate eta-expanded type constructors (polytypes) and the equivalent no-arg typeref.
-            tvars.foreach { tvarOther =>
-              val tparamOther = tvarOther.origin.typeSymbol
-              if ((tparamOther ne tparam) && tparamOther.info.upperBound =:= tparamTycon)
-                tvar.addLoBound(tvarOther)
+          // Derive more constraints for `tvar` from its symmetric occurrences in the bounds of other tparams.
+          tvars.foreach { tvarOther =>
+            val tparamOther = tvarOther.origin.typeSymbol
+            if ((tparamOther ne tparam) && tvarIsBoundOf(tparamOther)) {
+              if (up) tvar.addHiBound(tvarOther) else tvar.addLoBound(tvarOther)
             }
           }
         }
 
-        tvar.constr.inst = NoType // necessary because hibounds/lobounds may contain tvar
+        tvar.constr.inst = NoType // necessary because hibounds/lobounds may contain tvar (about to lub/glb the bounds)
 
         val newInst =
           if (up || tvar.constr.hiBounds.exists(isSingleType)) { // If we have a singleton upper bound then we should use it.

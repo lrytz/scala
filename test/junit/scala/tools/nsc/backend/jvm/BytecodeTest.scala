@@ -10,6 +10,7 @@ import scala.tools.testkit.ASMConverters._
 import scala.tools.testkit.BytecodeTesting
 import scala.tools.testkit.BytecodeTesting._
 import scala.collection.JavaConverters._
+import scala.tools.asm.Opcodes
 
 @RunWith(classOf[JUnit4])
 class BytecodeTest extends BytecodeTesting {
@@ -271,5 +272,66 @@ class BytecodeTest extends BytecodeTesting {
     check("t5", List("C.b", "C.b", "C.b"))
     check("t6", List("C.b", "C.b", "C.b"))
     check("t7", List("C.b", "C.b", "C.b", "C.b", "C.b", "C.b", "C.b", "C.b"))
+  }
+
+  @Test
+  def t11412(): Unit = {
+    val code = "class A { val a = 0 }; class C extends A with App { val x = 1; val y = x }"
+    val cs = compileClasses(code)
+    val c = cs.find(_.name == "C").get
+    val fs = c.fields.asScala.toList.sortBy(_.name).map(f => (f.name, (f.access & Opcodes.ACC_FINAL) != 0))
+    assertEquals(List(
+      ("executionStart", false),
+      ("scala$App$$_args", false),
+      ("scala$App$$initCode", false),
+      ("x", false),
+      ("y", false)
+    ), fs)
+    val assignedInConstr = getMethod(c, "<init>").instructions.filter(_.opcode == Opcodes.PUTFIELD)
+    assertEquals(Nil, assignedInConstr)
+  }
+
+  @Test
+  def t11412b(): Unit = {
+    val code = "class C { def f = { var x = 0; val y = 1; class K extends App { def m = x + y } } }"
+    val cs = compileClasses(code)
+    val k = cs.find(_.name == "C$K$1").get
+    val fs = k.fields.asScala.toList.sortBy(_.name).map(f => (f.name, (f.access & Opcodes.ACC_FINAL) != 0))
+    assertEquals(List(
+      ("$outer", true),
+      ("executionStart", false),
+      ("scala$App$$_args", false),
+      ("scala$App$$initCode", false),
+      ("x$1", true), // captured, assigned in constructor
+      ("y$1", true)  // captured
+    ), fs)
+    val assignedInConstr = getMethod(k, "<init>").instructions.filter(_.opcode == Opcodes.PUTFIELD) map {
+      case f: Field => f.name
+    }
+    assertEquals(List("$outer", "x$1", "y$1"), assignedInConstr.sorted)
+  }
+
+  @Test
+  def t11641(): Unit = {
+    val code =
+      """class B { val b = 0 }
+        |class C extends DelayedInit {
+        |  def delayedInit(body: => Unit): Unit = ()
+        |}
+        |class D extends DelayedInit {
+        |  val d = 0
+        |  def delayedInit(body: => Unit): Unit = ()
+        |}
+        |class E extends C {
+        |  val e = 0
+        |}
+        |class F extends D
+      """.stripMargin
+    val cs = compileClasses(code, allowMessage = _.msg.contains("there were two deprecation warnings"))
+    assertDoesNotInvoke(getMethod(cs.find(_.name == "B").get, "<init>"), "releaseFence")
+    assertDoesNotInvoke(getMethod(cs.find(_.name == "C").get, "<init>"), "releaseFence")
+    assertInvoke(getMethod(cs.find(_.name == "D").get, "<init>"), "scala/runtime/Statics", "releaseFence")
+    assertInvoke(getMethod(cs.find(_.name == "E").get, "<init>"), "scala/runtime/Statics", "releaseFence")
+    assertDoesNotInvoke(getMethod(cs.find(_.name == "F").get, "<init>"), "releaseFence")
   }
 }

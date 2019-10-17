@@ -16,9 +16,7 @@ object Option {
 
   import scala.language.implicitConversions
 
-  /** An implicit conversion that converts an option to an iterable value
-   */
-  @deprecated("use `option.toList` or `option.iterator` instead", "2.13.0")
+  /** An implicit conversion that converts an option to an iterable value */
   implicit def option2Iterable[A](xo: Option[A]): Iterable[A] =
     if (xo.isEmpty) Iterable.empty else Iterable.single(xo.get)
 
@@ -117,7 +115,7 @@ object Option {
  * bMaybe = Option(abc.get(2))
  * bMaybe match {
  *   case Some(b) =>
- *     println(s"Found $b")
+ *     println(s"Found \$b")
  *   case None =>
  *     println("Not found")
  * }
@@ -128,7 +126,6 @@ object Option {
  *  the implicit conversion tends to leave one with an Iterable in
  *  situations where one could have retained an Option.
  *
- *  @since   1.1
  *  @define none `None`
  *  @define some [[scala.Some]]
  *  @define option [[scala.Option]]
@@ -171,7 +168,7 @@ sealed abstract class Option[+A] extends IterableOnce[A] with Product with Seria
    */
   final def isDefined: Boolean = !isEmpty
 
-  final def knownSize: Int = if (isEmpty) 0 else 1
+  override final def knownSize: Int = if (isEmpty) 0 else 1
 
   /** Returns the option's value.
    *
@@ -616,8 +613,6 @@ sealed abstract class Option[+A] extends IterableOnce[A] with Product with Seria
 
 /** Class `Some[A]` represents existing values of type
  *  `A`.
- *
- *  @since   1.0
  */
 @SerialVersionUID(1234815782226070388L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
 final case class Some[+A](value: A) extends Option[A] {
@@ -626,8 +621,6 @@ final case class Some[+A](value: A) extends Option[A] {
 
 
 /** This case object represents non-existent values.
- *
- *  @since   1.0
  */
 @SerialVersionUID(5066590221178148012L) // value computed by serialver for 2.11.2, annotation added in 2.11.4
 case object None extends Option[Nothing] {

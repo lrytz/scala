@@ -15,8 +15,6 @@ package scala.concurrent.impl
 import java.util.concurrent.{ Semaphore, ForkJoinPool, ForkJoinWorkerThread, Callable, Executor, ExecutorService, ThreadFactory, TimeUnit }
 import java.util.Collection
 import scala.concurrent.{ Batchable, BatchingExecutor, BlockContext, ExecutionContext, CanAwait, ExecutionContextExecutor, ExecutionContextExecutorService }
-import scala.annotation.tailrec
-
 
 private[scala] class ExecutionContextImpl private[impl] (final val executor: Executor, final val reporter: Throwable => Unit) extends ExecutionContextExecutor {
   require(executor ne null, "Executor must not be null")
@@ -49,7 +47,7 @@ private[concurrent] object ExecutionContextImpl {
     def newThread(fjp: ForkJoinPool): ForkJoinWorkerThread =
       wire(new ForkJoinWorkerThread(fjp) with BlockContext {
         private[this] final var isBlocked: Boolean = false // This is only ever read & written if this thread is the current thread
-        final override def blockOn[T](thunk: =>T)(implicit permission: CanAwait): T =
+        final override def blockOn[T](thunk: => T)(implicit permission: CanAwait): T =
           if ((Thread.currentThread eq this) && !isBlocked && blockerPermits.tryAcquire()) {
             try {
               val b: ForkJoinPool.ManagedBlocker with (() => T) =

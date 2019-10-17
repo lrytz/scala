@@ -59,15 +59,15 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
 
     override def findClassFile(className: String): Option[AbstractFile] = {
       val (pkg, simpleClassName) = PackageNameUtils.separatePkgAndClassNames(className)
-      file(pkg, simpleClassName + ".class").map(_.file)
+      file(PackageName(pkg), simpleClassName + ".class").map(_.file)
     }
     // This method is performance sensitive as it is used by SBT's ExtractDependencies phase.
     override def findClass(className: String): Option[ClassRepresentation] = {
       val (pkg, simpleClassName) = PackageNameUtils.separatePkgAndClassNames(className)
-      file(pkg, simpleClassName + ".class")
+      file(PackageName(pkg), simpleClassName + ".class")
     }
 
-    override private[nsc] def classes(inPackage: String): Seq[ClassFileEntry] = files(inPackage)
+    override private[nsc] def classes(inPackage: PackageName): Seq[ClassFileEntry] = files(inPackage)
 
     override protected def createFileEntry(file: FileZipArchive#Entry): ClassFileEntryImpl = ClassFileEntryImpl(file)
     override protected def isRequiredFileType(file: AbstractFile): Boolean = file.isClass
@@ -83,7 +83,7 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
   private case class ManifestResourcesClassPath(file: ManifestResources) extends ClassPath with NoSourcePaths with Closeable {
     override def findClassFile(className: String): Option[AbstractFile] = {
       val (pkg, simpleClassName) = PackageNameUtils.separatePkgAndClassNames(className)
-      classes(pkg).find(_.name == simpleClassName).map(_.file)
+      classes(PackageName(pkg)).find(_.name == simpleClassName).map(_.file)
     }
 
     override def asClassPathStrings: Seq[String] = Seq(file.path)
@@ -135,22 +135,21 @@ object ZipAndJarClassPathFactory extends ZipAndJarFileLookupFactory {
       packages
     }
 
-    override private[nsc] def packages(inPackage: String): Seq[PackageEntry] = cachedPackages.get(inPackage) match {
+    override private[nsc] def packages(inPackage: PackageName): Seq[PackageEntry] = cachedPackages.get(inPackage.dottedString) match {
       case None => Seq.empty
       case Some(PackageFileInfo(_, subpackages)) =>
-        val prefix = PackageNameUtils.packagePrefix(inPackage)
-        subpackages.map(packageFile => PackageEntryImpl(prefix + packageFile.name))
+        subpackages.map(packageFile => PackageEntryImpl(inPackage.entryName(packageFile.name)))
     }
 
-    override private[nsc] def classes(inPackage: String): Seq[ClassFileEntry] = cachedPackages.get(inPackage) match {
+    override private[nsc] def classes(inPackage: PackageName): Seq[ClassFileEntry] = cachedPackages.get(inPackage.dottedString) match {
       case None => Seq.empty
       case Some(PackageFileInfo(pkg, _)) =>
         Seq.from(for (file <- pkg.iterator if file.isClass) yield ClassFileEntryImpl(file))
     }
 
 
-    override private[nsc] def hasPackage(pkg: String) = cachedPackages.contains(pkg)
-    override private[nsc] def list(inPackage: String): ClassPathEntries = ClassPathEntries(packages(inPackage), classes(inPackage))
+    override private[nsc] def hasPackage(pkg: PackageName) = cachedPackages.contains(pkg.dottedString)
+    override private[nsc] def list(inPackage: PackageName): ClassPathEntries = ClassPathEntries(packages(inPackage), classes(inPackage))
   }
 
   private object ManifestResourcesClassPath {
@@ -186,7 +185,7 @@ object ZipAndJarSourcePathFactory extends ZipAndJarFileLookupFactory {
 
     override def asSourcePathString: String = asClassPathString
 
-    override private[nsc] def sources(inPackage: String): Seq[SourceFileEntry] = files(inPackage)
+    override private[nsc] def sources(inPackage: PackageName): Seq[SourceFileEntry] = files(inPackage)
 
     override protected def createFileEntry(file: FileZipArchive#Entry): SourceFileEntryImpl = SourceFileEntryImpl(file)
     override protected def isRequiredFileType(file: AbstractFile): Boolean = file.isScalaOrJavaSource
@@ -202,35 +201,49 @@ final class FileBasedCache[T] {
   private case class Stamp(lastModified: FileTime, size: Long, fileKey: Object)
   private case class Entry(stamps: Seq[Stamp], t: T) {
     val referenceCount: AtomicInteger = new AtomicInteger(1)
+    var timerTask: TimerTask = null
+    def cancelTimer(): Unit = {
+      timerTask match {
+        case null =>
+        case t => t.cancel()
+      }
+    }
   }
   private val cache = collection.mutable.Map.empty[Seq[Path], Entry]
 
-  private def referenceCountDecrementer(e: Entry, paths: Seq[Path]): Closeable = new Closeable {
-    var closed = false
-    override def close(): Unit = {
-      if (!closed) {
-        closed = true
-        val count = e.referenceCount.decrementAndGet()
-        if (count == 0) {
-          e.t match {
-            case cl: Closeable =>
-              FileBasedCache.timer match {
-                case Some(timer) =>
-                  val task = new TimerTask {
-                    override def run(): Unit = {
-                      cache.synchronized {
-                        if (e.referenceCount.compareAndSet(0, -1)) {
-                          cache.remove(paths)
-                          cl.close()
+  private def referenceCountDecrementer(e: Entry, paths: Seq[Path]): Closeable = {
+    // Cancel the deferred close timer (if any) that was started when the reference count
+    // last dropped to zero.
+    e.cancelTimer()
+
+    new Closeable {
+      var closed = false
+      override def close(): Unit = {
+        if (!closed) {
+          closed = true
+          val count = e.referenceCount.decrementAndGet()
+          if (count == 0) {
+            e.t match {
+              case cl: Closeable =>
+                FileBasedCache.timer match {
+                  case Some(timer) =>
+                    val task = new TimerTask {
+                      override def run(): Unit = {
+                        cache.synchronized {
+                          if (e.referenceCount.compareAndSet(0, -1)) {
+                            cache.remove(paths)
+                            cl.close()
+                          }
                         }
                       }
                     }
-                  }
-                  timer.schedule(task, FileBasedCache.deferCloseMs.toLong)
-                case None =>
-                  cl.close()
-              }
-            case _ =>
+                    e.timerTask = task
+                    timer.schedule(task, FileBasedCache.deferCloseMs.toLong)
+                  case None =>
+                    cl.close()
+                }
+              case _ =>
+            }
           }
         }
       }

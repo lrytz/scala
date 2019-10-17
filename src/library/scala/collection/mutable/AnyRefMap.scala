@@ -14,10 +14,7 @@ package scala
 package collection
 package mutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.collection.generic.DefaultSerializationProxy
-
 
 /** This class implements mutable maps with `AnyRef` keys based on a hash table with open addressing.
  *
@@ -122,8 +119,10 @@ class AnyRefMap[K <: AnyRef, V] private[collection] (defaultEntry: K => V, initi
     var e = h & mask
     var x = 0
     var g = 0
-    while ({ g = _hashes(e); g != 0}) {
-      if (g == h && { val q = _keys(e); (q eq k) || ((q ne null) && (q equals k)) }) return e
+    val hashes = _hashes
+    val keys = _keys
+    while ({ g = hashes(e); g != 0}) {
+      if (g == h && { val q = keys(e); (q eq k) || ((q ne null) && (q equals k)) }) return e
       x += 1
       e = (e + 2*(x+1)*x - 3) & mask
     }
@@ -209,7 +208,7 @@ class AnyRefMap[K <: AnyRef, V] private[collection] (defaultEntry: K => V, initi
   /** Defers to defaultEntry to find a default value for the key.  Throws an
    *  exception if no other default behavior was specified.
    */
-  override def default(key: K) = defaultEntry(key)
+  override def default(key: K): V = defaultEntry(key)
 
   private def repack(newMask: Int): Unit = {
     val oh = _hashes
@@ -481,9 +480,17 @@ class AnyRefMap[K <: AnyRef, V] private[collection] (defaultEntry: K => V, initi
   def collect[K2 <: AnyRef, V2](pf: PartialFunction[(K, V), (K2, V2)])(implicit dummy: DummyImplicit): AnyRefMap[K2, V2] =
     strictOptimizedCollect(AnyRefMap.newBuilder[K2, V2], pf)
 
+  override def clear(): Unit = {
+    import java.util.Arrays.fill
+    fill(_keys, null)
+    fill(_values, null)
+    fill(_hashes, 0)
+    _size = 0
+    _vacant = 0
+  }
+
   protected[this] def writeReplace(): AnyRef = new DefaultSerializationProxy(AnyRefMap.toFactory[K, V](AnyRefMap), this)
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "AnyRefMap"
 }
 

@@ -21,7 +21,6 @@ import scala.reflect.internal.util.ListOfNil
 /** This trait declares methods to create symbols and to enter them into scopes.
  *
  *  @author Martin Odersky
- *  @version 1.0
  */
 trait Namers extends MethodSynthesis {
   self: Analyzer =>
@@ -1020,7 +1019,7 @@ trait Namers extends MethodSynthesis {
     // Annotations on ValDefs can be targeted towards the following: field, getter, setter, beanGetter, beanSetter, param.
     // The defaults are:
     //   - (`val`-, `var`- or plain) constructor parameter annotations end up on the parameter, not on any other entity.
-    //   - val/var member annotations solely end up on the underlying field, except in traits and for all lazy vals (@since 2.12),
+    //   - val/var member annotations solely end up on the underlying field, except in traits and for all lazy vals,
     //     where there is no field, and the getter thus holds annotations targeting both getter & field.
     //     As soon as there is a field/getter (in subclasses mixing in the trait, or after expanding the lazy val during the fields phase),
     //     we triage the annotations.
@@ -1338,7 +1337,11 @@ trait Namers extends MethodSynthesis {
 
       val resTpGiven =
         if (tpt.isEmpty) WildcardType
-        else typer.typedType(tpt).tpe
+        else {
+          val tptTyped = typer.typedType(tpt)
+          context.unit.transformed(tpt) = tptTyped
+          tptTyped.tpe
+        }
 
 
       // ignore missing types unless we can look to overridden method to recover the missing information
@@ -1720,7 +1723,11 @@ trait Namers extends MethodSynthesis {
 
             tptFromRhsUnderPt
           }
-        } else typer.typedType(tpt).tpe
+        } else {
+          val tptTyped = typer.typedType(tpt)
+          context.unit.transformed(tpt) = tptTyped
+          tptTyped.tpe
+        }
 
 //      println(s"val: $result / ${vdef.tpt.tpe} / ")
 
@@ -2054,7 +2061,7 @@ trait Namers extends MethodSynthesis {
 
     if (defnSym.isTerm) {
       // for polymorphic DefDefs, create type skolems and assign them to the tparam trees.
-      val skolems = deriveFreshSkolems(tparams map (_.symbol))
+      val skolems = deriveFreshSkolems(typeParams)
       foreach2(tparams, skolems)(_ setSymbol _)
     }
 

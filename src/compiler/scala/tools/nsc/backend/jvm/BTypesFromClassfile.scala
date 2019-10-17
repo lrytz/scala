@@ -13,7 +13,7 @@
 package scala.tools.nsc.backend.jvm
 
 import scala.annotation.switch
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.tools.asm.Opcodes
 import scala.tools.asm.tree.{ClassNode, InnerClassNode}
 import scala.tools.nsc.backend.jvm.BTypes.{InlineInfo, InternalName, MethodInlineInfo}
@@ -60,7 +60,7 @@ abstract class BTypesFromClassfile {
   }
 
   /**
-   * Parse the classfile for `internalName` and construct the [[ClassBType]]. If the classfile cannot
+   * Parse the classfile for `internalName` and construct the [[BTypes.ClassBType]]. If the classfile cannot
    * be found in the `byteCodeRepository`, the `info` of the resulting ClassBType is undefined.
    */
   def classBTypeFromParsedClassfile(internalName: InternalName): ClassBType = {
@@ -73,7 +73,7 @@ abstract class BTypesFromClassfile {
   }
 
   /**
-   * Construct the [[ClassBType]] for a parsed classfile.
+   * Construct the [[BTypes.ClassBType]] for a parsed classfile.
    */
   def classBTypeFromClassNode(classNode: ClassNode): ClassBType = {
     ClassBType(classNode.name, fromSymbol = false) { res: ClassBType =>
@@ -161,12 +161,12 @@ abstract class BTypesFromClassfile {
       // require special handling. Excluding is OK because they are never inlined.
       // Here we are parsing from a classfile and we don't need to do anything special. Many of these
       // primitives don't even exist, for example Any.isInstanceOf.
-      val methodInfos:Map[String,MethodInlineInfo] = classNode.methods.asScala.iterator.map(methodNode => {
+      val methodInfos:Map[(String, String),MethodInlineInfo] = classNode.methods.asScala.iterator.map(methodNode => {
         val info = MethodInlineInfo(
           effectivelyFinal                    = BytecodeUtils.isFinalMethod(methodNode),
           annotatedInline                     = false,
           annotatedNoInline                   = false)
-        (methodNode.name + methodNode.desc, info)
+          ((methodNode.name, methodNode.desc), info)
       }).toMap
       InlineInfo(
         isEffectivelyFinal = BytecodeUtils.isFinalClass(classNode),

@@ -34,12 +34,12 @@ trait IndexedSeqView[+A] extends IndexedSeqOps[A, View, View[A]] with SeqView[A]
   override def map[B](f: A => B): IndexedSeqView[B] = new IndexedSeqView.Map(this, f)
   override def reverse: IndexedSeqView[A] = new IndexedSeqView.Reverse(this)
   override def slice(from: Int, until: Int): IndexedSeqView[A] = new IndexedSeqView.Slice(this, from, until)
+  override def tapEach[U](f: A => U): IndexedSeqView[A] = new IndexedSeqView.Map(this, { (a: A) => f(a); a})
 
   def concat[B >: A](suffix: IndexedSeqView.SomeIndexedSeqOps[B]): IndexedSeqView[B] = new IndexedSeqView.Concat(this, suffix)
   def appendedAll[B >: A](suffix: IndexedSeqView.SomeIndexedSeqOps[B]): IndexedSeqView[B] = new IndexedSeqView.Concat(this, suffix)
   def prependedAll[B >: A](prefix: IndexedSeqView.SomeIndexedSeqOps[B]): IndexedSeqView[B] = new IndexedSeqView.Concat(prefix, this)
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "IndexedSeqView"
 }
 
@@ -49,7 +49,7 @@ object IndexedSeqView {
   private final class IndexedSeqViewIterator[A](self: IndexedSeqView[A]) extends AbstractIterator[A] with Serializable {
     private[this] var current = 0
     private[this] var remainder = self.size
-    override def knownSize: Int = self.size - current
+    override def knownSize: Int = remainder
     def hasNext = remainder > 0
     def next(): A =
       if (hasNext) {

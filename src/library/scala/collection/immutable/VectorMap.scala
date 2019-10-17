@@ -24,8 +24,6 @@ import scala.annotation.tailrec
   *  @tparam K      the type of the keys contained in this vector map.
   *  @tparam V      the type of the values associated with the keys in this vector map.
   *
-  * @version 2.13
-  * @since 2.13
   * @define coll immutable vector map
   * @define Coll `immutable.VectorMap`
   */
@@ -120,11 +118,11 @@ final class VectorMap[K, +V] private (
   // No-Op overrides to allow for more efficient steppers in a minor release.
   // Refining the return type to `S with EfficientSplit` is binary compatible.
 
-  override def stepper[B >: (K, V), S <: Stepper[_]](implicit shape: StepperShape[B, S]): S = super.stepper(shape)
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[(K, V), S]): S = super.stepper(shape)
 
   override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S = super.keyStepper(shape)
 
-  override def valueStepper[V1 >: V, S <: Stepper[_]](implicit shape: StepperShape[V1, S]): S = super.valueStepper(shape)
+  override def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S = super.valueStepper(shape)
 
 
   def removed(key: K): VectorMap[K, V] = {

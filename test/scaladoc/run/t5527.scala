@@ -7,7 +7,7 @@ import scala.tools.nsc.reporters.ConsoleReporter
 
 object Test extends DirectTest {
 
-  override def extraSettings: String = "-usejavacp -Xprint:parser -Yrangepos -Ystop-after:parser -d " + testOutput.path
+  override def extraSettings: String = "-usejavacp -Vprint:parser -Yrangepos -Ystop-after:parser -d " + testOutput.path
 
   override def code = """
     // scala/bug#5527
@@ -150,6 +150,4 @@ object Test extends DirectTest {
     val command = new ScalaDoc.Command((CommandLineParser tokenize extraSettings) ++ args.toList, settings)
     new DocFactory(new ConsoleReporter(settings), settings).compiler
   }
-
-  override def isDebug = false // so we don't get the newSettings warning
 }

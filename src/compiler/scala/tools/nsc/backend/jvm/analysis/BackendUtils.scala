@@ -14,19 +14,17 @@ package scala.tools.nsc
 package backend.jvm
 package analysis
 
-import java.lang.ref.SoftReference
 import java.util.concurrent.ConcurrentHashMap
 
 import scala.annotation.{switch, tailrec}
-import scala.collection.JavaConverters._
 import scala.collection.immutable.BitSet
 import scala.collection.immutable.ArraySeq.unsafeWrapArray
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 import scala.reflect.internal.util.Position
 import scala.tools.asm
 import scala.tools.asm.Opcodes._
 import scala.tools.asm.tree._
-import scala.tools.asm.tree.analysis.Value
 import scala.tools.asm.{Handle, Opcodes, Type}
 import scala.tools.nsc.backend.jvm.BTypes._
 import scala.tools.nsc.backend.jvm.GenBCode._
@@ -50,7 +48,7 @@ abstract class BackendUtils extends PerRunInit {
 
   /**
    * Classes with indyLambda closure instantiations where the SAM type is serializable (e.g. Scala's
-   * FunctionN) need a `$deserializeLambda$` method. This map contains classes for which such a
+   * FunctionN) need a `\$deserializeLambda\$` method. This map contains classes for which such a
    * method has been generated. It is used during ordinary code generation, as well as during
    * inlining: when inlining an indyLambda instruction into a class, we need to make sure the class
    * has the method.
@@ -73,7 +71,12 @@ abstract class BackendUtils extends PerRunInit {
   private[this] lazy val classesOfSideEffectFreeConstructors: LazyVar[Set[String]] = perRunLazy(this)(sideEffectFreeConstructors.get.map(_._1))
 
   lazy val classfileVersion: LazyVar[Int] = perRunLazy(this)(compilerSettings.target match {
-    case "jvm-1.8" => asm.Opcodes.V1_8
+    case "8"  => asm.Opcodes.V1_8
+    case "9"  => asm.Opcodes.V9
+    case "10" => asm.Opcodes.V10
+    case "11" => asm.Opcodes.V11
+    case "12" => asm.Opcodes.V12
+    // to be continued...
   })
 
 
@@ -332,7 +335,7 @@ abstract class BackendUtils extends PerRunInit {
   }
 
   /**
-   * Identify forwarders, aliases, anonfun$adapted methods, bridges, trivial methods (x + y), etc
+   * Identify forwarders, aliases, anonfun\$adapted methods, bridges, trivial methods (x + y), etc
    * Returns
    *   -1 : no match
    *    1 : trivial (no method calls), but not field getters
@@ -395,7 +398,7 @@ abstract class BackendUtils extends PerRunInit {
     else 4
   }
 
-  private class Collector extends NestedClassesCollector[ClassBType] {
+  private class Collector extends NestedClassesCollector[ClassBType](nestedOnly = true) {
     def declaredNestedClasses(internalName: InternalName): List[ClassBType] =
       bTypesFromClassfile.classBTypeFromParsedClassfile(internalName).info.get.nestedClasses.force
 
@@ -755,7 +758,7 @@ object BackendUtils {
     }
   }
 
-  abstract class NestedClassesCollector[T] extends GenericSignatureVisitor {
+  abstract class NestedClassesCollector[T](nestedOnly: Boolean) extends GenericSignatureVisitor(nestedOnly) {
     val innerClasses = mutable.Set.empty[T]
 
     def declaredNestedClasses(internalName: InternalName): List[T]
@@ -843,8 +846,10 @@ object BackendUtils {
         while (i < desc.length) {
           if (desc.charAt(i) == 'L') {
             val start = i + 1 // skip the L
-            while (desc.charAt(i) != ';') i += 1
-            visitInternalName(desc, start, i)
+            var seenDollar = false
+            while ({val ch = desc.charAt(i); seenDollar ||= (ch == '$'); ch != ';'}) i += 1
+            if (seenDollar)
+              visitInternalName(desc, start, i)
           }
           // skips over '[', ')', primitives
           i += 1
@@ -882,30 +887,28 @@ object BackendUtils {
     }
   }
 
-  abstract class GenericSignatureVisitor {
+  abstract class GenericSignatureVisitor(nestedOnly: Boolean) {
     final def visitInternalName(internalName: String): Unit = visitInternalName(internalName, 0, if (internalName eq null) 0 else internalName.length)
     def visitInternalName(internalName: String, offset: Int, length: Int): Unit
 
     def raiseError(msg: String, sig: String, e: Option[Throwable] = None): Unit
 
     def visitClassSignature(sig: String): Unit = if (sig != null) {
-      val p = new Parser(sig)
+      val p = new Parser(sig, nestedOnly)
       p.safely { p.classSignature() }
     }
 
     def visitMethodSignature(sig: String): Unit = if (sig != null) {
-      val p = new Parser(sig)
+      val p = new Parser(sig, nestedOnly)
       p.safely { p.methodSignature() }
     }
 
     def visitFieldSignature(sig: String): Unit = if (sig != null) {
-      val p = new Parser(sig)
+      val p = new Parser(sig, nestedOnly)
       p.safely { p.fieldSignature() }
     }
 
-    private final class Parser(sig: String) {
-      // For performance, `Char => Boolean` is not specialized
-      private trait CharBooleanFunction { def apply(c: Char): Boolean }
+    private final class Parser(sig: String, nestedOnly: Boolean) {
 
       private var index = 0
       private val end = sig.length
@@ -976,10 +979,20 @@ object BackendUtils {
 
       @tailrec private def referenceTypeSignature(): Unit = getCurrentAndSkip() match {
         case 'L' =>
-          val names = new java.lang.StringBuilder(32)
+          var names: java.lang.StringBuilder = null
 
-          appendUntil(names, isClassNameEnd)
-          visitInternalName(names.toString)
+          val start = index
+          var seenDollar = false
+          while (!isClassNameEnd(current)) {
+            seenDollar ||= current == '$'
+            index += 1
+          }
+          if ((current == '.' || seenDollar) || !nestedOnly) {
+            // OPT: avoid allocations when only a top-level class is encountered
+            names = new java.lang.StringBuilder(32)
+            names.append(sig, start, index)
+            visitInternalName(names.toString)
+          }
           typeArguments()
 
           while (current == '.') {
@@ -1154,3 +1167,6 @@ object BackendUtils {
     }
   }
 }
+
+// For performance (`Char => Boolean` is not specialized)
+private trait CharBooleanFunction { def apply(c: Char): Boolean }

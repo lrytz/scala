@@ -226,6 +226,11 @@ class Settings(error: String => Unit, val printMsg: String => Unit = println(_))
     ""
   )
 
+  val visibilityPrivate = BooleanSetting (
+    "-private",
+    "Show all types and members. Unless specified, show only public and protected types and members."
+  )
+
   // For improved help output.
   def scaladocSpecific = Set[Settings#Setting](
     docformat, doctitle, docfooter, docversion, docUncompilable, docsourceurl, docgenerator, docRootContent,
@@ -316,14 +321,6 @@ class Settings(error: String => Unit, val printMsg: String => Unit = println(_))
       "scala.runtime.AbstractFunction1",
       "scala.runtime.AbstractFunction2"
     )
-
-    /**
-     * Set of classes to exclude from index and diagrams
-     * TODO: Should be configurable
-     */
-    def isExcluded(qname: String) = {
-      excludedClassnamePatterns.exists(_.findFirstMatchIn(qname).isDefined) && !notExcludedClasses(qname)
-    }
 
     /** Common conversion targets that affect any class in Scala */
     val commonConversionTargets = Set(

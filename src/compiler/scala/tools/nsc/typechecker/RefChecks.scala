@@ -43,7 +43,6 @@ import transform.Transform
  *  </ul>
  *
  *  @author  Martin Odersky
- *  @version 1.0
  *
  *  @todo    Check whether we always check type parameter bounds.
  */
@@ -595,7 +594,15 @@ abstract class RefChecks extends Transform {
         def checkNoAbstractMembers(): Unit = {
           // Avoid spurious duplicates: first gather any missing members.
           def memberList = clazz.info.nonPrivateMembersAdmitting(VBRIDGE)
-          val (missing, rest) = memberList partition (m => m.isDeferred && !ignoreDeferred(m))
+          var missing: List[Symbol] = Nil
+          var rest: List[Symbol] = Nil
+          memberList.reverseIterator.foreach {
+            case m if m.isDeferred && !ignoreDeferred(m) =>
+              missing ::= m
+            case m if m.isAbstractOverride && m.isIncompleteIn(clazz) =>
+              rest ::= m
+            case _ => // No more
+          }
           // Group missing members by the name of the underlying symbol,
           // to consolidate getters and setters.
           val grouped = missing groupBy (_.name.getterName)
@@ -713,7 +720,7 @@ abstract class RefChecks extends Transform {
           }
 
           // Check the remainder for invalid absoverride.
-          for (member <- rest ; if (member.isAbstractOverride && member.isIncompleteIn(clazz))) {
+          rest.foreach { member =>
             val other = member.superSymbolIn(clazz)
             val explanation =
               if (other != NoSymbol) " and overrides incomplete superclass member\n" + infoString(other)
@@ -1396,7 +1403,7 @@ abstract class RefChecks extends Transform {
     }
 
     private def applyRefchecksToAnnotations(tree: Tree): Unit = {
-      def applyChecks(annots: List[AnnotationInfo]): List[AnnotationInfo] = {
+      def applyChecks(annots: List[AnnotationInfo]): List[AnnotationInfo] = if (annots.isEmpty) Nil else {
         annots.foreach { ann =>
           checkTypeRef(ann.atp, tree, skipBounds = false)
           checkTypeRefBounds(ann.atp, tree)
@@ -1637,7 +1644,7 @@ abstract class RefChecks extends Transform {
         // type bounds (bug #935), issues deprecation warnings for symbols used
         // inside annotations.
         applyRefchecksToAnnotations(tree)
-        var result: Tree = tree match {
+        val result: Tree = tree match {
           // NOTE: a val in a trait is now a DefDef, with the RHS being moved to an Assign in Constructors
           case tree: ValOrDefDef =>
             checkDeprecatedOvers(tree)
@@ -1756,7 +1763,7 @@ abstract class RefChecks extends Transform {
         }
 
         // skip refchecks in patterns....
-        result = result match {
+        val result1 = result match {
           case CaseDef(pat, guard, body) =>
             val pat1 = savingInPattern {
               inPattern = true
@@ -1766,20 +1773,20 @@ abstract class RefChecks extends Transform {
           case _ =>
             result.transform(this)
         }
-        result match {
+        result1 match {
           case ClassDef(_, _, _, _)
              | TypeDef(_, _, _, _)
              | ModuleDef(_, _, _) =>
-            if (result.symbol.isLocalToBlock || result.symbol.isTopLevel)
-              varianceValidator.traverse(result)
+            if (result1.symbol.isLocalToBlock || result1.symbol.isTopLevel)
+              varianceValidator.traverse(result1)
           case tt @ TypeTree() if tt.original != null =>
             varianceValidator.traverse(tt.original) // See scala/bug#7872
           case _ =>
         }
 
-        checkUnexpandedMacro(result)
+        checkUnexpandedMacro(result1)
 
-        result
+        result1
       } catch {
         case ex: TypeError =>
           if (settings.debug) ex.printStackTrace()

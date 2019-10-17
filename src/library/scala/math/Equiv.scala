@@ -30,8 +30,6 @@ import scala.language.higherKinds
  *    1. symmetric: `equiv(x, y) == equiv(y, x)` for any `x` and `y` of type `T`.
  *    1. transitive: if `equiv(x, y) == true` and `equiv(y, z) == true`, then
  *       `equiv(x, z) == true` for any `x`, `y`, and `z` of type `T`.
- *
- *  @since 2.7
  */
 
 trait Equiv[T] extends Any with Serializable {
@@ -151,7 +149,7 @@ object Equiv extends LowPriorityEquiv {
   object Float {
     /** An equivalence for `Float`s which is reflexive (treats all `NaN`s
       * as equivalent), and treats `-0.0` and `0.0` as not equivalent; it
-      * behaves the same as [[java.lang.Float.compare()]].
+      * behaves the same as [[java.lang.Float#compare]].
       *
       * $floatEquiv
       *
@@ -195,7 +193,7 @@ object Equiv extends LowPriorityEquiv {
   object Double {
     /** An equivalence for `Double`s which is reflexive (treats all `NaN`s
       * as equivalent), and treats `-0.0` and `0.0` as not equivalent; it
-      * behaves the same as [[java.lang.Double.compare()]].
+      * behaves the same as [[java.lang.Double#compare]].
       *
       * $doubleEquiv
       *

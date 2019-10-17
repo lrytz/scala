@@ -15,9 +15,8 @@ package tools.nsc
 package symtab
 package classfile
 
-import java.io.{ByteArrayInputStream, DataInputStream, File, IOException}
+import java.io.IOException
 import java.lang.Integer.toHexString
-import java.nio.ByteBuffer
 
 import scala.collection.{immutable, mutable}
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
@@ -25,7 +24,7 @@ import scala.annotation.switch
 import scala.reflect.internal.JavaAccFlags
 import scala.reflect.internal.pickling.ByteCodecs
 import scala.reflect.internal.util.ReusableInstance
-import scala.reflect.io.{NoAbstractFile, VirtualFile}
+import scala.reflect.io.NoAbstractFile
 import scala.tools.nsc.util.ClassPath
 import scala.tools.nsc.io.AbstractFile
 import scala.util.control.NonFatal
@@ -33,7 +32,6 @@ import scala.util.control.NonFatal
 /** This abstract class implements a class file parser.
  *
  *  @author Martin Odersky
- *  @version 1.0
  */
 abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
   val symbolTable: SymbolTable {
@@ -98,6 +96,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
   private def readFieldFlags()      = JavaAccFlags fieldFlags u2
   private def readTypeName()        = readName().toTypeName
   private def readName()            = pool.getName(u2).name
+  @annotation.unused
   private def readType()            = pool getType u2
 
   private object unpickler extends scala.reflect.internal.pickling.UnPickler {
@@ -154,7 +153,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
         if (magic != JAVA_MAGIC && file.name.endsWith(".sig")) {
           currentClass = clazz.javaClassName
           isScala = true
-          unpickler.unpickle(in.buf, 0, clazz, staticModule, file.name)
+          unpickler.unpickle(in.buf.take(file.sizeOption.get), 0, clazz, staticModule, file.name)
         } else {
           parseHeader()
           this.pool = new ConstantPool
@@ -209,6 +208,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
         (u1: @switch) match {
           case CONSTANT_UTF8 | CONSTANT_UNICODE                                => in skip u2
           case CONSTANT_CLASS | CONSTANT_STRING | CONSTANT_METHODTYPE          => in skip 2
+          case CONSTANT_MODULE | CONSTANT_PACKAGE                              => in skip 2
           case CONSTANT_METHODHANDLE                                           => in skip 3
           case CONSTANT_FIELDREF | CONSTANT_METHODREF | CONSTANT_INTFMETHODREF => in skip 4
           case CONSTANT_NAMEANDTYPE | CONSTANT_INTEGER | CONSTANT_FLOAT        => in skip 4
@@ -351,7 +351,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
 
     /**
      * Get an array of bytes stored in the classfile as a string. The data is encoded in the format
-     * described in object [[ByteCodecs]]. Used for the ScalaSignature annotation argument.
+     * described in object [[scala.reflect.internal.pickling.ByteCodecs]]. Used for the ScalaSignature annotation argument.
      */
     def getBytes(index: Int): Array[Byte] = {
       if (index <= 0 || len <= index) errorBadIndex(index)
@@ -368,7 +368,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
 
     /**
      * Get an array of bytes stored in the classfile as an array of strings. The data is encoded in
-     * the format described in object [[ByteCodecs]]. Used for the ScalaLongSignature annotation
+     * the format described in object [[scala.reflect.internal.pickling.ByteCodecs]]. Used for the ScalaLongSignature annotation
      * argument.
      */
     def getBytes(indices: List[Int]): Array[Byte] = {
@@ -672,11 +672,11 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
                         case '+' => TypeBounds.upper(sig2type(tparams, skiptvs))
                         case '-' =>
                           val tp = sig2type(tparams, skiptvs)
-                          // sig2type seems to return AnyClass regardless of the situation:
-                          // we don't want Any as a LOWER bound.
-                          if (tp.typeSymbol == AnyClass) TypeBounds.empty
-                          else TypeBounds.lower(tp)
-                        case '*' => TypeBounds.empty
+                          // Interpret `sig2type` returning `Any` as "no bounds";
+                          // morally equivalent to TypeBounds.empty, but we're representing Java code, so use ObjectTpeJava for AnyTpe.
+                          if (tp.typeSymbol == AnyClass) TypeBounds.upper(definitions.ObjectTpeJava)
+                          else TypeBounds(tp, definitions.ObjectTpeJava)
+                        case '*' => TypeBounds.upper(definitions.ObjectTpeJava)
                       }
                       val newtparam = sym.newExistential(newTypeName("?"+i), sym.pos) setInfo bounds
                       existentials += newtparam
@@ -874,8 +874,8 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
             // https://github.com/scala/scala/commit/7315339782f6e19ddd6199768352a91ef66eb27d
             // https://github.com/scala-ide/scala-ide/commit/786ea5d4dc44065379a05eb3ac65d37f8948c05d
             //
-            // TODO: can we disable this altogether? Does Scala-IDE actually intermingle source and classfiles in a way
-            //       that this could ever find something?
+            // TODO: Does Scala-IDE actually intermingle source and classfiles in a way that this could ever find something?
+            //       If they want to use this, they'll need to enable the new setting -Ypresentation-locate-source-file.
             val srcfileLeaf = readName().toString.trim
             val srcpath = sym.enclosingPackage match {
               case NoSymbol => srcfileLeaf
@@ -1258,7 +1258,7 @@ abstract class ClassfileParser(reader: ReusableInstance[ReusableDataReader]) {
     }
   }
   private class ParamNames(val names: Array[NameOrString], val access: Array[Int]) {
-    assert(names.length == access.length)
+    assert(names.length == access.length, "Require as many names as access")
     def length = names.length
   }
   private abstract class JavaTypeCompleter extends LazyType {

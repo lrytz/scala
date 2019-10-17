@@ -54,13 +54,13 @@ trait EntityPage extends HtmlPage {
     canonicalLink ++ List(
       HtmlTags.Link(href = relativeLinkTo(List("index.css", "lib")), media = "screen", `type` = "text/css", rel = "stylesheet"),
     HtmlTags.Link(href = relativeLinkTo(List("template.css", "lib")), media = "screen", `type` = "text/css", rel = "stylesheet"),
+    HtmlTags.Link(href = relativeLinkTo(List("print.css", "lib")), media = "print", `type` = "text/css", rel = "stylesheet"),
     HtmlTags.Link(href = relativeLinkTo(List("diagrams.css", "lib")), media = "screen", `type` = "text/css", rel = "stylesheet", id = "diagrams-css"),
-    libScript("jquery.js"),
+    libScript("jquery.min.js"),
     libScript("index.js"),
     extScript(relativeLinkTo(List("index.js"))),
     libScript("scheduler.js"),
-    libScript("template.js"),
-    libScript("tools.tooltip.js")) ++
+    libScript("template.js")) ++
     ((if (!universe.settings.docDiagrams.value) Nil
      else (List(
          extScript("https://d3js.org/d3.v4.js"),
@@ -290,7 +290,10 @@ trait EntityPage extends HtmlPage {
           Div(id="visbl", elems=
               Span(`class`="filtertype", elems=Txt("Visibility")) ::
               Ol(elems=
-                Li(`class`="public in", elems= Span(elems=Txt("Public"))) :: Li(`class`="all out", elems= Span(elems=Txt("All"))))
+                List(
+                  Li(`class`="public in", elems=Span(elems=Txt("Public"))),
+                  Li(`class`="protected out", elems=Span(elems=Txt("Protected")))
+                ) ++ List(Li(`class`="private out", elems=Span(elems=Txt("Private")))).filter(_ => universe.settings.visibilityPrivate))
           ))
         )
       ))
@@ -365,7 +368,8 @@ trait EntityPage extends HtmlPage {
     }
 
     val memberComment = memberToCommentHtml(mbr, inTpl, isSelf = false)
-    Li(name= mbr.definitionName, visbl= if (mbr.visibility.isProtected) "prt" else "pub",
+    Li(name= mbr.definitionName,
+      visbl=if (mbr.visibility.isPublic) "pub" else if (mbr.visibility.isProtected) "prt" else "prv",
       `class`= s"indented$indentation " + (if (mbr eq inTpl) "current" else ""),
       `data-isabs`= mbr.isAbstract.toString,
       fullComment= if(!memberComment.exists(_.tagName == "div")) "no" else "yes",
@@ -547,11 +551,11 @@ trait EntityPage extends HtmlPage {
 
     // --- start attributes block vals
     val attributes: Elems = {
-      val fvs: List[comment.Paragraph] = visibility(mbr).toList
+      val fvs: List[Elems] = visibility(mbr).toList
       if (fvs.isEmpty || isReduced) NoElems
       else {
         dt("Attributes") ::
-        Dd(elems=  fvs flatMap { fv => { inlineToHtml(fv.text) :+ Txt(" ") } }  ) :: NoElems
+        Dd(elems = fvs.flatMap(_ :+ Txt(" "))) :: NoElems
       }
     }
 
@@ -629,7 +633,7 @@ trait EntityPage extends HtmlPage {
 
     val mainComment: Elems = mbr.comment match {
       case Some(comment) if (! isReduced) =>
-        def orEmpty[T](it: Iterable[T])(gen:  =>Elems): Elems =
+        def orEmpty[T](it: Iterable[T])(gen: => Elems): Elems =
           if (it.isEmpty) NoElems else gen
 
         val example =
@@ -772,22 +776,20 @@ trait EntityPage extends HtmlPage {
     bound0(lo, " >: ") ++ bound0(hi, " <: ")
   }
 
-  def visibility(mbr: MemberEntity): Option[comment.Paragraph] = {
-    import comment._
-    import comment.{ Text => CText }
+  def visibility(mbr: MemberEntity): Option[Elems] = {
     mbr.visibility match {
       case PrivateInInstance() =>
-        Some(Paragraph(CText("private[this]")))
-      case PrivateInTemplate(owner) if (owner == mbr.inTemplate) =>
-        Some(Paragraph(CText("private")))
-      case PrivateInTemplate(owner) =>
-        Some(Paragraph(Chain(List(CText("private["), EntityLink(comment.Text(owner.qualifiedName), LinkToTpl(owner)), CText("]")))))
+        Some(Txt("private[this]"))
+      case PrivateInTemplate(None) =>
+        Some(Txt("private"))
+      case PrivateInTemplate(Some(owner)) =>
+        Some((Txt("private[") :: typeToHtml(owner, true)) :+ Txt("]"))
       case ProtectedInInstance() =>
-        Some(Paragraph(CText("protected[this]")))
-      case ProtectedInTemplate(owner) if (owner == mbr.inTemplate) =>
-        Some(Paragraph(CText("protected")))
-      case ProtectedInTemplate(owner) =>
-        Some(Paragraph(Chain(List(CText("protected["), EntityLink(comment.Text(owner.qualifiedName), LinkToTpl(owner)), CText("]")))))
+        Some(Txt("protected[this]"))
+      case ProtectedInTemplate(None) =>
+        Some(Txt("protected"))
+      case ProtectedInTemplate(Some(owner)) =>
+        Some((Txt("protected[") :: typeToHtml(owner, true)) :+ Txt("]"))
       case Public() =>
         None
     }
@@ -901,7 +903,7 @@ trait EntityPage extends HtmlPage {
 
     mbr match {
       case dte: DocTemplateEntity if !isSelf =>
-        permalink(dte, isSelf) :: Txt(" ") ++ { inside(hasLinks = true, nameLink = relativeLinkTo(dte)) }
+        permalink(dte) :: Txt(" ") ++ { inside(hasLinks = true, nameLink = relativeLinkTo(dte)) }
       case _ if isSelf =>
         H(4, id="signature", `class`= "signature", elems= inside(hasLinks = true))
       case _ =>

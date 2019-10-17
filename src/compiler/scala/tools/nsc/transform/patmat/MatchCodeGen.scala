@@ -22,7 +22,6 @@ import scala.reflect.internal.util.Position
  */
 trait MatchCodeGen extends Interface {
   import global._
-  import definitions._
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // generate actual trees
@@ -105,7 +104,7 @@ trait MatchCodeGen extends Interface {
 
       /** Inline runOrElse and get rid of Option allocations
        *
-       * runOrElse(scrut: scrutTp)(matcher): resTp = matcher(scrut) getOrElse ${catchAll(`scrut`)}
+       * runOrElse(scrut: scrutTp)(matcher): resTp = matcher(scrut) getOrElse \${catchAll(`scrut`)}
        * the matcher's optional result is encoded as a flag, keepGoing, where keepGoing == true encodes result.isEmpty,
        * if keepGoing is false, the result Some(x) of the naive translation is encoded as matchRes == x
        */

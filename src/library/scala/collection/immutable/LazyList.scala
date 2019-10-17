@@ -43,6 +43,11 @@ import scala.runtime.Statics
   *  // 2
   *  // 3
   *  }}}
+  * 
+  *  A `LazyList`, like the one in the example above, may be infinite in length.
+  *  Aggregate methods, such as `count`, `sum`, `max` or `min` on such infinite length 
+  *  sequences will not terminate. Filtered infinite lazy lists are also effectively
+  *  infinite in length.
   *
   *  Elements of a `LazyList` are memoized; that is, the value of each element
   *  is computed only once.
@@ -186,7 +191,6 @@ import scala.runtime.Statics
   *
   *  @tparam A    the type of the elements contained in this lazy list.
   *
-  *  @since   2.13
   *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#lazylists "Scala's Collection Library overview"]]
   *  section on `LazyLists` for more information.
   *  @define Coll `LazyList`
@@ -971,7 +975,7 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def filterImpl[A](ll: LazyList[A], p: A => Boolean, isFlipped: Boolean): LazyList[A] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef = ll                         // var restRef = new ObjectRef(ll)
+    var restRef = ll                         // val restRef = new ObjectRef(ll)
     newLL {
       var elem: A = null.asInstanceOf[A]
       var found   = false
@@ -988,7 +992,7 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def collectImpl[A, B](ll: LazyList[A], pf: PartialFunction[A, B]): LazyList[B] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef = ll                                  // var restRef = new ObjectRef(ll)
+    var restRef = ll                                  // val restRef = new ObjectRef(ll)
     newLL {
       val marker = Statics.pfMarker
       val toMarker = anyToMarker.asInstanceOf[A => B] // safe because Function1 is erased
@@ -1007,7 +1011,7 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def flatMapImpl[A, B](ll: LazyList[A], f: A => IterableOnce[B]): LazyList[B] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef = ll                          // var restRef = new ObjectRef(ll)
+    var restRef = ll                          // val restRef = new ObjectRef(ll)
     newLL {
       var it: Iterator[B] = null
       var itHasNext       = false
@@ -1031,8 +1035,8 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def dropImpl[A](ll: LazyList[A], n: Int): LazyList[A] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef = ll                     // var restRef = new ObjectRef(ll)
-    var iRef    = n                      // var iRef    = new IntRef(n)
+    var restRef = ll                     // val restRef = new ObjectRef(ll)
+    var iRef    = n                      // val iRef    = new IntRef(n)
     newLL {
       var rest = restRef                 // var rest = restRef.elem
       var i    = iRef                    // var i    = iRef.elem
@@ -1048,7 +1052,7 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def dropWhileImpl[A](ll: LazyList[A], p: A => Boolean): LazyList[A] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef = ll                            // var restRef = new ObjectRef(ll)
+    var restRef = ll                            // val restRef = new ObjectRef(ll)
     newLL {
       var rest = restRef                        // var rest = restRef.elem
       while (!rest.isEmpty && p(rest.head)) {
@@ -1061,9 +1065,9 @@ object LazyList extends SeqFactory[LazyList] {
 
   private def takeRightImpl[A](ll: LazyList[A], n: Int): LazyList[A] = {
     // DO NOT REFERENCE `ll` ANYWHERE ELSE, OR IT WILL LEAK THE HEAD
-    var restRef      = ll                         // var restRef      = new ObjectRef(ll)
-    var scoutRef     = ll                         // var scoutRef     = new ObjectRef(ll)
-    var remainingRef = n                          // var remainingRef = new IntRef(n)
+    var restRef      = ll                         // val restRef      = new ObjectRef(ll)
+    var scoutRef     = ll                         // val scoutRef     = new ObjectRef(ll)
+    var remainingRef = n                          // val remainingRef = new IntRef(n)
     newLL {
       var scout     = scoutRef                    // var scout     = scoutRef.elem
       var remaining = remainingRef                // var remaining = remainingRef.elem

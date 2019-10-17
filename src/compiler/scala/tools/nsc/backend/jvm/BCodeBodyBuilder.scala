@@ -14,6 +14,7 @@ package scala.tools.nsc
 package backend.jvm
 
 import scala.annotation.{switch, tailrec}
+import scala.collection.mutable.ListBuffer
 import scala.reflect.internal.Flags
 import scala.tools.asm
 import scala.tools.asm.Opcodes
@@ -25,7 +26,6 @@ import scala.tools.nsc.backend.jvm.GenBCode._
 /*
  *
  *  @author  Miguel Garcia, http://lamp.epfl.ch/~magarcia/ScalaCompilerCornerReloaded/
- *  @version 1.0
  *
  */
 abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
@@ -92,7 +92,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       val thrownKind = tpeTK(expr)
       // `throw null` is valid although scala.Null (as defined in src/library-aux) isn't a subtype of Throwable.
       // Similarly for scala.Nothing (again, as defined in src/library-aux).
-      assert(thrownKind.isNullType || thrownKind.isNothingType || thrownKind.asClassBType.isSubtypeOf(jlThrowableRef).get)
+      assert(thrownKind.isNullType || thrownKind.isNothingType || thrownKind.asClassBType.isSubtypeOf(jlThrowableRef).get, "Require throwable")
       genLoad(expr, thrownKind)
       lineNumber(expr)
       emit(asm.Opcodes.ATHROW) // ICode enters here into enterIgnoreMode, we'll rely instead on DCE at ClassNode level.
@@ -1073,7 +1073,7 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
       if (style == Super) {
         if (receiverClass.isTrait && !method.isJavaDefined) {
           val staticDesc = MethodBType(typeToBType(method.owner.info) :: bmType.argumentTypes, bmType.returnType).descriptor
-          val staticName = traitSuperAccessorName(method).toString
+          val staticName = traitSuperAccessorName(method)
           bc.invokestatic(receiverName, staticName, staticDesc, isInterface, pos)
         } else {
           if (receiverClass.isTraitOrInterface) {
@@ -1104,15 +1104,21 @@ abstract class BCodeBodyBuilder extends BCodeSkelBuilder {
      * Returns a list of trees that each should be concatenated, from left to right.
      * It turns a chained call like "a".+("b").+("c") into a list of arguments.
      */
-    def liftStringConcat(tree: Tree): List[Tree] = tree match {
-      case Apply(fun @ Select(larg, method), rarg) =>
-        if (isPrimitive(fun.symbol) &&
-            scalaPrimitives.getPrimitive(fun.symbol) == scalaPrimitives.CONCAT)
-          liftStringConcat(larg) ::: rarg
-        else
-          tree :: Nil
-      case _ =>
-        tree :: Nil
+    def liftStringConcat(tree: Tree): List[Tree] = {
+      val result = ListBuffer[Tree]()
+      def loop(tree: Tree): Unit = {
+        tree match {
+          case Apply(fun@Select(larg, method), rarg :: Nil)
+            if (isPrimitive(fun.symbol) && scalaPrimitives.getPrimitive(fun.symbol) == scalaPrimitives.CONCAT) =>
+
+            loop(larg)
+            loop(rarg)
+          case _ =>
+            result += tree
+        }
+      }
+      loop(tree)
+      result.toList
     }
 
     /* Emit code to compare the two top-most stack values using the 'op' operator. */

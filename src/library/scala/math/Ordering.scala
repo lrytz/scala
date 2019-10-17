@@ -65,7 +65,6 @@ import scala.language.{higherKinds, implicitConversions}
   * You can import scala.math.Ordering.Implicits to gain access to other
   * implicit orderings.
   *
-  * @since 2.7
   * @see [[scala.math.Ordered]], [[scala.util.Sorting]]
   */
 @annotation.implicitNotFound(msg = "No implicit Ordering defined for ${T}.")
@@ -185,11 +184,11 @@ trait Ordering[T] extends Comparator[T] with PartialOrdering[T] with Serializabl
 
   /** This inner class defines comparison operators available for `T`. */
   class OrderingOps(lhs: T) {
-    def <(rhs: T) = lt(lhs, rhs)
-    def <=(rhs: T) = lteq(lhs, rhs)
-    def >(rhs: T) = gt(lhs, rhs)
-    def >=(rhs: T) = gteq(lhs, rhs)
-    def equiv(rhs: T) = Ordering.this.equiv(lhs, rhs)
+    def <(rhs: T): Boolean = lt(lhs, rhs)
+    def <=(rhs: T): Boolean = lteq(lhs, rhs)
+    def >(rhs: T): Boolean = gt(lhs, rhs)
+    def >=(rhs: T): Boolean = gteq(lhs, rhs)
+    def equiv(rhs: T): Boolean = Ordering.this.equiv(lhs, rhs)
     def max(rhs: T): T = Ordering.this.max(lhs, rhs)
     def min(rhs: T): T = Ordering.this.min(lhs, rhs)
   }
@@ -339,32 +338,32 @@ object Ordering extends LowPriorityOrderingImplicits {
   implicit object Unit extends UnitOrdering
 
   trait BooleanOrdering extends Ordering[Boolean] {
-    def compare(x: Boolean, y: Boolean) = java.lang.Boolean.compare(x, y)
+    def compare(x: Boolean, y: Boolean): Int = java.lang.Boolean.compare(x, y)
   }
   implicit object Boolean extends BooleanOrdering
 
   trait ByteOrdering extends Ordering[Byte] {
-    def compare(x: Byte, y: Byte) = java.lang.Byte.compare(x, y)
+    def compare(x: Byte, y: Byte): Int = java.lang.Byte.compare(x, y)
   }
   implicit object Byte extends ByteOrdering
 
   trait CharOrdering extends Ordering[Char] {
-    def compare(x: Char, y: Char) = java.lang.Character.compare(x, y)
+    def compare(x: Char, y: Char): Int = java.lang.Character.compare(x, y)
   }
   implicit object Char extends CharOrdering
 
   trait ShortOrdering extends Ordering[Short] {
-    def compare(x: Short, y: Short) = java.lang.Short.compare(x, y)
+    def compare(x: Short, y: Short): Int = java.lang.Short.compare(x, y)
   }
   implicit object Short extends ShortOrdering
 
   trait IntOrdering extends Ordering[Int] {
-    def compare(x: Int, y: Int) = java.lang.Integer.compare(x, y)
+    def compare(x: Int, y: Int): Int = java.lang.Integer.compare(x, y)
   }
   implicit object Int extends IntOrdering with CachedReverse[Int]
 
   trait LongOrdering extends Ordering[Long] {
-    def compare(x: Long, y: Long) = java.lang.Long.compare(x, y)
+    def compare(x: Long, y: Long): Int = java.lang.Long.compare(x, y)
   }
   implicit object Long extends LongOrdering
 
@@ -381,7 +380,7 @@ object Ordering extends LowPriorityOrderingImplicits {
   object Float {
     /** An ordering for `Float`s which is a fully consistent total ordering,
       * and treats `NaN` as larger than all other `Float` values; it behaves
-      * the same as [[java.lang.Float.compare()]].
+      * the same as [[java.lang.Float#compare]].
       *
       * $floatOrdering
       *
@@ -402,7 +401,7 @@ object Ordering extends LowPriorityOrderingImplicits {
       * `NaN`.
       *   - `min` and `max` are consistent with `math.min` and `math.max`, and
       * return `NaN` when called with `NaN` as either argument.
-      *   - `compare` behaves the same as [[java.lang.Float.compare()]].
+      *   - `compare` behaves the same as [[java.lang.Float#compare]].
       *
       * $floatOrdering
       *
@@ -425,7 +424,7 @@ object Ordering extends LowPriorityOrderingImplicits {
   }
   @deprecated("There are multiple ways to order Floats (Ordering.Float.TotalOrdering, " +
     "Ordering.Float.IeeeOrdering). Specify one by using a local import, assigning an implicit val, or passing it " +
-    "explicitly. See the documentation for details.", since = "2.13.0")
+    "explicitly. See their documentation for details.", since = "2.13.0")
   implicit object DeprecatedFloatOrdering extends Float.TotalOrdering
 
   /** `Ordering`s for `Double`s.
@@ -441,7 +440,7 @@ object Ordering extends LowPriorityOrderingImplicits {
   object Double {
     /** An ordering for `Double`s which is a fully consistent total ordering,
       * and treats `NaN` as larger than all other `Double` values; it behaves
-      * the same as [[java.lang.Double.compare()]].
+      * the same as [[java.lang.Double#compare]].
       *
       * $doubleOrdering
       *
@@ -462,7 +461,7 @@ object Ordering extends LowPriorityOrderingImplicits {
       * `NaN`.
       *   - `min` and `max` are consistent with `math.min` and `math.max`, and
       * return `NaN` when called with `NaN` as either argument.
-      *   - `compare` behaves the same as [[java.lang.Double.compare()]].
+      *   - `compare` behaves the same as [[java.lang.Double#compare]].
       *
       * $doubleOrdering
       *
@@ -485,7 +484,7 @@ object Ordering extends LowPriorityOrderingImplicits {
   }
   @deprecated("There are multiple ways to order Doubles (Ordering.Double.TotalOrdering, " +
     "Ordering.Double.IeeeOrdering). Specify one by using a local import, assigning an implicit val, or passing it " +
-    "explicitly. See the documentation for details.", since = "2.13.0")
+    "explicitly. See their documentation for details.", since = "2.13.0")
   implicit object DeprecatedDoubleOrdering extends Double.TotalOrdering
 
   trait BigIntOrdering extends Ordering[BigInt] {

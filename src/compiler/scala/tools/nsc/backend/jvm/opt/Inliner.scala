@@ -15,8 +15,8 @@ package backend.jvm
 package opt
 
 import scala.annotation.tailrec
-import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 import scala.tools.asm
 import scala.tools.asm.Opcodes._
 import scala.tools.asm.Type
@@ -28,7 +28,6 @@ import scala.tools.nsc.backend.jvm.BackendReporting._
 import scala.tools.nsc.backend.jvm.analysis._
 import scala.tools.nsc.backend.jvm.analysis.BackendUtils.LambdaMetaFactoryCall
 import scala.tools.nsc.backend.jvm.opt.BytecodeUtils._
-import scala.tools.nsc.backend.jvm.opt.InlinerHeuristics.InlineReason
 
 abstract class Inliner {
   val postProcessor: PostProcessor
@@ -290,7 +289,7 @@ abstract class Inliner {
       var logs = List.empty[(MethodNode, InlineLog)]
       for (m <- inlinerState.keySet if !changedByClosureOptimizer(m)) {
         val log = inlinerState.remove(m).get.inlineLog
-        if (log.nonEmpty) logs ::= (m, log)
+        if (log.nonEmpty) logs ::= ((m, log))
       }
       if (logs.nonEmpty) {
         // Deterministic inline log
@@ -820,8 +819,6 @@ abstract class Inliner {
       nullOutLocals.add(new VarInsnNode(ASTORE, i))
     }
 
-    val hasNullOutInsn = nullOutLocals.size > 0
-
     clonedInstructions.insert(argStores)
 
     // label for the exit of the inlined functions. xRETURNs are replaced by GOTOs to this label.
@@ -900,8 +897,13 @@ abstract class Inliner {
         new VarInsnNode(opc, returnValueIndex)
       }
       clonedInstructions.insert(postCallLabel, retVarLoad)
+      if (retVarLoad.getOpcode == ALOAD) {
+        nullOutLocals.add(new InsnNode(ACONST_NULL))
+        nullOutLocals.add(new VarInsnNode(ASTORE, returnValueIndex))
+      }
     }
 
+    val hasNullOutInsn = nullOutLocals.size > 0 // save here, the next line sets the size to 0
     clonedInstructions.add(nullOutLocals)
 
     callsiteMethod.instructions.insert(callsiteInstruction, clonedInstructions)
@@ -930,12 +932,20 @@ abstract class Inliner {
       callee.maxStack + callsiteStackHeight - numStoredArgs
     }
     val stackHeightAtNullCheck = {
-      // When adding a null check for the receiver, a DUP is inserted, which might cause a new maxStack.
-      // If the callsite has other argument values than the receiver on the stack, these are pop'ed
-      // and stored into locals before the null check, so in that case the maxStack doesn't grow.
       val stackSlotForNullCheck =
-        if (!skipReceiverNullCheck && calleeParamTypes.isEmpty) 1
-        else if (hasNullOutInsn) 1 // TODO this is probably too conservative, could be narrowed down
+        if (!skipReceiverNullCheck && calleeParamTypes.isEmpty) {
+          // When adding a null check for the receiver, a DUP is inserted, which might cause a new maxStack.
+          // If the callsite has other argument values than the receiver on the stack, these are pop'ed
+          // and stored into locals before the null check, so in that case the maxStack doesn't grow.
+          1
+        }
+        else if (hasNullOutInsn) {
+          // after the return value is laoded, local variables and the return local variable are
+          // nulled out, which means `null` is loaded to the stack. the max stack height is the
+          // callsite stack height +1 (receiver consumed, result produced, null loaded), but +2
+          // for static calls
+          if (isStatic) 2 else 1
+        }
         else 0
       callsiteStackHeight + stackSlotForNullCheck
     }
@@ -1078,7 +1088,7 @@ abstract class Inliner {
   }
 
   /**
-   * Check if a member reference is accessible from the [[destinationClass]], as defined in the
+   * Check if a member reference is accessible from the `destinationClass`, as defined in the
    * JVMS 5.4.4. Note that the class name in a field / method reference is not necessarily the
    * class in which the member is declared:
    *

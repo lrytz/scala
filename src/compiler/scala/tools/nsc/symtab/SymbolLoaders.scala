@@ -23,7 +23,6 @@ import scala.reflect.internal.util.{ReusableInstance, StatisticsStatics}
 /** This class ...
  *
  *  @author  Martin Odersky
- *  @version 1.0
  */
 abstract class SymbolLoaders {
   val symbolTable: symtab.SymbolTable {
@@ -294,7 +293,7 @@ abstract class SymbolLoaders {
       }
     }
   }
-  private val classFileDataReader: ReusableInstance[ReusableDataReader] = new ReusableInstance[ReusableDataReader](() => new ReusableDataReader())
+  private val classFileDataReader: ReusableInstance[ReusableDataReader] = new ReusableInstance[ReusableDataReader](() => new ReusableDataReader(), enabled = true)
   class ClassfileLoader(val classfile: AbstractFile, clazz: ClassSymbol, module: ModuleSymbol) extends SymbolLoader with FlagAssigningCompleter {
     private object classfileParser extends {
       val symbolTable: SymbolLoaders.this.symbolTable.type = SymbolLoaders.this.symbolTable

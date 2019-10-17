@@ -18,7 +18,6 @@ import java.util.function.Consumer
 
 import scala.collection.Stepper.EfficientSplit
 import scala.collection.{AnyStepper, Factory, IterableFactoryDefaults, SeqFactory, Stepper, StepperShape, mutable}
-import scala.language.higherKinds
 import scala.reflect.ClassTag
 
 /** An Accumulator for arbitrary element types, see [[Accumulator]]. */
@@ -38,8 +37,8 @@ final class AnyAccumulator[A]
 
   override protected[this] def className: String = "AnyAccumulator"
 
-  def efficientStepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
-    shape.parUnbox(new AnyAccumulatorStepper[B](this.asInstanceOf[AnyAccumulator[B]]))
+  def efficientStepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit =
+    shape.parUnbox(new AnyAccumulatorStepper[A](this.asInstanceOf[AnyAccumulator[A]]))
 
   private def expand(): Unit = {
     if (index > 0) {

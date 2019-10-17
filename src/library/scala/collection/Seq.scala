@@ -16,7 +16,6 @@ import scala.collection.immutable.Range
 import scala.language.higherKinds
 import scala.util.hashing.MurmurHash3
 import Searching.{Found, InsertionPoint, SearchResult}
-import scala.annotation.unchecked.uncheckedVariance
 
 /** Base trait for sequence collections
   *
@@ -50,7 +49,6 @@ trait Seq[+A]
 
   override def toString(): String = super[Iterable].toString()
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Seq"
 }
 
@@ -418,6 +416,11 @@ trait SeqOps[+A, +CC[_], +C] extends Any
   @deprecatedOverriding("Override lastIndexWhere(p, end) instead - lastIndexWhere(p) calls lastIndexWhere(p, Int.MaxValue)", "2.13.0")
   def lastIndexWhere(p: A => Boolean): Int = lastIndexWhere(p, Int.MaxValue)
 
+  @inline private[this] def toGenericSeq: scala.collection.Seq[A] = this match {
+    case s: scala.collection.Seq[A] => s
+    case _ => toSeq
+  }
+
   /** Finds first index after or at a start index where this $coll contains a given sequence as a slice.
    *  $mayNotTerminateInf
    *  @param  that    the sequence to test
@@ -436,11 +439,11 @@ trait SeqOps[+A, +CC[_], +C] extends Any
         if (from > l) -1
         else if (tl < 1) clippedFrom
         else if (l < tl) -1
-        else SeqOps.kmpSearch(toSeq, clippedFrom, l, that, 0, tl, forward = true)
+        else SeqOps.kmpSearch(toGenericSeq, clippedFrom, l, that, 0, tl, forward = true)
       }
       else {
         var i = from
-        var s: Seq[A] = toSeq drop i
+        var s: scala.collection.Seq[A] = toGenericSeq.drop(i)
         while (!s.isEmpty) {
           if (s startsWith that)
             return i
@@ -478,7 +481,7 @@ trait SeqOps[+A, +CC[_], +C] extends Any
     if (end < 0) -1
     else if (tl < 1) clippedL
     else if (l < tl) -1
-    else SeqOps.kmpSearch(toSeq, 0, clippedL+tl, that, 0, tl, forward = false)
+    else SeqOps.kmpSearch(toGenericSeq, 0, clippedL+tl, that, 0, tl, forward = false)
   }
 
   /** Finds last index where this $coll contains a given sequence as a slice.
@@ -602,7 +605,7 @@ trait SeqOps[+A, +CC[_], +C] extends Any
 
     private[this] def init() = {
       val m = mutable.HashMap[A, Int]()
-      val (es, is) = (self.toSeq map (e => (e, m.getOrElseUpdate(e, m.size))) sortBy (_._2)).unzip
+      val (es, is) = (self.toGenericSeq map (e => (e, m.getOrElseUpdate(e, m.size))) sortBy (_._2)).unzip
 
       (es.to(mutable.ArrayBuffer), is.toArray)
     }
@@ -663,7 +666,7 @@ trait SeqOps[+A, +CC[_], +C] extends Any
       val m = mutable.HashMap[A, Int]()
 
       // e => (e, weight(e))
-      val (es, is) = (self.toSeq map (e => (e, m.getOrElseUpdate(e, m.size))) sortBy (_._2)).unzip
+      val (es, is) = (self.toGenericSeq map (e => (e, m.getOrElseUpdate(e, m.size))) sortBy (_._2)).unzip
       val cs = new Array[Int](m.size)
       is foreach (i => cs(i) += 1)
       val ns = new Array[Int](cs.length)
@@ -993,7 +996,6 @@ object SeqOps {
  /**  A KMP implementation, based on the undoubtedly reliable wikipedia entry.
    *  Note: I made this private to keep it from entering the API.  That can be reviewed.
    *
-   *  @since  2.10
    *  @param  S       Sequence that may contain target
    *  @param  m0      First index of S to consider
    *  @param  m1      Last index of S to consider (exclusive)
@@ -1003,7 +1005,7 @@ object SeqOps {
    *  @param  forward Direction of search (from beginning==true, from end==false)
    *  @return Index of start of sequence if found, -1 if not (relative to beginning of S, not m0).
    */
-  private def kmpSearch[B](S: Seq[B], m0: Int, m1: Int, W: Seq[B], n0: Int, n1: Int, forward: Boolean): Int = {
+  private def kmpSearch[B](S: scala.collection.Seq[B], m0: Int, m1: Int, W: scala.collection.Seq[B], n0: Int, n1: Int, forward: Boolean): Int = {
     // Check for redundant case when target has single valid element
     def clipR(x: Int, y: Int) = if (x < y) x else -1
     def clipL(x: Int, y: Int) = if (x > y) x else -1
@@ -1023,7 +1025,7 @@ object SeqOps {
     }
     // Now we know we actually need KMP search, so do it
     else S match {
-      case xs: IndexedSeq[_] =>
+      case xs: scala.collection.IndexedSeq[_] =>
         // We can index into S directly; it should be adequately fast
         val Wopt = kmpOptimizeWord(W, n0, n1, forward)
         val T = kmpJumpTable(Wopt, n1-n0)
@@ -1081,13 +1083,12 @@ object SeqOps {
 
   /** Make sure a target sequence has fast, correctly-ordered indexing for KMP.
    *
-   *  @since  2.10
    *  @param  W    The target sequence
    *  @param  n0   The first element in the target sequence that we should use
    *  @param  n1   The far end of the target sequence that we should use (exclusive)
    *  @return Target packed in an IndexedSeq (taken from iterator unless W already is an IndexedSeq)
    */
-  private def kmpOptimizeWord[B](W: Seq[B], n0: Int, n1: Int, forward: Boolean): IndexedSeqView[B] = W match {
+  private def kmpOptimizeWord[B](W: scala.collection.Seq[B], n0: Int, n1: Int, forward: Boolean): IndexedSeqView[B] = W match {
     case iso: IndexedSeq[B] =>
       // Already optimized for indexing--use original (or custom view of original)
       if (forward && n0==0 && n1==W.length) iso.view
@@ -1120,7 +1121,6 @@ object SeqOps {
 
  /** Make a jump table for KMP search.
    *
-   *  @since  2.10
    *  @param  Wopt The target sequence
    *  @param  wlen Just in case we're only IndexedSeq and not IndexedSeqOptimized
    *  @return KMP jump table for target sequence
@@ -1150,5 +1150,4 @@ object SeqOps {
 }
 
 /** Explicit instantiation of the `Seq` trait to reduce class file size in subclasses. */
-@SerialVersionUID(3L)
 abstract class AbstractSeq[+A] extends AbstractIterable[A] with Seq[A]

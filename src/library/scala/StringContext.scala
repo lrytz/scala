@@ -21,13 +21,13 @@ import scala.annotation.tailrec
  * Here's an example:
  * {{{
  *   val name = "James"
- *   println(s"Hello, $name")  // Hello, James
+ *   println(s"Hello, \$name")  // Hello, James
  * }}}
  *
  * Any processed string literal is rewritten as an instantiation and
  * method call against this class.   For example:
  * {{{
- *   s"Hello, $name"
+ *   s"Hello, \$name"
  * }}}
  *
  * is rewritten to be:
@@ -45,23 +45,21 @@ import scala.annotation.tailrec
  *    implicit class JsonHelper(private val sc: StringContext) extends AnyVal {
  *      def json(args: Any*): JSONObject = ...
  *    }
- *    val x: JSONObject = json"{ a: $a }"
+ *    val x: JSONObject = json"{ a: \$a }"
  * }}}
  *
  *  Here the `JsonHelper` extension class implicitly adds the `json` method to
  *  `StringContext` which can be used for `json` string literals.
  *
- *  @since 2.10.0
  *  @param   parts  The parts that make up the interpolated string,
  *                  without the expressions that get inserted by interpolation.
  */
 case class StringContext(parts: String*) {
 
-  import StringContext._
+  import StringContext.{checkLengths => scCheckLengths, glob, standardInterpolator => scStandardInterpolator}
 
   @deprecated("use same-named method on StringContext companion object", "2.13.0")
-  def checkLengths(args: scala.collection.Seq[Any]): Unit =
-    StringContext.checkLengths(args, parts)
+  def checkLengths(args: scala.collection.Seq[Any]): Unit = scCheckLengths(args, parts)
 
   /** The simple string interpolator.
    *
@@ -70,14 +68,14 @@ case class StringContext(parts: String*) {
    *  Here's an example of usage:
    *  {{{
    *    val name = "James"
-   *    println(s"Hello, $name")  // Hello, James
+   *    println(s"Hello, \$name")  // Hello, James
    *  }}}
-   *  In this example, the expression $name is replaced with the `toString` of the
+   *  In this example, the expression \$name is replaced with the `toString` of the
    *  variable `name`.
    *  The `s` interpolator can take the `toString` of any arbitrary expression within
-   *  a `${}` block, for example:
+   *  a `\${}` block, for example:
    *  {{{
-   *    println(s"1 + 1 = ${1 + 1}")
+   *    println(s"1 + 1 = \${1 + 1}")
    *  }}}
    *  will print the string `1 + 1 = 2`.
    *
@@ -101,26 +99,26 @@ case class StringContext(parts: String*) {
      *  Here is an example usage:
      *
      *  {{{
-     *    val s"Hello, $name" = "Hello, James"
+     *    val s"Hello, \$name" = "Hello, James"
      *    println(name)  // "James"
      *  }}}
      *
      *  In this example, the string "James" ends up matching the location where the pattern
-     *  `$name` is positioned, and thus ends up bound to that variable.
+     *  `\$name` is positioned, and thus ends up bound to that variable.
      *
      *  Multiple matches are supported:
      *
      *  {{{
-     *    val s"$greeting, $name" = "Hello, James"
+     *    val s"\$greeting, \$name" = "Hello, James"
      *    println(greeting)  // "Hello"
      *    println(name)  // "James"
      *  }}}
      *
-     *  And the `s` matcher can match an arbitrary pattern within the `${}` block, for example:
+     *  And the `s` matcher can match an arbitrary pattern within the `\${}` block, for example:
      *
      *  {{{
      *    val TimeSplitter = "([0-9]+)[.:]([0-9]+)".r
-     *    val s"The time is ${TimeSplitter(hours, mins)}" = "The time is 10.50"
+     *    val s"The time is \${TimeSplitter(hours, mins)}" = "The time is 10.50"
      *    println(hours) // 10
      *    println(mins) // 50
      *  }}}
@@ -128,7 +126,7 @@ case class StringContext(parts: String*) {
      *  Here, we use the `TimeSplitter` regex within the `s` matcher, further splitting the
      *  matched string "10.50" into its constituent parts
      */
-    def unapplySeq(s: String) = StringContext.glob(parts, s)
+    def unapplySeq(s: String): Option[Seq[String]] = glob(parts, s)
   }
   /** The raw string interpolator.
    *
@@ -155,8 +153,7 @@ case class StringContext(parts: String*) {
   def raw(args: Any*): String = macro ??? // fasttracked to scala.tools.reflect.FastStringInterpolator::interpolateRaw
 
   @deprecated("Use the static method StringContext.standardInterpolator instead of the instance method", "2.13.0")
-  def standardInterpolator(process: String => String, args: Seq[Any]): String =
-    StringContext.standardInterpolator(process, args, parts)
+  def standardInterpolator(process: String => String, args: Seq[Any]): String = scStandardInterpolator(process, args, parts)
 
   /** The formatted string interpolator.
    *
@@ -171,7 +168,7 @@ case class StringContext(parts: String*) {
    *  {{{
    *    val height = 1.9d
    *    val name = "James"
-   *    println(f"$name%s is $height%2.2f meters tall")  // James is 1.90 meters tall
+   *    println(f"\$name%s is \$height%2.2f meters tall")  // James is 1.90 meters tall
    *  }}}
    *
    *  @param `args` The arguments to be inserted into the resulting string.

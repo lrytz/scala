@@ -21,9 +21,9 @@ The lexical syntax of Scala is given by the following grammar in EBNF form:
 
 ```ebnf
 whiteSpace       ::=  ‘\u0020’ | ‘\u0009’ | ‘\u000D’ | ‘\u000A’
-upper            ::=  ‘A’ | … | ‘Z’ | ‘\$’ | ‘_’  // and Unicode category Lu
-lower            ::=  ‘a’ | … | ‘z’ // and Unicode category Ll
-letter           ::=  upper | lower // and Unicode categories Lo, Lt, Nl
+lower            ::=  ‘a’ | … | ‘z’ | ‘_’ // and any character in Unicode category Ll, and and any character in Lo or Ml that has contributory property Other_Lowercase
+upper            ::=  ‘A’ | … | ‘Z’ | ‘\$’ // and any character in Unicode category Lu, Lt or Nl, and any character in Lo and Ml that don't have contributory property Other_Lowercase
+letter           ::=  upper | lower
 digit            ::=  ‘0’ | … | ‘9’
 paren            ::=  ‘(’ | ‘)’ | ‘[’ | ‘]’ | ‘{’ | ‘}’
 delim            ::=  ‘`’ | ‘'’ | ‘"’ | ‘.’ | ‘;’ | ‘,’
@@ -143,7 +143,7 @@ grammar:
                       |  Expr1
   Expr1             ::=  ‘if’ ‘(’ Expr ‘)’ {nl} Expr [[semi] ‘else’ Expr]
                       |  ‘while’ ‘(’ Expr ‘)’ {nl} Expr
-                      |  ‘try’ (‘{’ Block ‘}’ | Expr) [‘catch’ ‘{’ CaseClauses ‘}’] [‘finally’ Expr]
+                      |  ‘try’ Expr [‘catch’ Expr] [‘finally’ Expr]
                       |  ‘do’ Expr [semi] ‘while’ ‘(’ Expr ‘)’
                       |  ‘for’ (‘(’ Enumerators ‘)’ | ‘{’ Enumerators ‘}’) {nl} [‘yield’] Expr
                       |  ‘throw’ Expr

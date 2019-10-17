@@ -14,9 +14,7 @@ package scala
 package collection
 package mutable
 
-import scala.collection.Stepper.EfficientSplit
 import scala.collection.generic.DefaultSerializable
-
 
 /** $factoryInfo
  *  @define Coll `LinkedHashMap`
@@ -36,7 +34,6 @@ object LinkedHashMap extends MapFactory[LinkedHashMap] {
   def newBuilder[K, V] = new GrowableBuilder(empty[K, V])
 
   /** Class for the linked hash map entry, used internally.
-    *  @since 2.8
     */
   private[mutable] final class LinkedEntry[K, V](val key: K, var value: V)
     extends HashEntry[K, LinkedEntry[K, V]] {
@@ -142,15 +139,17 @@ class LinkedHashMap[K, V]
   override def remove(key: K): Option[V] = {
     val e = table.removeEntry(key)
     if (e eq null) None
-    else {
-      if (e.earlier eq null) firstEntry = e.later
-      else e.earlier.later = e.later
-      if (e.later eq null) lastEntry = e.earlier
-      else e.later.earlier = e.earlier
-      e.earlier = null // Null references to prevent nepotism
-      e.later = null
-      Some(e.value)
-    }
+    else Some(remove0(e))
+  }
+
+  private[this] def remove0(e: Entry): V = {
+    if (e.earlier eq null) firstEntry = e.later
+    else e.earlier.later = e.later
+    if (e.later eq null) lastEntry = e.earlier
+    else e.later.earlier = e.earlier
+    e.earlier = null // Null references to prevent nepotism
+    e.later = null
+    e.value
   }
 
   def addOne(kv: (K, V)): this.type = { put(kv._1, kv._2); this }
@@ -177,6 +176,34 @@ class LinkedHashMap[K, V]
     def next() =
       if (hasNext) { val res = cur.key; cur = cur.later; res }
       else Iterator.empty.next()
+  }
+
+  // Override updateWith for performance, so we can do the update while hashing
+  // the input key only once and performing one lookup into the hash table
+  override def updateWith(key: K)(remappingFunction: Option[V] => Option[V]): Option[V] = {
+    val keyIndex = table.index(table.elemHashCode(key))
+    val entry = table.findEntry0(key, keyIndex)
+
+    val previousValue =
+      if (entry == null) None
+      else Some(entry.value)
+
+    val nextValue = remappingFunction(previousValue)
+
+    (previousValue, nextValue) match {
+      case (None, None) => // do nothing
+      case (Some(_), None) =>
+        remove0(entry)
+        table.removeEntry0(key, keyIndex)
+
+      case (None, Some(value)) =>
+        table.addEntry0(table.createNewEntry(key, value), keyIndex)
+
+      case (Some(_), Some(value)) =>
+        entry.value = value
+    }
+
+    nextValue
   }
 
   override def valuesIterator: Iterator[V] = new AbstractIterator[V] {
@@ -223,7 +250,6 @@ class LinkedHashMap[K, V]
     table.init(in, table.createNewEntry(in.readObject().asInstanceOf[K], in.readObject().asInstanceOf[V]))
   }
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "LinkedHashMap"
 }
 

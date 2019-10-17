@@ -43,33 +43,33 @@ trait IterableOnce[+A] extends Any {
   /** Iterator can be used only once */
   def iterator: Iterator[A]
 
-  /** Returns a [[Stepper]] for the elements of this collection.
+  /** Returns a [[scala.collection.Stepper]] for the elements of this collection.
     *
     * The Stepper enables creating a Java stream to operate on the collection, see
     * [[scala.jdk.StreamConverters]]. For collections holding primitive values, the Stepper can be
     * used as an iterator which doesn't box the elements.
     *
-    * The implicit [[StepperShape]] parameter defines the resulting Stepper type according to the
+    * The implicit [[scala.collection.StepperShape]] parameter defines the resulting Stepper type according to the
     * element type of this collection.
     *
-    *   - For collections of `Int`, `Short`, `Byte` or `Char`, an [[IntStepper]] is returned
-    *   - For collections of `Double` or `Float`, a [[DoubleStepper]] is returned
-    *   - For collections of `Long` a [[LongStepper]] is returned
-    *   - For any other element type, an [[AnyStepper]] is returned
+    *   - For collections of `Int`, `Short`, `Byte` or `Char`, an [[scala.collection.IntStepper]] is returned
+    *   - For collections of `Double` or `Float`, a [[scala.collection.DoubleStepper]] is returned
+    *   - For collections of `Long` a [[scala.collection.LongStepper]] is returned
+    *   - For any other element type, an [[scala.collection.AnyStepper]] is returned
     *
     * Note that this method is overridden in subclasses and the return type is refined to
-    * `S with EfficientSplit`, for example [[IndexedSeqOps.stepper]]. For Steppers marked with
+    * `S with EfficientSplit`, for example [[scala.collection.IndexedSeqOps.stepper]]. For Steppers marked with
     * [[scala.collection.Stepper.EfficientSplit]], the converters in [[scala.jdk.StreamConverters]]
     * allow creating parallel streams, whereas bare Steppers can be converted only to sequential
     * streams.
     */
-  def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S = {
+  def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntIteratorStepper   (iterator.asInstanceOf[Iterator[Int]])
       case StepperShape.LongShape   => new LongIteratorStepper  (iterator.asInstanceOf[Iterator[Long]])
       case StepperShape.DoubleShape => new DoubleIteratorStepper(iterator.asInstanceOf[Iterator[Double]])
-      case _                        => shape.seqUnbox(new AnyIteratorStepper[B](iterator))
+      case _                        => shape.seqUnbox(new AnyIteratorStepper[A](iterator))
     }
     s.asInstanceOf[S]
   }
@@ -77,7 +77,7 @@ trait IterableOnce[+A] extends Any {
   /** @return The number of elements in this $coll, if it can be cheaply computed,
     *  -1 otherwise. Cheaply usually means: Not requiring a collection traversal.
     */
-  def knownSize: Int
+  def knownSize: Int = -1
 }
 
 final class IterableOnceExtensionMethods[A](private val it: IterableOnce[A]) extends AnyVal {
@@ -103,7 +103,7 @@ final class IterableOnceExtensionMethods[A](private val it: IterableOnce[A]) ext
   def maxBy[B](f: A => B)(implicit cmp: Ordering[B]): A = it.iterator.maxBy(f)
 
   @deprecated("Use .iterator.reduceLeft(...) instead", "2.13.0")
-  def reduceLeft(f: (A, A) => A) = it.iterator.reduceLeft(f)
+  def reduceLeft(f: (A, A) => A): A = it.iterator.reduceLeft(f)
 
   @deprecated("Use .iterator.sum instead", "2.13.0")
   def sum(implicit num: Numeric[A]): A = it.iterator.sum
@@ -162,7 +162,7 @@ final class IterableOnceExtensionMethods[A](private val it: IterableOnce[A]) ext
   @deprecated("Use .iterator.toArray", "2.13.0")
   def toArray[B >: A: ClassTag]: Array[B] = it match {
     case it: Iterable[B] => it.toArray[B]
-    case _ => mutable.ArrayBuffer.from(it).toArray
+    case _ => it.iterator.toArray[B]
   }
 
   @deprecated("Use .iterator.to(List) instead", "2.13.0")
@@ -171,7 +171,7 @@ final class IterableOnceExtensionMethods[A](private val it: IterableOnce[A]) ext
   @deprecated("Use .iterator.to(Set) instead", "2.13.0")
   @`inline` def toSet[B >: A]: immutable.Set[B] = immutable.Set.from(it)
 
-  @deprecated("Use toIterable instead", "2.13.0")
+  @deprecated("Use .iterator.to(Iterable) instead", "2.13.0")
   @`inline` final def toTraversable: Traversable[A] = toIterable
 
   @deprecated("Use .iterator.to(Iterable) instead", "2.13.0")
@@ -290,16 +290,6 @@ object IterableOnce {
   * @define consumesIterator
   *              After calling this method, one should discard the iterator it was called
   * on. Using it is undefined and subject to change.
-  * @define consumesAndProducesIterator
-  *              After calling this method, one should discard the iterator it was called
-  *              on, and use only the iterator that was returned. Using the old iterator
-  *              is undefined, subject to change, and may result in changes to the new
-  *              iterator as well.
-  * @define consumesOneAndProducesTwoIterators
-  *              After calling this method, one should discard the iterator it was called
-  *              on, and use only the iterators that were returned. Using the old iterator
-  *              is undefined, subject to change, and may result in changes to the new
-  *              iterators as well.
   * @define undefinedorder
   *              The order in which operations are performed on elements is unspecified
   *              and may be nondeterministic.
@@ -319,7 +309,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @param z       the initial value
     *  @param op      the binary operator applied to the intermediate result and the element
     *  @return        collection with intermediate results
-    *  @note          Reuse: $consumesAndProducesIterator
     */
   def scanLeft[B](z: B)(op: (B, A) => B): CC[B]
 
@@ -345,7 +334,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @return a $coll consisting only of the first `n` elements of this $coll,
     *          or else the whole $coll, if it has less than `n` elements.
     *          If `n` is negative, returns an empty $coll.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def take(n: Int): C
 
@@ -354,7 +342,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @param   p  The predicate used to test elements.
     *  @return  the longest prefix of this $coll whose elements all satisfy
     *           the predicate `p`.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def takeWhile(p: A => Boolean): C
 
@@ -364,7 +351,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @return a $coll consisting of all elements of this $coll except the first `n` ones, or else the
     *          empty $coll, if this $coll has less than `n` elements.
     *          If `n` is negative, don't drop any elements.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def drop(n: Int): C
 
@@ -373,7 +359,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @param   p  The predicate used to test elements.
     *  @return  the longest suffix of this $coll whose first element
     *           does not satisfy the predicate `p`.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def dropWhile(p: A => Boolean): C
 
@@ -389,7 +374,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @return  a $coll containing the elements greater than or equal to
     *           index `from` extending up to (but not including) index `until`
     *           of this $coll.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def slice(from: Int, until: Int): C
 
@@ -399,7 +383,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @tparam B     the element type of the returned $coll.
     *  @return       a new $coll resulting from applying the given function
     *                `f` to each element of this $coll and collecting the results.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def map[B](f: A => B): CC[B]
 
@@ -433,7 +416,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @tparam B     the element type of the returned collection.
     *  @return       a new $coll resulting from applying the given collection-valued function
     *                `f` to each element of this $coll and concatenating the results.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def flatMap[B](f: A => IterableOnce[B]): CC[B]
 
@@ -462,7 +444,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @param asIterable an implicit conversion which asserts that the element
     *          type of this $coll is a `GenTraversable`.
     *  @return a new $coll resulting from concatenating all element ${coll}s.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def flatten[B](implicit asIterable: A => IterableOnce[B]): CC[B]
 
@@ -474,7 +455,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @return       a new $coll resulting from applying the given partial function
     *                `pf` to each element on which it is defined and collecting the results.
     *                The order of the elements is preserved.
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def collect[B](pf: PartialFunction[A, B]): CC[B]
 
@@ -484,7 +464,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *                 Indices start at `0`.
     *  @example
     *    `List("a", "b", "c").zipWithIndex == List(("a", 0), ("b", 1), ("c", 2))`
-    *  @note    Reuse: $consumesAndProducesIterator
     */
   def zipWithIndex: CC[(A @uncheckedVariance, Int)]
 
@@ -498,7 +477,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
     *  @param p the test predicate
     *  @return  a pair consisting of the longest prefix of this $coll whose
     *           elements all satisfy `p`, and the rest of this $coll.
-    *  @note    Reuse: $consumesOneAndProducesTwoIterators
     */
   def span(p: A => Boolean): (C, C)
 
@@ -511,7 +489,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
    *  @param n the position at which to split.
    *  @return  a pair of ${coll}s consisting of the first `n`
    *           elements of this $coll, and the other elements.
-   *  @note    Reuse: $consumesOneAndProducesTwoIterators
    */
   def splitAt(n: Int): (C, C) = {
     var i = 0
@@ -530,8 +507,6 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
   def tapEach[U](f: A => U): C
 
   /////////////////////////////////////////////////////////////// Concrete methods based on iterator
-
-  def knownSize: Int = -1
 
   /** Tests whether this $coll is known to have a finite size.
     *  All strict collections are known to have finite size. For a non-strict
@@ -609,6 +584,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Counts the number of elements in the $coll which satisfy a predicate.
     *
+    *  $willNotTerminateInf
+    * 
     *  @param p     the predicate  used to test elements.
     *  @return      the number of elements satisfying the predicate `p`.
     */
@@ -909,23 +886,29 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Sums up the elements of this collection.
     *
+    *   $willNotTerminateInf
+    *
     *   @param   num  an implicit parameter defining a set of numeric operations
     *                 which includes the `+` operator to be used in forming the sum.
     *   @tparam  B    the result type of the `+` operator.
     *   @return       the sum of all elements of this $coll with respect to the `+` operator in `num`.
     */
-  def sum[B >: A](implicit num: Numeric[B]): B = foldLeft(num.zero)(num.plus)
+  def sum[B >: A](implicit num: Numeric[B]): B = if (isEmpty) num.zero else reduce(num.plus)
 
   /** Multiplies up the elements of this collection.
+    *
+    *  $willNotTerminateInf
     *
     *   @param   num  an implicit parameter defining a set of numeric operations
     *                 which includes the `*` operator to be used in forming the product.
     *   @tparam  B   the result type of the `*` operator.
     *   @return       the product of all elements of this $coll with respect to the `*` operator in `num`.
     */
-  def product[B >: A](implicit num: Numeric[B]): B = foldLeft(num.one)(num.times)
+  def product[B >: A](implicit num: Numeric[B]): B = if (isEmpty) num.one else reduce(num.times)
 
   /** Finds the smallest element.
+    *
+    *  $willNotTerminateInf
     *
     *  @param    ord   An ordering to be used for comparing elements.
     *  @tparam   B    The type over which the ordering is defined.
@@ -941,6 +924,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Finds the smallest element.
     *
+    *  $willNotTerminateInf
+    *
     *  @param    ord   An ordering to be used for comparing elements.
     *  @tparam   B    The type over which the ordering is defined.
     *  @return   an option value containing the smallest element of this $coll
@@ -955,6 +940,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Finds the largest element.
     *
+    *  $willNotTerminateInf
+    *
     *  @param    ord   An ordering to be used for comparing elements.
     *  @tparam   B    The type over which the ordering is defined.
     *  @throws   UnsupportedOperationException if this $coll is empty.
@@ -967,6 +954,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
   }
 
   /** Finds the largest element.
+    *
+    *  $willNotTerminateInf
     *
     *  @param    ord   An ordering to be used for comparing elements.
     *  @tparam   B    The type over which the ordering is defined.
@@ -981,6 +970,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
   }
 
   /** Finds the first element which yields the largest value measured by function f.
+    *
+    *  $willNotTerminateInf
     *
     *  @param    cmp   An ordering to be used for comparing elements.
     *  @tparam   B     The result type of the function f.
@@ -1010,6 +1001,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Finds the first element which yields the largest value measured by function f.
     *
+    *  $willNotTerminateInf
+    *
     *  @param    cmp   An ordering to be used for comparing elements.
     *  @tparam   B     The result type of the function f.
     *  @param    f     The measuring function.
@@ -1024,6 +1017,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
   }
 
   /** Finds the first element which yields the smallest value measured by function f.
+    *
+    *  $willNotTerminateInf
     *
     *  @param    cmp   An ordering to be used for comparing elements.
     *  @tparam   B     The result type of the function f.
@@ -1052,6 +1047,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
   }
 
   /** Finds the first element which yields the smallest value measured by function f.
+    *
+    *  $willNotTerminateInf
     *
     *  @param    cmp   An ordering to be used for comparing elements.
     *  @tparam   B     The result type of the function f.
@@ -1097,6 +1094,8 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   /** Tests whether every element of this collection's iterator relates to the
    *  corresponding element of another collection by satisfying a test predicate.
+   *
+   *  $willNotTerminateInf
    *
    *  @param   that    the other collection
    *  @param   p       the test predicate, which relates elements from both collections
@@ -1277,14 +1276,17 @@ trait IterableOnceOps[+A, +CC[_], +C] extends Any { this: IterableOnce[A] =>
 
   @`inline` final def toBuffer[B >: A]: mutable.Buffer[B] = mutable.Buffer.from(this)
 
-  /** Convert collection to array. */
+  /** Convert collection to array.
+    *
+    * Implementation note: DO NOT call [[Array.from]] from this method.
+    */
   def toArray[B >: A: ClassTag]: Array[B] =
     if (knownSize >= 0) {
       val destination = new Array[B](knownSize)
       copyToArray(destination, 0)
       destination
     }
-    else mutable.ArrayBuffer.from(this).toArray[B]
+    else mutable.ArrayBuilder.make[B].addAll(this).result()
 
   // For internal use
   protected def reversed: Iterable[A] = {

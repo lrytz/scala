@@ -14,7 +14,6 @@ package scala
 package reflect
 package internal
 
-import scala.collection.mutable
 import util.HashSet
 import scala.annotation.tailrec
 
@@ -91,8 +90,9 @@ abstract class SymbolPairs {
   abstract class Cursor(val base: Symbol) {
     cursor =>
 
-      final val self  = base.thisType   // The type relative to which symbols are seen.
+    final val self  = base.thisType   // The type relative to which symbols are seen.
     private[this] val decls = newScope        // all the symbols which can take part in a pair.
+    @annotation.unused
     private[this] val size  = bases.length
 
     /** A symbol for which exclude returns true will not appear as
@@ -180,7 +180,7 @@ abstract class SymbolPairs {
           val high    = nextEntry.sym
           val isMatch = matches(high) && { visited addEntry nextEntry ; true } // side-effect visited on all matches
 
-          // Advance if no match, or if the particular cursor is not intested in this pair
+          // Advance if no match, or if the particular cursor is not interested in this pair
           if (!isMatch || skipOwnerPair(low.owner, high.owner)) advanceNextEntry()
           else highSymbol = high
         }

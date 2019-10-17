@@ -15,10 +15,11 @@ package reflect
 package internal
 package tpe
 
-import scala.collection.{ mutable, immutable }
+import scala.collection.{immutable, mutable}
 import Flags._
 import scala.annotation.tailrec
 import Variance._
+import scala.collection.mutable.ListBuffer
 
 private[internal] trait TypeMaps {
   self: SymbolTable =>
@@ -176,7 +177,7 @@ private[internal] trait TypeMaps {
       *  The default is to transform the tree with
       *  TypeMapTransformer.
       */
-    def mapOver(tree: Tree, giveup: ()=>Nothing): Tree =
+    def mapOver(tree: Tree, giveup: () => Nothing): Tree =
       (new TypeMapTransformer).transform(tree)
 
     /** This transformer leaves the tree alone except to remap
@@ -234,7 +235,7 @@ private[internal] trait TypeMaps {
 
     def foldOver(scope: Scope): Unit = {
       val elems = scope.toList
-      val elems1 = foldOver(elems)
+      foldOver(elems)
     }
 
     def foldOverAnnotations(annots: List[AnnotationInfo]): Unit =
@@ -259,10 +260,15 @@ private[internal] trait TypeMaps {
 
   abstract class TypeCollector[T](initial: T) extends TypeFolder {
     var result: T = _
-    def collect(tp: Type) = {
-      result = initial
-      apply(tp)
-      result
+    def collect(tp: Type): T = {
+      val saved = result
+      try {
+        result = initial
+        apply(tp)
+        result
+      } finally {
+        result = saved // support reentrant use of a single instance of this collector.
+      }
     }
   }
 
@@ -384,6 +390,7 @@ private[internal] trait TypeMaps {
     def apply(tp: Type): Type =
       tp match {
         case BoundedWildcardType(TypeBounds(lo, AnyTpe)) if variance.isContravariant => lo
+        case BoundedWildcardType(TypeBounds(lo, ObjectTpeJava)) if variance.isContravariant => lo
         case BoundedWildcardType(TypeBounds(NothingTpe, hi)) if variance.isCovariant => hi
         case tp => tp.mapOver(this)
       }
@@ -613,7 +620,7 @@ private[internal] trait TypeMaps {
     // was touched. This takes us to one allocation per AsSeenFromMap rather
     // than an allocation on every call to mapOver, and no extra work when the
     // tree only has its types remapped.
-    override def mapOver(tree: Tree, giveup: ()=>Nothing): Tree = {
+    override def mapOver(tree: Tree, giveup: () => Nothing): Tree = {
       if (isStablePrefix)
         annotationArgRewriter transform tree
       else {
@@ -814,7 +821,7 @@ private[internal] trait TypeMaps {
         }
       }
     }
-    override def mapOver(tree: Tree, giveup: ()=>Nothing): Tree = {
+    override def mapOver(tree: Tree, giveup: () => Nothing): Tree = {
       mapTreeSymbols.transform(tree)
     }
   }
@@ -967,7 +974,7 @@ private[internal] trait TypeMaps {
     }
 
     //AM propagate more info to annotations -- this seems a bit ad-hoc... (based on code by spoon)
-    override def mapOver(arg: Tree, giveup: ()=>Nothing): Tree = {
+    override def mapOver(arg: Tree, giveup: () => Nothing): Tree = {
       // TODO: this should be simplified; in the stable case, one can
       // probably just use an Ident to the tree.symbol.
       //
@@ -997,13 +1004,9 @@ private[internal] trait TypeMaps {
     }
   }
 
-  /** A map to convert every occurrence of a wildcard type to a fresh
-    *  type variable */
-  object wildcardToTypeVarMap extends TypeMap {
-    def apply(tp: Type): Type = tp match {
-      case pt: ProtoType => TypeVar(tp, new TypeConstraint(pt.toBounds))
-      case _ => tp.mapOver(this)
-    }
+  /** A map that is conceptually an identity, but in practice may perform some side effects. */
+  object identityTypeMap extends TypeMap {
+    def apply(tp: Type): Type = tp.mapOver(this)
   }
 
   /** A map to convert each occurrence of a type variable to its origin. */
@@ -1084,10 +1087,17 @@ private[internal] trait TypeMaps {
 
   /** A map to implement the `collect` method. */
   class CollectTypeCollector[T](pf: PartialFunction[Type, T]) extends TypeCollector[List[T]](Nil) {
-    override def collect(tp: Type) = super.collect(tp).reverse
+    val buffer: ListBuffer[T] = ListBuffer.empty
+
+    override def collect(tp: Type): List[T] = {
+      apply(tp)
+      val result = buffer.result()
+      buffer.clear()
+      result
+    }
 
     override def apply(tp: Type): Unit = {
-      if (pf.isDefinedAt(tp)) result ::= pf(tp)
+      if (pf.isDefinedAt(tp)) buffer += pf(tp)
       tp.foldOver(this)
     }
   }
@@ -1222,6 +1232,11 @@ private[internal] trait TypeMaps {
         if (clazz.isPackageClass) tp
         else {
           val parents1 = parents mapConserve (this)
+          decls.foreach { decl =>
+            if (decl.hasAllFlags(METHOD | MODULE))
+              // HACK: undo flag Uncurry's flag mutation from prior run
+              decl.resetFlag(METHOD | STABLE)
+          }
           if (parents1 eq parents) tp
           else ClassInfoType(parents1, decls, clazz)
         }
@@ -1238,4 +1253,21 @@ private[internal] trait TypeMaps {
     }
   }
 
+  object UnrelatableCollector extends CollectTypeCollector[TypeSkolem](PartialFunction.empty) {
+    var barLevel: Int = 0
+
+    override def apply(tp: Type): Unit = tp match {
+      case TypeRef(_, ts: TypeSkolem, _) if ts.level > barLevel => buffer += ts
+      case _ => tp.foldOver(this)
+    }
+  }
+
+  object IsRelatableCollector extends TypeCollector[Boolean](true) {
+    var barLevel: Int = 0
+
+    def apply(tp: Type): Unit = if (result) tp match {
+      case TypeRef(_, ts: TypeSkolem, _) if ts.level > barLevel => result = false
+      case _ => tp.foldOver(this)
+    }
+  }
 }

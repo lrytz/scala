@@ -121,6 +121,7 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     this.pendingSuperCall
     this.emptyValDef
     this.EmptyTreeTypeSubstituter
+    this.duplicateAndResetPos
     this.UnmappableAnnotArg
     this.LiteralAnnotArg
     this.ArrayAnnotArg
@@ -197,10 +198,12 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     this.wildcardExtrapolation
     this.IsDependentCollector
     this.ApproximateDependentMap
-    this.wildcardToTypeVarMap
+    this.identityTypeMap
     this.typeVarToOriginMap
     this.ErroneousCollector
     this.adaptToNewRunMap
+    this.UnrelatableCollector
+    this.IsRelatableCollector
     this.SubTypePair
     this.SymbolKind
     this.NoSymbol
@@ -327,6 +330,7 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     definitions.ClassTagClass
     definitions.TypeTagsClass
     definitions.ApiUniverseClass
+    definitions.ApiQuasiquotesClass
     definitions.JavaUniverseClass
     definitions.MirrorClass
     definitions.TypeCreatorClass

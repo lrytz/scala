@@ -1,15 +1,30 @@
+/*
+ * Scala (https://www.scala-lang.org)
+ *
+ * Copyright EPFL and Lightbend, Inc.
+ *
+ * Licensed under Apache License 2.0
+ * (http://www.apache.org/licenses/LICENSE-2.0).
+ *
+ * See the NOTICE file distributed with this work for
+ * additional information regarding copyright ownership.
+ */
+
 package scala.tools.testkit
 
 import org.junit.Assert, Assert._
 import scala.reflect.ClassTag
 import scala.runtime.ScalaRunTime.stringOf
-import scala.collection.GenIterable
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable
-import scala.concurrent.{Await, Awaitable, SyncVar, TimeoutException}
-import scala.util.Try
+import scala.concurrent.{Await, Awaitable}
+import scala.util.chaining._
+import scala.util.{Failure, Success, Try}
 import scala.util.Properties.isJavaAtLeast
 import scala.util.control.NonFatal
+import java.time.Duration
+import java.util.concurrent.{CountDownLatch, TimeUnit}
+import java.util.concurrent.atomic.AtomicReference
 import java.lang.ref._
 import java.lang.reflect.{Array => _, _}
 import java.util.IdentityHashMap
@@ -47,6 +62,25 @@ object AssertUtil {
     }
   }
 
+  /** Result and elapsed duration.
+   */
+  def timed[A](body: => A): (A, Duration) = {
+    val start = System.nanoTime
+    val result = body
+    val end = System.nanoTime
+    (result, Duration.ofNanos(end - start))
+  }
+
+  /** Elapsed duration.
+   */
+  def elapsed[U](body: => U): Duration = timed(body)._2
+
+  /** Elapsed duration.
+   */
+  def withElapsed[A](f: Duration => Unit)(body: => A): A = timed(body).pipe {
+    case (result, duration) => f(duration) ; result
+  }
+
   /** Check that throwable T (or a subclass) was thrown during evaluation of `body`,
    *  and that its message satisfies the `checkMessage` predicate.
    *  Any other exception is propagated.
@@ -80,7 +114,7 @@ object AssertUtil {
   /** JUnit-style assertion for `IterableLike.sameElements`.
    */
   def assertSameElements[A, B >: A](expected: Iterable[A], actual: Iterable[B], message: String = ""): Unit =
-    if (!(expected sameElements actual))
+    if (!expected.iterator.sameElements(actual))
       fail(
         f"${ if (message.nonEmpty) s"$message " else "" }expected:<${ stringOf(expected) }> but was:<${ stringOf(actual) }>"
       )
@@ -88,43 +122,46 @@ object AssertUtil {
   /** Convenient for testing iterators.
    */
   def assertSameElements[A, B >: A](expected: Iterable[A], actual: IterableOnce[B]): Unit =
-    assertSameElements(expected, actual.toList, "")
+    assertSameElements(expected, actual.iterator.to(List), "")
 
   /** Value is not strongly reachable from roots after body is evaluated.
    */
   def assertNotReachable[A <: AnyRef](a: => A, roots: AnyRef*)(body: => Unit): Unit = {
     val wkref = new WeakReference(a)
-    def refs(root: AnyRef): mutable.Set[AnyRef] = {
+    // fail if following strong references from root discovers referent. Quit if ref is empty.
+    def assertNoRef(root: AnyRef): Unit = {
       val seen = new IdentityHashMap[AnyRef, Unit]
       def loop(o: AnyRef): Unit =
         if (wkref.nonEmpty && o != null && !seen.containsKey(o)) {
           seen.put(o, ())
+          assertTrue(s"Root $root held reference $o", o ne wkref.get)
           for {
             f <- o.getClass.allFields
             if !Modifier.isStatic(f.getModifiers)
             if !f.getType.isPrimitive
             if !classOf[Reference[_]].isAssignableFrom(f.getType)
-          } loop(f follow o)
+          } loop(f.follow(o))
         }
       loop(root)
-      seen.keySet.asScala
     }
     body
-    for (r <- roots if wkref.nonEmpty) {
-      assertFalse(s"Root $r held reference", refs(r) contains wkref.get)
-    }
+    roots.foreach(assertNoRef)
   }
 
   /** Assert no new threads, with some margin for arbitrary threads to exit. */
   def assertZeroNetThreads(body: => Unit): Unit = {
-    val result = new SyncVar[Option[Throwable]]
     val group = new ThreadGroup("junit")
-    def check() = {
+    try assertZeroNetThreads(group)(body)
+    finally group.destroy()
+  }
+  def assertZeroNetThreads[A](group: ThreadGroup)(body: => A): Try[A] = {
+    val testDone = new CountDownLatch(1)
+    def check(): Try[A] = {
       val beforeCount = group.activeCount
       val beforeThreads = new Array[Thread](beforeCount)
       assertEquals("Spurious early thread creation.", beforeCount, group.enumerate(beforeThreads))
 
-      body
+      val outcome = Try(body)
 
       val afterCount = {
         waitForIt(group.activeCount <= beforeCount, label = "after count")
@@ -134,32 +171,47 @@ object AssertUtil {
       assertEquals("Spurious late thread creation.", afterCount, group.enumerate(afterThreads))
       val staleThreads = afterThreads.toList.diff(beforeThreads)
       //staleThreads.headOption.foreach(_.getStackTrace.foreach(println))
-      assertEquals(staleThreads.mkString("There are stale threads: ",",",""), beforeCount, afterCount)
-      assertTrue(staleThreads.mkString("There are stale threads: ",",",""), staleThreads.isEmpty)
+      val staleMessage = staleThreads.mkString("There are stale threads: ",",","")
+      assertEquals(staleMessage, beforeCount, afterCount)
+      assertTrue(staleMessage, staleThreads.isEmpty)
+
+      outcome
     }
-    def test() = {
+    val result = new AtomicReference[Try[A]]()
+    def test(): Try[A] =
       try {
-        check()
-        result.put(None)
-      } catch {
-        case t: Throwable => result.put(Some(t))
+        val checked = check()
+        result.set(checked)
+        checked
+      } finally {
+        testDone.countDown()
       }
-    }
-    val timeout = 10 * 1000L  // last chance timeout
+
+    val timeout = 10 * 1000L
     val thread = new Thread(group, () => test())
-    def resulted: Boolean = result.get(timeout).isDefined
+    def abort(): Try[A] = {
+      group.interrupt()
+      new Failure(new AssertionError("Test did not complete"))
+    }
     try {
       thread.start()
-      waitForIt(resulted, Slow, label = "test result")
-      val err = result.take(timeout)
-      err.foreach(e => throw e)
+      waitForIt(testDone.getCount == 0, Fast, label = "test result")
+      if (testDone.await(timeout, TimeUnit.MILLISECONDS))
+        result.get
+      else
+        abort()
     } finally {
       thread.join(timeout)
-      group.destroy()
     }
   }
 
   /** Wait for a condition, with a simple back-off strategy.
+   *
+   *  This makes it easier to see hanging threads in development
+   *  without tweaking a timeout parameter. Conversely, when a thread
+   *  fails to make progress in a test environment, we allow the wait
+   *  period to grow larger than usual, since a long wait for failure
+   *  is acceptable.
    *
    *  It would be nicer if what we're waiting for gave us
    *  a progress indicator: we don't care if something
@@ -201,9 +253,51 @@ object AssertUtil {
 
   /** Like Await.ready but return false on timeout, true on completion, throw InterruptedException. */
   def readyOrNot(awaitable: Awaitable[_]): Boolean = Try(Await.ready(awaitable, TestDuration.Standard)).isSuccess
+
+  def withoutATrace[A](body: => A) = NoTrace(body)
 }
 
 object TestDuration {
   import scala.concurrent.duration.{Duration, SECONDS}
   val Standard = Duration(4, SECONDS)
+}
+
+/** Run a thunk, collecting uncaught exceptions from any spawned threads. */
+class NoTrace[A](body: => A) extends Runnable {
+
+  private val uncaught = new mutable.ListBuffer[(Thread, Throwable)]()
+
+  @volatile private[testkit] var result: Option[A] = None
+
+  def run(): Unit = {
+    import AssertUtil.assertZeroNetThreads
+    val group = new ThreadGroup("notrace") {
+      override def uncaughtException(t: Thread, e: Throwable): Unit = synchronized {
+        uncaught += ((t, e))
+      }
+    }
+    try assertZeroNetThreads(group)(body) match {
+      case Success(a) => result = Some(a)
+      case Failure(e) => synchronized { uncaught += ((Thread.currentThread, e)) }
+    }
+    finally group.destroy()
+  }
+
+  private[testkit] lazy val errors: List[(Thread, Throwable)] = synchronized(uncaught.toList)
+
+  private def suppress(t: Throwable, other: Throwable): t.type = { t.addSuppressed(other) ; t }
+
+  private final val noError = None: Option[Throwable]
+
+  def asserted: Option[Throwable] = 
+    errors.collect { case (_, e: AssertionError) => e }
+      .foldLeft(noError)((res, e) => res.map(suppress(_, e)).orElse(Some(e)))
+
+  def apply(test: (Option[A], List[(Thread, Throwable)]) => Option[Throwable]) = {
+    run()
+    test(result, errors).orElse(asserted).foreach(e => throw e)
+  }
+}
+object NoTrace {
+  def apply[A](body: => A): NoTrace[A] = new NoTrace(body)
 }

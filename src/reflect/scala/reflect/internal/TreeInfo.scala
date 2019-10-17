@@ -17,10 +17,6 @@ package internal
 import Flags._
 import scala.annotation.tailrec
 
-/** This class ...
- *
- *  @version 1.0
- */
 abstract class TreeInfo {
   val global: SymbolTable
 
@@ -121,19 +117,21 @@ abstract class TreeInfo {
   private def symOk(sym: Symbol) = sym != null && !sym.isError && sym != NoSymbol
   private def typeOk(tp: Type)   =  tp != null && ! tp.isError
 
+  private def isUncheckedStable(sym: Symbol) = sym.isTerm && sym.hasAnnotation(uncheckedStableClass)
+
   /** Assuming `sym` is a member of `tree`, is it a "stable member"?
    *
    * Stable members are packages or members introduced
    * by object definitions or by value definitions of non-volatile types (§3.6).
    */
   def isStableMemberOf(sym: Symbol, tree: Tree, allowVolatile: Boolean): Boolean = (
-    symOk(sym)       && (!sym.isTerm   || (sym.isStable && (allowVolatile || !sym.hasVolatileType))) &&
+    symOk(sym)       && (!sym.isTerm   || ((sym.isStable || isUncheckedStable(sym)) && (allowVolatile || !sym.hasVolatileType))) &&
     typeOk(tree.tpe) && (allowVolatile || !hasVolatileType(tree)) && !definitions.isByNameParamType(tree.tpe)
   )
 
   private def isStableIdent(tree: Ident, allowVolatile: Boolean): Boolean = (
        symOk(tree.symbol)
-    && tree.symbol.isStable
+    && (tree.symbol.isStable || isUncheckedStable(tree.symbol))
     && !definitions.isByNameParamType(tree.tpe)
     && !definitions.isByName(tree.symbol)
     && (allowVolatile || !tree.symbol.hasVolatileType) // TODO SPEC: not required by spec
@@ -142,7 +140,7 @@ abstract class TreeInfo {
   /** Is `tree`'s type volatile? (Ignored if its symbol has the @uncheckedStable annotation.)
    */
   def hasVolatileType(tree: Tree): Boolean =
-    symOk(tree.symbol) && tree.tpe.isVolatile && !tree.symbol.hasAnnotation(uncheckedStableClass)
+    symOk(tree.symbol) && tree.tpe.isVolatile && !isUncheckedStable(tree.symbol)
 
   /** Is `tree` either a non-volatile type,
    *  or a path that does not include any of:
@@ -352,9 +350,9 @@ abstract class TreeInfo {
    * Named arguments can transform a constructor call into a block, e.g.
    *   <init>(b = foo, a = bar)
    * is transformed to
-   *   { val x$1 = foo
-   *     val x$2 = bar
-   *     <init>(x$2, x$1)
+   *   { val x\$1 = foo
+   *     val x\$2 = bar
+   *     <init>(x\$2, x\$1)
    *   }
    */
   def stripNamedApplyBlock(tree: Tree) = tree match {
@@ -364,7 +362,7 @@ abstract class TreeInfo {
       tree
   }
 
-  /** Strips layers of `.asInstanceOf[T]` / `_.$asInstanceOf[T]()` from an expression */
+  /** Strips layers of `.asInstanceOf[T]` / `_.\$asInstanceOf[T]()` from an expression */
   @tailrec
   final def stripCast(tree: Tree): Tree = tree match {
     case TypeApply(sel @ Select(inner, _), _) if isCastSymbol(sel.symbol) =>
@@ -1108,8 +1106,14 @@ trait MacroAnnotionTreeInfo { self: TreeInfo =>
   final def splitAtSuper(stats: List[Tree], classOnly: Boolean): (List[Tree], List[Tree]) = {
     @tailrec
     def isConstr(tree: Tree): Boolean = tree match {
-      case Block(_, expr) => isConstr(expr) // scala/bug#6481 account for named argument blocks
-      case _              => (tree.symbol ne null) && (if (classOnly) tree.symbol.isClassConstructor else tree.symbol.isConstructor)
+      case Block(_, expr) =>
+        isConstr(expr) // scala/bug#6481 account for named argument blocks
+      case Apply(Select(New(_), _), _) =>
+        false // scala/bug#11736 don't treat `new X` statements as super calls
+      case Apply(fun, _) =>
+        (fun.symbol ne null) && (if (classOnly) fun.symbol.isClassConstructor else fun.symbol.isConstructor)
+      case _ =>
+        false
     }
     val (pre, rest0)       = stats span (!isConstr(_))
     val (supercalls, rest) = rest0 span (isConstr(_))

@@ -20,7 +20,6 @@ import scala.collection.immutable.Map.Map4
 import scala.collection.mutable.{Builder, ReusableBuilder}
 import scala.language.higherKinds
 
-
 /** Base type of immutable Maps */
 trait Map[K, +V]
   extends Iterable[(K, V)]
@@ -114,7 +113,6 @@ trait MapOps[K, +V, +CC[X, +Y] <: MapOps[X, Y, CC, _], +C <: MapOps[K, V, CC, C]
    * @param key the key value
    * @param remappingFunction a partial function that receives current optionally-mapped value and return a new mapping
    * @return A new map with the updated mapping with the key
-   * @since 2.13.0
    */
   def updatedWith[V1 >: V](key: K)(remappingFunction: Option[V] => Option[V1]): CC[K,V1] = {
     val previousValue = this.get(key)
@@ -239,13 +237,13 @@ object Map extends MapFactory[Map] {
     override def size: Int = 1
     override def knownSize: Int = 1
     override def isEmpty: Boolean = false
-    override def apply(key: K) = if (key == key1) value1 else throw new NoSuchElementException("key not found: " + key)
-    override def contains(key: K) = key == key1
+    override def apply(key: K): V = if (key == key1) value1 else throw new NoSuchElementException("key not found: " + key)
+    override def contains(key: K): Boolean = key == key1
     def get(key: K): Option[V] =
       if (key == key1) Some(value1) else None
     override def getOrElse [V1 >: V](key: K, default: => V1): V1 =
       if (key == key1) value1 else default
-    def iterator = Iterator.single((key1, value1))
+    def iterator: Iterator[(K, V)] = Iterator.single((key1, value1))
     override def keysIterator: Iterator[K] = Iterator.single(key1)
     override def valuesIterator: Iterator[V] = Iterator.single(value1)
     def updated[V1 >: V](key: K, value: V1): Map[K, V1] =
@@ -268,11 +266,11 @@ object Map extends MapFactory[Map] {
     override def size: Int = 2
     override def knownSize: Int = 2
     override def isEmpty: Boolean = false
-    override def apply(key: K) =
+    override def apply(key: K): V =
       if (key == key1) value1
       else if (key == key2) value2
       else throw new NoSuchElementException("key not found: " + key)
-    override def contains(key: K) = (key == key1) || (key == key2)
+    override def contains(key: K): Boolean = (key == key1) || (key == key2)
     def get(key: K): Option[V] =
       if (key == key1) Some(value1)
       else if (key == key2) Some(value2)
@@ -330,12 +328,12 @@ object Map extends MapFactory[Map] {
     override def size: Int = 3
     override def knownSize: Int = 3
     override def isEmpty: Boolean = false
-    override def apply(key: K) =
+    override def apply(key: K): V =
       if (key == key1) value1
       else if (key == key2) value2
       else if (key == key3) value3
       else throw new NoSuchElementException("key not found: " + key)
-    override def contains(key: K) = (key == key1) || (key == key2) || (key == key3)
+    override def contains(key: K): Boolean = (key == key1) || (key == key2) || (key == key3)
     def get(key: K): Option[V] =
       if (key == key1) Some(value1)
       else if (key == key2) Some(value2)
@@ -402,13 +400,13 @@ object Map extends MapFactory[Map] {
     override def size: Int = 4
     override def knownSize: Int = 4
     override def isEmpty: Boolean = false
-    override def apply(key: K) =
+    override def apply(key: K): V =
       if (key == key1) value1
       else if (key == key2) value2
       else if (key == key3) value3
       else if (key == key4) value4
       else throw new NoSuchElementException("key not found: " + key)
-    override def contains(key: K) = (key == key1) || (key == key2) || (key == key3) || (key == key4)
+    override def contains(key: K): Boolean = (key == key1) || (key == key2) || (key == key3) || (key == key4)
     def get(key: K): Option[V] =
       if (key == key1) Some(value1)
       else if (key == key2) Some(value2)
@@ -479,7 +477,6 @@ object Map extends MapFactory[Map] {
 }
 
 /** Explicit instantiation of the `Map` trait to reduce class file size in subclasses. */
-@SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends scala.collection.AbstractMap[K, V] with Map[K, V]
 
 private[immutable] final class MapBuilderImpl[K, V] extends ReusableBuilder[(K, V), Map[K, V]] {

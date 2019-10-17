@@ -14,8 +14,6 @@ package scala
 package collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import scala.annotation.unchecked.uncheckedVariance
 import scala.annotation.tailrec
 import mutable.{Builder, ListBuffer}
@@ -67,7 +65,6 @@ import scala.runtime.Statics.releaseFence
   *        objects that rely on structural sharing), will be serialized and deserialized with multiple lists, one for
   *        each reference to it. I.e. structural sharing is lost after serialization/deserialization.
   *
-  *  @since   1.0
   *  @see  [[http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#lists "Scala's Collection Library overview"]]
   *  section on `Lists` for more information.
   *
@@ -237,51 +234,48 @@ sealed abstract class List[+A]
     if (this eq Nil) Nil else {
       var rest = this
       var h: ::[B] = null
+      var x: Any = null
       // Special case for first element
-      do {
-        val x: Any = pf.applyOrElse(rest.head, List.partialNotApplied)
+      while (h eq null) {
+        x = pf.applyOrElse(rest.head, List.partialNotApplied)
         if (x.asInstanceOf[AnyRef] ne List.partialNotApplied) h = new ::(x.asInstanceOf[B], Nil)
         rest = rest.tail
         if (rest eq Nil) return if (h eq null) Nil else h
-      } while (h eq null)
+      } 
       var t = h
       // Remaining elements
-      do {
-        val x: Any = pf.applyOrElse(rest.head, List.partialNotApplied)
+      while (rest ne Nil) {
+        x = pf.applyOrElse(rest.head, List.partialNotApplied)
         if (x.asInstanceOf[AnyRef] ne List.partialNotApplied) {
           val nx = new ::(x.asInstanceOf[B], Nil)
           t.next = nx
           t = nx
         }
         rest = rest.tail
-      } while (rest ne Nil)
+      } 
       releaseFence()
       h
     }
   }
+
   final override def flatMap[B](f: A => IterableOnce[B]): List[B] = {
-    if (this eq Nil) Nil else {
-      var rest = this
-      var found = false
-      var h: ::[B] = null
-      var t: ::[B] = null
-      while (rest ne Nil) {
-        f(rest.head).iterator.foreach { b =>
-          if (!found) {
-            h = new ::(b, Nil)
-            t = h
-            found = true
-          }
-          else {
-            val nx = new ::(b, Nil)
-            t.next = nx
-            t = nx
-          }
+    var rest = this
+    var h: ::[B] = null
+    var t: ::[B] = null
+    while (rest ne Nil) {
+      val it = f(rest.head).iterator
+      while (it.hasNext) {
+        val nx = new ::(it.next(), Nil)
+        if (t eq null) {
+          h = nx
+        } else {
+          t.next = nx
         }
-        rest = rest.tail
+        t = nx
       }
-      if (!found) Nil else {releaseFence(); h}
+      rest = rest.tail
     }
+    if (h eq null) Nil else {releaseFence(); h}
   }
 
   @inline final override def takeWhile(p: A => Boolean): List[A] = {

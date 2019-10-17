@@ -19,7 +19,6 @@ import scala.collection.generic.DefaultSerializationProxy
 
 /** This class implements mutable maps using a hashtable.
   *
-  *  @since 1
   *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#hash-tables "Scala's Collection Library overview"]]
   *  section on `Hash Tables` for more information.
   *
@@ -104,6 +103,57 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
         }
         this
       case _ => super.addAll(xs)
+    }
+  }
+
+  // Override updateWith for performance, so we can do the update while hashing
+  // the input key only once and performing one lookup into the hash table
+  override def updateWith(key: K)(remappingFunction: Option[V] => Option[V]): Option[V] = {
+    if (getClass != classOf[HashMap[_, _]]) {
+      // subclasses of HashMap might customise `get` ...
+      super.updateWith(key)(remappingFunction)
+    } else {
+      val hash = computeHash(key)
+      val indexedHash = index(hash)
+
+      var foundNode: Node[K, V] = null
+      var previousNode: Node[K, V] = null
+      table(indexedHash) match {
+        case null =>
+        case nd =>
+          @tailrec
+          def findNode(prev: Node[K, V], nd: Node[K, V], k: K, h: Int): Unit = {
+            if (h == nd.hash && k == nd.key) {
+              previousNode = prev
+              foundNode = nd
+            }
+            else if ((nd.next eq null) || (nd.hash > h)) ()
+            else findNode(nd, nd.next, k, h)
+          }
+
+          findNode(null, nd, key, hash)
+      }
+
+      val previousValue = foundNode match {
+        case null => None
+        case nd => Some(nd.value)
+      }
+
+      val nextValue = remappingFunction(previousValue)
+
+      (previousValue, nextValue) match {
+        case (None, None) => // do nothing
+
+        case (Some(_), None) =>
+          if (previousNode != null) previousNode.next = foundNode.next
+          else table(indexedHash) = foundNode.next
+          contentSize -= 1
+
+        case (None, Some(value)) => put0(key, value, false, hash, indexedHash)
+
+        case (Some(_), Some(newValue)) => foundNode.value = newValue
+      }
+      nextValue
     }
   }
 
@@ -263,9 +313,9 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
       protected[this] def extract(nd: Node[K, V]) = nd
     }
 
-  override def stepper[B >: (K, V), S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[(K, V), S]): S with EfficientSplit =
     shape.
-      parUnbox(new convert.impl.AnyTableStepper[B, Node[K, V]](size, table, _.next, node => (node.key, node.value), 0, table.length)).
+      parUnbox(new convert.impl.AnyTableStepper[(K, V), Node[K, V]](size, table, _.next, node => (node.key, node.value), 0, table.length)).
       asInstanceOf[S with EfficientSplit]
 
   override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S with EfficientSplit = {
@@ -279,13 +329,13 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
     s.asInstanceOf[S with EfficientSplit]
   }
 
-  override def valueStepper[B >: V, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S with EfficientSplit = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntTableStepper[Node[K, V]]   (size, table, _.next, _.value.asInstanceOf[Int],    0, table.length)
       case StepperShape.LongShape   => new LongTableStepper[Node[K, V]]  (size, table, _.next, _.value.asInstanceOf[Long],   0, table.length)
       case StepperShape.DoubleShape => new DoubleTableStepper[Node[K, V]](size, table, _.next, _.value.asInstanceOf[Double], 0, table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[B, Node[K, V]](size, table, _.next, _.value.asInstanceOf[B],      0, table.length))
+      case _         => shape.parUnbox(new AnyTableStepper[V, Node[K, V]](size, table, _.next, _.value,                      0, table.length))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -457,9 +507,23 @@ class HashMap[K, V](initialCapacity: Int, loadFactor: Double)
     this
   }
 
+  // TODO in 2.14: rename to `mapValuesInPlace` and override the base version (not binary compatible)
+  private[mutable] def mapValuesInPlaceImpl(f: (K, V) => V): this.type = {
+    val len = table.length
+    var i = 0
+    while (i < len) {
+      var n = table(i)
+      while (n ne null) {
+        n.value = f(n.key, n.value)
+        n = n.next
+      }
+      i += 1
+    }
+    this
+  }
+
   override def mapFactory: MapFactory[HashMap] = HashMap
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "HashMap"
 }
 

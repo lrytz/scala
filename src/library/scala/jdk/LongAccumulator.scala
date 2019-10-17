@@ -32,7 +32,7 @@ final class LongAccumulator
 
   override protected[this] def className: String = "LongAccumulator"
 
-  def efficientStepper[B >: Long, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  def efficientStepper[S <: Stepper[_]](implicit shape: StepperShape[Long, S]): S with EfficientSplit = {
     val st = new LongAccumulatorStepper(this)
     val r =
       if (shape.shape == StepperShape.LongShape) st
@@ -185,8 +185,7 @@ final class LongAccumulator
     val s = stepper
     while (s.hasStep) {
       val n = s.nextStep()
-      if (pf.isDefinedAt(n))
-        b.addOne(pf.apply(n))
+      pf.runWith(b.addOne)(n)
     }
     b.result()
   }

@@ -13,13 +13,10 @@
 package scala.tools.nsc
 package plugins
 
-import scala.tools.nsc.io.Jar
-import scala.reflect.internal.util.ScalaClassLoader
-import scala.reflect.io.{Directory, File, Path}
-import java.io.InputStream
-import java.net.URL
-
+import java.util.jar
 import scala.collection.JavaConverters._
+import scala.reflect.internal.util.ScalaClassLoader
+import scala.reflect.io.{AbstractFile, File, Path}
 import scala.collection.mutable
 import scala.tools.nsc.classpath.FileBasedCache
 import scala.util.{Failure, Success, Try}
@@ -33,7 +30,6 @@ import scala.util.{Failure, Success, Try}
  *  }}}
  *
  *  @author Lex Spoon
- *  @version 1.0, 2007-5-21
  */
 abstract class Plugin {
   /** The name of this plugin */
@@ -74,7 +70,7 @@ abstract class Plugin {
     true
   }
 
-  @deprecated("use Plugin#init instead", since="2.11.0")
+  @deprecatedOverriding("use Plugin#init instead", since="2.11.0")
   def processOptions(options: List[String], error: String => Unit): Unit = {
     if (!options.isEmpty) error(s"Error: $name takes no options")
   }
@@ -84,16 +80,40 @@ abstract class Plugin {
    *  should be listed with the `-P:plugname:` part included.
    */
   val optionsHelp: Option[String] = None
+
+  /**
+   * A callback to allow a plugin to add additional resources to the generated output.
+   * This allows a plug to, for instance, package resources or services into a jar, or add artifacts specific to a
+   * build environment. Typically this extension point is used when writing to a jar, to avoid the build system
+   * having an additional step to add these resources, and therefore speed up the build process.
+   * The default implementation is a NO-OP
+   * @param writer the writer associated with the targets
+   */
+  def writeAdditionalOutputs(writer: OutputFileWriter): Unit = {}
+
+  /**
+   * A callback to allow a plugin to customise the manifest of a jar. This is only called if the output is a jar.
+   * In the case of a multi-output compile, it is called once for each output (if the output is a jar).
+   * Typically this extension point is to avoid the build system having an additional step
+   * to add this information, while would otherwise require the jar to be re-built ( as the manifest is required
+   * to be the first entry in a jar.
+   * The default implementation is a NO-OP
+   *
+   * @param file the file that will contains this manifest. Int the case of a multi-output compile, the plugin can
+   *             use this to differentiate the outputs
+   * @param manifest the manifest that will be written
+   */
+  def augmentManifest(file: AbstractFile, manifest: jar.Manifest): Unit = {}
+
 }
 
 /** ...
  *
  *  @author Lex Spoon
- *  @version 1.0, 2007-5-21
  */
 object Plugin {
 
-  private val PluginXML = "scalac-plugin.xml"
+  val PluginXML = "scalac-plugin.xml"
 
   private[nsc] val pluginClassLoadersCache = new FileBasedCache[ScalaClassLoader.URLClassLoader]()
 
@@ -126,8 +146,6 @@ object Plugin {
     ignoring: List[String],
     findPluginClassloader: (Seq[Path] => ClassLoader)): List[Try[AnyClass]] =
   {
-    type PDResults = List[Try[(PluginDescription, ScalaClassLoader)]]
-
     val fromLoaders = paths.map {path =>
       val loader = findPluginClassloader(path)
       loader.getResource(PluginXML) match {

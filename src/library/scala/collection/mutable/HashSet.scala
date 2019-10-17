@@ -19,7 +19,6 @@ import scala.collection.generic.DefaultSerializationProxy
 
 /** This class implements mutable sets using a hashtable.
   *
-  * @since   1
   * @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#hash-tables "Scala's Collection Library overview"]]
   * section on `Hash Tables` for more information.
   *
@@ -100,7 +99,6 @@ final class HashSet[A](initialCapacity: Int, loadFactor: Double)
         this
       case _ => super.addAll(xs)
     }
-    super.addAll(xs)
   }
 
   override def subtractAll(xs: IterableOnce[A]): this.type = {
@@ -218,13 +216,13 @@ final class HashSet[A](initialCapacity: Int, loadFactor: Double)
     override protected[this] def extract(nd: Node[A]): Node[A] = nd
   }
 
-  override def stepper[B >: A, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[A, S]): S with EfficientSplit = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntTableStepper[Node[A]]   (size, table, _.next, _.key.asInstanceOf[Int],    0, table.length)
       case StepperShape.LongShape   => new LongTableStepper[Node[A]]  (size, table, _.next, _.key.asInstanceOf[Long],   0, table.length)
       case StepperShape.DoubleShape => new DoubleTableStepper[Node[A]](size, table, _.next, _.key.asInstanceOf[Double], 0, table.length)
-      case _         => shape.parUnbox(new AnyTableStepper[B, Node[A]](size, table, _.next, _.key.asInstanceOf[B],      0, table.length))
+      case _         => shape.parUnbox(new AnyTableStepper[A, Node[A]](size, table, _.next, _.key,                      0, table.length))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -361,8 +359,7 @@ final class HashSet[A](initialCapacity: Int, loadFactor: Double)
 
   protected[this] def writeReplace(): AnyRef = new DefaultSerializationProxy(new HashSet.DeserializationFactory[A](table.length, loadFactor), this)
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
-  override protected[this] def stringPrefix = "HashSet"
+  override protected[this] def className = "HashSet"
 }
 
 /**

@@ -180,7 +180,8 @@ abstract class LambdaLift extends InfoTransform {
             renamable += sym
             changedFreeVars = true
             debuglog(s"$sym is free in $enclosure")
-            if (sym.isVariable) sym setFlag CAPTURED
+            if (sym.isVariable && !sym.hasStableFlag) // write-once synthetic case vars are marked STABLE
+              sym setFlag CAPTURED
           }
           !enclosure.isClass
         }
@@ -262,9 +263,9 @@ abstract class LambdaLift extends InfoTransform {
 
         val join = nme.NAME_JOIN_STRING
         if (sym.isAnonymousFunction && sym.owner.isMethod) {
-          freshen(sym.name + join + nme.ensureNonAnon(sym.owner.name.toString) + join)
+          freshen("" + sym.name + join + nme.ensureNonAnon(sym.owner.name.toString) + join)
         } else {
-          val name = freshen(sym.name + join)
+          val name = freshen(s"${sym.name}${join}")
           // scala/bug#5652 If the lifted symbol is accessed from an inner class, it will be made public. (where?)
           //         Generating a unique name, mangled with the enclosing full class name (including
           //         package - subclass might have the same name), avoids a VerifyError in the case

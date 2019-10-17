@@ -14,36 +14,33 @@ package scala
 package tools
 package nsc
 
-import java.io.{FileNotFoundException, IOException}
+import java.io.{Closeable, FileNotFoundException, IOException}
 import java.net.URL
-import java.nio.charset.{Charset, CharsetDecoder, IllegalCharsetNameException, StandardCharsets, UnsupportedCharsetException}
+import java.nio.charset._
 
-import scala.collection.{immutable, mutable}
-import io.{AbstractFile, SourceReader}
-import util.{ClassPath, returning}
-import reporters.{Reporter => LegacyReporter}
-import scala.reflect.ClassTag
-import scala.reflect.internal.{Reporter => InternalReporter}
-import scala.reflect.internal.util.{BatchSourceFile, FreshNameCreator, NoSourceFile, ScriptSourceFile, SourceFile}
-import scala.reflect.internal.pickling.PickleBuffer
-import symtab.{Flags, SymbolTable, SymbolTrackers}
-import symtab.classfile.Pickler
-import plugins.Plugins
-import ast._
-import ast.parser._
-import typechecker._
-import transform.patmat.PatternMatching
-import transform._
-import backend.{JavaPlatform, ScalaPrimitives}
-import backend.jvm.{BackendStats, GenBCode}
-import scala.tools.nsc.ast.{TreeGen => AstTreeGen}
-import scala.tools.nsc.classpath._
-import scala.tools.nsc.profile.Profiler
-import scala.util.control.NonFatal
-import java.io.Closeable
 import scala.annotation.tailrec
+import scala.collection.{immutable, mutable}
+import scala.reflect.ClassTag
+import scala.reflect.internal.pickling.PickleBuffer
+import scala.reflect.internal.util.{BatchSourceFile, FreshNameCreator, NoSourceFile, ScriptSourceFile, SourceFile}
+import scala.reflect.internal.{Reporter => InternalReporter}
+import scala.tools.nsc.ast.parser._
+import scala.tools.nsc.ast.{TreeGen => AstTreeGen, _}
+import scala.tools.nsc.backend.jvm.{BackendStats, GenBCode}
+import scala.tools.nsc.backend.{JavaPlatform, ScalaPrimitives}
+import scala.tools.nsc.classpath._
+import scala.tools.nsc.io.{AbstractFile, SourceReader}
+import scala.tools.nsc.plugins.Plugins
+import scala.tools.nsc.profile.Profiler
+import scala.tools.nsc.reporters.{FilteringReporter, MakeFilteringForwardingReporter, Reporter}
+import scala.tools.nsc.symtab.classfile.Pickler
+import scala.tools.nsc.symtab.{Flags, SymbolTable, SymbolTrackers}
+import scala.tools.nsc.transform._
+import scala.tools.nsc.transform.patmat.PatternMatching
+import scala.tools.nsc.typechecker._
+import scala.tools.nsc.util.ClassPath
 
-class Global(var currentSettings: Settings, reporter0: LegacyReporter)
+class Global(var currentSettings: Settings, reporter0: Reporter)
     extends SymbolTable
     with Closeable
     with CompilationUnits
@@ -86,20 +83,24 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
 
   override def settings = currentSettings
 
-  private[this] var currentReporter: LegacyReporter = { reporter = reporter0 ; currentReporter }
+  private[this] var currentReporter: FilteringReporter = null
+  locally { reporter = reporter0 }
 
-  def reporter: LegacyReporter = currentReporter
-  // enforce maxerrs if necessary
-  def reporter_=(newReporter: LegacyReporter): Unit = currentReporter = LegacyReporter.limitedReporter(settings, newReporter)
+  def reporter: FilteringReporter = currentReporter
+  def reporter_=(newReporter: Reporter): Unit =
+    currentReporter = newReporter match {
+      case f: FilteringReporter => f
+      case r                    => new MakeFilteringForwardingReporter(r, settings) // for sbt
+    }
 
   /** Switch to turn on detailed type logs */
   var printTypings = settings.Ytyperdebug.value
 
-  def this(reporter: LegacyReporter) =
+  def this(reporter: Reporter) =
     this(new Settings(err => reporter.error(null, err)), reporter)
 
   def this(settings: Settings) =
-    this(settings, LegacyReporter(settings))
+    this(settings, Reporter(settings))
 
   def picklerPhase: Phase = if (currentRun.isDefined) currentRun.picklerPhase else NoPhase
 
@@ -235,7 +236,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
       t
     } finally {
       propCnt = propCnt-1
-      assert(propCnt >= 0)
+      assert(propCnt >= 0, "Bad propCnt")
     }
   }
 
@@ -467,7 +468,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     override val initial = true
   }
 
-  import syntaxAnalyzer.{ UnitScanner, UnitParser, JavaUnitParser }
+  import syntaxAnalyzer.{JavaUnitParser, UnitParser, UnitScanner}
 
   // !!! I think we're overdue for all these phase objects being lazy vals.
   // There's no way for a Global subclass to provide a custom typer
@@ -527,13 +528,6 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     val runsRightAfter = None
   } with UnCurry
 
-  // phaseName = "tailcalls"
-  object tailCalls extends {
-    val global: Global.this.type = Global.this
-    val runsAfter = List("uncurry")
-    val runsRightAfter = None
-  } with TailCalls
-
   // phaseName = "fields"
   object fields extends {
     val global: Global.this.type = Global.this
@@ -546,12 +540,12 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     val runsRightAfter = None
   } with Fields
 
-  // phaseName = "explicitouter"
-  object explicitOuter extends {
+  // phaseName = "tailcalls"
+  object tailCalls extends {
     val global: Global.this.type = Global.this
     val runsAfter = List("fields")
     val runsRightAfter = None
-  } with ExplicitOuter
+  } with TailCalls
 
   // phaseName = "specialize"
   object specializeTypes extends {
@@ -559,6 +553,13 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     val runsAfter = List("")
     val runsRightAfter = Some("tailcalls")
   } with SpecializeTypes
+
+  // phaseName = "explicitouter"
+  object explicitOuter extends {
+    val global: Global.this.type = Global.this
+    val runsAfter = List("specialize")
+    val runsRightAfter = None
+  } with ExplicitOuter
 
   // phaseName = "erasure"
   override object erasure extends {
@@ -599,7 +600,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
   // phaseName = "mixin"
   object mixer extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("flatten", "constructors")
+    val runsAfter = List("flatten")
     val runsRightAfter = None
   } with Mixin
 
@@ -620,7 +621,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
   // phaseName = "jvm"
   object genBCode extends {
     val global: Global.this.type = Global.this
-    val runsAfter = List("cleanup")
+    val runsAfter = List("delambdafy")
     val runsRightAfter = None
   } with GenBCode
 
@@ -770,7 +771,7 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
     val line2 = fmt.format("----------", "--", "-" * title.length)
 
     // built-in string precision merely truncates
-    import java.util.{ Formattable, FormattableFlags, Formatter }
+    import java.util.{Formattable, FormattableFlags, Formatter}
     def dotfmt(s: String) = new Formattable {
       def foreshortened(s: String, max: Int) = (
         if (max < 0 || s.length <= max) s
@@ -1363,11 +1364,6 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
       settings.userSetSettings filter (_.isDeprecated) foreach { s =>
         currentRun.reporting.deprecationWarning(NoPosition, s.name + " is deprecated: " + s.deprecationMessage.get, "")
       }
-      val supportedTarget = "jvm-1.8"
-      if (settings.target.value != supportedTarget) {
-        currentRun.reporting.deprecationWarning(NoPosition, settings.target.name + ":" + settings.target.value + " is deprecated and has no effect, setting to " + supportedTarget, "2.12.0")
-        settings.target.value = supportedTarget
-      }
       settings.conflictWarning.foreach(reporter.warning(NoPosition, _))
     }
 
@@ -1531,8 +1527,8 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
           showMembers()
 
         // browse trees with swing tree viewer
-        if (settings.browse containsPhase globalPhase)
-          treeBrowser browse (phase.name, units)
+        if (settings.browse.containsPhase(globalPhase))
+          treeBrowser.browse(phase.name, units)
 
         if ((settings.Yvalidatepos containsPhase globalPhase) && !reporter.hasErrors)
           currentRun.units.foreach(unit => validatePositions(unit.body))
@@ -1608,13 +1604,19 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
         val snap = profiler.beforePhase(Global.InitPhase)
 
         val sources: List[SourceFile] =
-          if (settings.script.isSetByUser && filenames.size > 1) returning(Nil)(_ => globalError("can only compile one script at a time"))
-          else filenames map getSourceFile
+          if (settings.script.isSetByUser && filenames.size > 1) {
+            globalError("can only compile one script at a time")
+            Nil
+          }
+          else filenames.map(getSourceFile)
 
         profiler.afterPhase(Global.InitPhase, snap)
         compileSources(sources)
       }
-      catch { case ex: IOException => globalError(ex.getMessage()) }
+      catch {
+        case ex: InterruptedException => reporter.cancelled = true
+        case ex: IOException => globalError(ex.getMessage())
+      }
     }
 
     /** If this compilation is scripted, convert the source to a script source. */
@@ -1734,9 +1736,9 @@ class Global(var currentSettings: Settings, reporter0: LegacyReporter)
 }
 
 object Global {
-  def apply(settings: Settings, reporter: LegacyReporter): Global = new Global(settings, reporter)
+  def apply(settings: Settings, reporter: Reporter): Global = new Global(settings, reporter)
 
-  def apply(settings: Settings): Global = new Global(settings, LegacyReporter(settings))
+  def apply(settings: Settings): Global = new Global(settings, Reporter(settings))
 
   private object InitPhase extends Phase(null) {
     def name = "<init phase>"

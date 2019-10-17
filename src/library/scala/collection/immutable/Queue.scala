@@ -13,9 +13,6 @@
 package scala.collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
-import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.DefaultSerializable
 import scala.collection.mutable.{Builder, ListBuffer}
 
@@ -30,7 +27,6 @@ import scala.collection.mutable.{Builder, ListBuffer}
   *  where a pivot is required, in which case, a cost of `O(n)` is incurred, where `n` is the number of elements in the queue. When this happens,
   *  `n` remove operations with `O(1)` cost are guaranteed. Removing an item is on average `O(1)`.
   *
-  *  @since   1
   *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-immutable-collection-classes.html#immutable-queues "Scala's Collection Library overview"]]
   *  section on `Immutable Queues` for more information.
   *
@@ -71,7 +67,7 @@ sealed class Queue[+A] protected(protected val in: List[A], protected val out: L
 
   /** Returns the elements in the list as an iterator
     */
-  override def iterator: Iterator[A] = (out ::: in.reverse).iterator
+  override def iterator: Iterator[A] = out.iterator.concat(in.reverse)
 
   /** Checks if the queue is empty.
     *

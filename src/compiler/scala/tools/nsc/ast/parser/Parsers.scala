@@ -292,7 +292,7 @@ self =>
     /** Perform an operation while peeking ahead.
      *  Pushback if the operation yields an empty tree or blows to pieces.
      */
-    @inline def peekingAhead(tree: =>Tree): Tree = {
+    @inline def peekingAhead(tree: => Tree): Tree = {
       @inline def peekahead() = {
         in.prev copyFrom in
         in.nextToken()
@@ -870,7 +870,7 @@ self =>
       }
       def mkNamed(args: List[Tree]) = if (isExpr) args map treeInfo.assignmentToMaybeNamedArg else args
       val arguments = right match {
-        case Parens(Nil)  => Literal(Constant(())) :: Nil
+        case Parens(Nil)  => literalUnit :: Nil
         case Parens(args) => mkNamed(args)
         case _            => right :: Nil
       }
@@ -1340,7 +1340,7 @@ self =>
     /** Handle placeholder syntax.
      *  If evaluating the tree produces placeholders, then make it a function.
      */
-    private def withPlaceholders(tree: =>Tree, isAny: Boolean): Tree = {
+    private def withPlaceholders(tree: => Tree, isAny: Boolean): Tree = {
       val savedPlaceholderParams = placeholderParams
       placeholderParams = List()
       var res = tree
@@ -1463,6 +1463,11 @@ self =>
         in.nextToken()
         val r = expr()
         accept(RPAREN)
+        if (isWildcard(r))
+          placeholderParams.head.tpt match {
+            case tpt @ TypeTree() => tpt.setType(definitions.BooleanTpe)
+            case _                =>
+          }
         r
       } else {
         accept(LPAREN)
@@ -1515,11 +1520,7 @@ self =>
         parseIf
       case TRY =>
         def parseTry = atPos(in.skipToken()) {
-          val body = in.token match {
-            case LBRACE => inBracesOrUnit(block())
-            case LPAREN => inParensOrUnit(expr())
-            case _ => expr()
-          }
+          val body = expr()
           def catchFromExpr() = List(makeCatchFromExpr(expr()))
           val catches: List[CaseDef] =
             if (in.token != CATCH) Nil
@@ -1532,8 +1533,8 @@ self =>
               }
             }
           val finalizer = in.token match {
-            case FINALLY => in.nextToken(); expr()
-            case _ => EmptyTree
+            case FINALLY => in.nextToken() ; expr()
+            case _       => EmptyTree
           }
           Try(body, catches, finalizer)
         }
@@ -2444,7 +2445,7 @@ self =>
      *  VariantTypeParam      ::= {Annotation} [`+` | `-`] TypeParam
      *  FunTypeParamClauseOpt ::= [FunTypeParamClause]
      *  FunTypeParamClause    ::= `[` TypeParam {`,` TypeParam} `]`]
-     *  TypeParam             ::= Id TypeParamClauseOpt TypeBounds {<% Type} {":" Type}
+     *  TypeParam             ::= Id TypeParamClauseOpt TypeBounds {`<%` Type} {`:` Type}
      *  }}}
      */
     def typeParamClauseOpt(owner: Name, contextBoundBuf: ListBuffer[Tree]): List[TypeDef] = {
@@ -2669,24 +2670,23 @@ self =>
       val lhs = commaSeparated(stripParens(noSeq.pattern2()))
       val tp = typedOpt()
       val rhs =
-        if (tp.isEmpty || in.token == EQUALS) {
-          accept(EQUALS)
-          if (!tp.isEmpty && newmods.isMutable &&
-              (lhs.toList forall (_.isInstanceOf[Ident])) && in.token == USCORE) {
-            in.nextToken()
-            tp match {
-              case SingletonTypeTree(Literal(Constant(_))) =>
-                syntaxError(tp.pos, "default initialization prohibited for literal-typed vars", skipIt = false)
-              case _ =>
-            }
-            newmods = newmods | Flags.DEFAULTINIT
-            EmptyTree
-          } else {
-            expr()
-          }
-        } else {
+        if (!tp.isEmpty && in.token != EQUALS) {
           newmods = newmods | Flags.DEFERRED
           EmptyTree
+        } else {
+          accept(EQUALS)
+          expr() match {
+            case x if !tp.isEmpty && newmods.isMutable && lhs.forall(_.isInstanceOf[Ident]) && isWildcard(x) =>
+              tp match {
+                case SingletonTypeTree(Literal(Constant(_))) =>
+                  syntaxError(tp.pos, "default initialization prohibited for literal-typed vars", skipIt = false)
+                case _ =>
+              }
+              placeholderParams = placeholderParams.tail
+              newmods = newmods | Flags.DEFAULTINIT
+              EmptyTree
+            case x => x
+          }
         }
       def mkDefs(p: Tree, tp: Tree, rhs: Tree): List[Tree] = {
         val trees = {
@@ -3183,10 +3183,10 @@ self =>
      *  }}}
      * @param isPre specifies whether in early initializer (true) or not (false)
      */
-    def templateStatSeq(isPre : Boolean): (ValDef, List[Tree]) = checkNoEscapingPlaceholders {
+    def templateStatSeq(isPre : Boolean): (ValDef, List[Tree]) = {
       var self: ValDef = noSelfType
       var firstOpt: Option[Tree] = None
-      if (isExprIntro) {
+      if (isExprIntro) checkNoEscapingPlaceholders {
         in.flushDoc
         val first = expr(InTemplate) // @S: first statement is potentially converted so cannot be stubbed.
         if (in.token == ARROW) {
@@ -3219,7 +3219,7 @@ self =>
      *                     |
      *  }}}
      */
-    def templateStats(): List[Tree] = statSeq(templateStat)
+    def templateStats(): List[Tree] = checkNoEscapingPlaceholders { statSeq(templateStat) }
     def templateStat: PartialFunction[Token, List[Tree]] = {
       case IMPORT =>
         in.flushDoc

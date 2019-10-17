@@ -13,7 +13,6 @@
 package scala.collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
 import java.lang.IllegalStateException
 
 import scala.collection.generic.{BitOperations, DefaultSerializationProxy}
@@ -46,7 +45,6 @@ import LongMapUtils._
 /** A companion object for long maps.
   *
   *  @define Coll  `LongMap`
-  *  @since 2.7
   */
 object LongMap {
   def empty[T]: LongMap[T]  = LongMap.Nil
@@ -169,7 +167,6 @@ private[immutable] class LongMapKeyIterator[V](it: LongMap[V]) extends LongMapIt
   *
   *  @tparam T      type of the values associated with the long keys.
   *
-  *  @since 2.7
   *  @define Coll `immutable.LongMap`
   *  @define coll immutable long integer map
   *  @define mayNotTerminateInf

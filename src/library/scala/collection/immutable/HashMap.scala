@@ -31,7 +31,6 @@ import scala.util.hashing.MurmurHash3
   *  @tparam K      the type of the keys contained in this hash set.
   *  @tparam V      the type of the values associated with the keys in this hash map.
   *
-  *  @since   2.13
   *  @define Coll `immutable.HashMap`
   *  @define coll immutable champ hash map
   */
@@ -94,9 +93,9 @@ final class HashMap[K, +V] private[immutable] (private[immutable] val rootNode: 
     else new MapKeyValueTupleReverseIterator[K, V](rootNode)
   }
 
-  override def stepper[B >: (K, V), S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit =
+  override def stepper[S <: Stepper[_]](implicit shape: StepperShape[(K, V), S]): S with EfficientSplit =
     shape.
-      parUnbox(collection.convert.impl.AnyChampStepper.from[B, MapNode[K, V]](size, rootNode, (node, i) => node.getPayload(i)))
+      parUnbox(collection.convert.impl.AnyChampStepper.from[(K, V), MapNode[K, V]](size, rootNode, (node, i) => node.getPayload(i)))
 
   override def keyStepper[S <: Stepper[_]](implicit shape: StepperShape[K, S]): S with EfficientSplit = {
     import collection.convert.impl._
@@ -109,13 +108,13 @@ final class HashMap[K, +V] private[immutable] (private[immutable] val rootNode: 
     s.asInstanceOf[S with EfficientSplit]
   }
 
-  override def valueStepper[B >: V, S <: Stepper[_]](implicit shape: StepperShape[B, S]): S with EfficientSplit = {
+  override def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S with EfficientSplit = {
     import collection.convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => IntChampStepper.from[   MapNode[K, V]](size, rootNode, (node, i) => node.getValue(i).asInstanceOf[Int])
       case StepperShape.LongShape   => LongChampStepper.from[  MapNode[K, V]](size, rootNode, (node, i) => node.getValue(i).asInstanceOf[Long])
       case StepperShape.DoubleShape => DoubleChampStepper.from[MapNode[K, V]](size, rootNode, (node, i) => node.getValue(i).asInstanceOf[Double])
-      case _         => shape.parUnbox(AnyChampStepper.from[B, MapNode[K, V]](size, rootNode, (node, i) => node.getValue(i)))
+      case _         => shape.parUnbox(AnyChampStepper.from[V, MapNode[K, V]](size, rootNode, (node, i) => node.getValue(i)))
     }
     s.asInstanceOf[S with EfficientSplit]
   }
@@ -246,6 +245,46 @@ final class HashMap[K, +V] private[immutable] (private[immutable] val rootNode: 
 
   override protected[this] def className = "HashMap"
 
+  /** Merges this HashMap with an other HashMap by combining all key-value pairs of both maps, and delegating to a merge
+    * function to resolve any key collisions between the two HashMaps.
+    *
+    * @example {{{
+    *   val left = HashMap(1 -> 1, 2 -> 1)
+    *   val right = HashMap(2 -> 2, 3 -> 2)
+    *
+    *   val merged = left.merged(right){ case ((k0, v0), (k1, v1)) => (k0 + k1) -> (v0 + v1) }
+    *     // HashMap(1 -> 1, 3 -> 2, 4 -> 3)
+    *
+    * }}}
+    *
+    * @param that the HashMap to merge this HashMap with
+    * @param mergef the merge function which resolves collisions between the two HashMaps. If `mergef` is null, then
+    *               keys from `this` will overwrite keys from `that`, making the behaviour equivalent to
+    *               `that.concat(this)`
+    *
+    * @note In cases where `mergef` returns keys which themselves collide with other keys returned by `merge`, or
+    *       found in `this` or `that`, it is not defined which value will be chosen. For example:
+    *
+    *       Colliding multiple results of merging:
+    *       {{{
+    *         // key `3` collides between a result of merging keys `1` and `2`
+    *         val left = HashMap(1 -> 1, 2 -> 2)
+    *         val right = HashMap(1 -> 1, 2 -> 2)
+    *
+    *         val merged = left.merged(right){ case (_, (_, v1)) => 3 -> v1 }
+    *           // HashMap(3 -> 2) is returned, but it could also have returned HashMap(3 -> 1)
+    *       }}}
+    *       Colliding results of merging with other keys:
+    *       {{{
+    *         // key `2` collides between a result of merging `1`, and existing key `2`
+    *         val left = HashMap(1 -> 1, 2 -> 1)
+    *         val right = HashMap(1 -> 2)
+    *
+    *         val merged = left.merged(right)((_,_) => 2 -> 3)
+    *           // HashMap(2 -> 1) is returned, but it could also have returned HashMap(2 -> 3)
+    *       }}}
+    *
+    */
   def merged[V1 >: V](that: HashMap[K, V1])(mergef: ((K, V), (K, V1)) => (K, V1)): HashMap[K, V1] =
     if (mergef == null) {
       that ++ this
@@ -262,7 +301,7 @@ final class HashMap[K, +V] private[immutable] (private[immutable] val rootNode: 
           val (mergedK, mergedV) = mergef(payload, thatPayload)
           val mergedOriginalHash = mergedK.##
           val mergedImprovedHash = improve(mergedOriginalHash)
-          new HashMap(that.rootNode.updated(mergedK, mergedV, mergedOriginalHash, mergedImprovedHash, 0, replaceValue = true))
+          new HashMap(that.rootNode.removed(thatPayload._1, originalHash, improved, 0).updated(mergedK, mergedV, mergedOriginalHash, mergedImprovedHash, 0, replaceValue = true))
         } else {
           new HashMap(that.rootNode.updated(k, v, originalHash, improved, 0, replaceValue = true))
         }

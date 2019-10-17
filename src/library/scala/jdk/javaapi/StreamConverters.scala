@@ -15,8 +15,6 @@ package scala.jdk.javaapi
 import java.util.stream.{DoubleStream, IntStream, LongStream, Stream, StreamSupport}
 import java.{lang => jl}
 
-import scala.collection.Stepper
-
 /** This object contains methods to create Java Streams that operate on Scala collections
   * (sequentially or in parallel). For more information on Java streams, consult the documentation
   * ([[https://docs.oracle.com/javase/8/docs/api/java/util/stream/package-summary.html]]).
@@ -30,7 +28,7 @@ import scala.collection.Stepper
   * For details how the stream converters work, see [[scala.jdk.StreamConverters]].
   *
   * @define parNote Note: parallel processing is only efficient for collections that have a
-  *                 [[Stepper]] implementation which supports efficient splitting. For collections
+  *                 [[scala.collection.Stepper]] implementation which supports efficient splitting. For collections
   *                 where this is the case, the [[scala.collection.IterableOnce.stepper `stepper`]]
   *                 method has a return type marked `with EfficientSplit`.
   *

@@ -54,14 +54,13 @@ package scala
  *
  *  @note Optional [[Function]]s, [[PartialFunction]]s and extractor objects
  *        can be converted to each other as shown in the following table.
- *
- *        | How to convert ... | to a [[PartialFunction]] | to an optional [[Function]] | to an extractor |
- *        | :---:  | ---  | --- | --- |
- *        | from a [[PartialFunction]] | [[Predef.identity]] | [[lift]] | [[Predef.identity]] |
- *        | from optional [[Function]] | [[Function.UnliftOps#unlift]] or [[Function.unlift]] | [[Predef.identity]] | [[Function.UnliftOps#unlift]] |
- *        | from an extractor | `{ case extractor(x) => x }` | `extractor.unapply _` | [[Predef.identity]] |
- *
- *  @since   1.0
+ *  &nbsp;
+ * | How to convert ... | to a [[PartialFunction]] | to an optional [[Function]] | to an extractor |
+ * | :---:  | ---  | --- | --- |
+ * | from a [[PartialFunction]] | [[Predef.identity]] | [[lift]] | [[Predef.identity]] |
+ * | from optional [[Function]] | [[Function1.UnliftOps#unlift]] or [[Function.unlift]] | [[Predef.identity]] | [[Function1.UnliftOps#unlift]] |
+ * | from an extractor | `{ case extractor(x) => x }` | `extractor.unapply _` | [[Predef.identity]] |
+ *  &nbsp;
  */
 trait PartialFunction[-A, +B] extends (A => B) { self =>
   import PartialFunction._
@@ -76,11 +75,11 @@ trait PartialFunction[-A, +B] extends (A => B) { self =>
    *
    *           Seq("foo", "bar", "baz") match {
    *             case firstChar.unlift.elementWise(c0, c1, c2) =>
-   *               println(s"$c0, $c1, $c2") // Output: f, b, b
+   *               println(s"\$c0, \$c1, \$c2") // Output: f, b, b
    *           }
    *           }}}
    */
-  def elementWise = new ElementWiseExtractor(this)
+  def elementWise: ElementWiseExtractor[A, B] = new ElementWiseExtractor[A, B](this)
 
   /** Checks if a value is contained in the function's domain.
    *
@@ -183,7 +182,6 @@ trait PartialFunction[-A, +B] extends (A => B) { self =>
    *  @param  x       the function argument
    *  @param default  the fallback function
    *  @return   the result of this function or fallback function application.
-   *  @since   2.10
    */
   def applyOrElse[A1 <: A, B1 >: B](x: A1, default: A1 => B1): B1 =
     if (isDefinedAt(x)) apply(x) else default(x)
@@ -201,7 +199,6 @@ trait PartialFunction[-A, +B] extends (A => B) { self =>
    *  @param   action  the action function
    *  @return  a function which maps arguments `x` to `isDefinedAt(x)`. The resulting function
    *           runs `action(this(x))` where `this` is defined.
-   *  @since   2.10
    */
   def runWith[U](action: B => U): A => Boolean = { x =>
     val z = applyOrElse(x, checkFallback[B])
@@ -220,8 +217,6 @@ trait PartialFunction[-A, +B] extends (A => B) { self =>
  *  }
  *  def onlyInt(v: Any): Option[Int] = condOpt(v) { case x: Int => x }
  *  }}}
- *
- *  @since   2.8
  */
 object PartialFunction {
 
@@ -302,11 +297,11 @@ object PartialFunction {
    *  This correctly interacts with specialization as return type of `applyOrElse`
    *  (which is parameterized upper bound) can never be specialized.
    *
-   *  Here `fallback_pf` is used as both unique marker object and special fallback function that returns it.
+   *  Here `fallback_fn` is used as both unique marker object and special fallback function that returns it.
    */
-  private[this] val fallback_pf: PartialFunction[Any, Any] = { case _ => fallback_pf }
-  private def checkFallback[B] = fallback_pf.asInstanceOf[PartialFunction[Any, B]]
-  private def fallbackOccurred[B](x: B) = (fallback_pf eq x.asInstanceOf[AnyRef])
+  private[this] val fallback_fn: Any => Any = _ => fallback_fn
+  private def checkFallback[B] = fallback_fn.asInstanceOf[Any => B]
+  private def fallbackOccurred[B](x: B) = fallback_fn eq x.asInstanceOf[AnyRef]
 
   private class Lifted[-A, +B] (val pf: PartialFunction[A, B])
       extends scala.runtime.AbstractFunction1[A, Option[B]] with Serializable {
@@ -321,8 +316,7 @@ object PartialFunction {
     def isDefinedAt(x: A): Boolean = f(x).isDefined
 
     override def applyOrElse[A1 <: A, B1 >: B](x: A1, default: A1 => B1): B1 = {
-      val z = f(x)
-      if (!z.isEmpty) z.get else default(x)
+      f(x).getOrElse(default(x))
     }
 
     override def lift = f
@@ -333,7 +327,7 @@ object PartialFunction {
     case ff => new Unlifted(ff)
   }
 
-  /**  Converts an ordinary function to a partial function. Note that calling `isDefinedAt(x)` on 
+  /**  Converts an ordinary function to a partial function. Note that calling `isDefinedAt(x)` on
    *   this partial function will return `true` for every `x`.
    *   @param  f  an ordinary function
    *   @return    a partial function which delegates to the ordinary function `f`
@@ -353,7 +347,6 @@ object PartialFunction {
 
   /** The partial function with empty domain.
    *  Any attempt to invoke empty partial function leads to throwing [[scala.MatchError]] exception.
-   *  @since   2.10
    */
   def empty[A, B] : PartialFunction[A, B] = empty_pf
 

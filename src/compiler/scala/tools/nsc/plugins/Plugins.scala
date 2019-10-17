@@ -15,20 +15,18 @@ package plugins
 
 import java.net.URL
 
+import java.net.URL
+import java.util
+
 import scala.reflect.internal.util.ScalaClassLoader
 import scala.reflect.io.Path
-import scala.tools.nsc
-import scala.tools.nsc.io.Jar
+import scala.tools.nsc.io.AbstractFile
 import scala.tools.nsc.plugins.Plugin.pluginClassLoadersCache
 import scala.tools.nsc.typechecker.Macros
 import scala.tools.nsc.util.ClassPath
 import scala.tools.util.PathResolver.Defaults
 
 /** Support for run-time loading of compiler plugins.
- *
- *  @author Lex Spoon
- *  @version 1.1, 2009/1/2
- *  Updated 2009/1/2 by Anders Bach Nielsen: Added features to implement SIP 00002
  */
 trait Plugins { global: Global =>
 
@@ -63,7 +61,8 @@ trait Plugins { global: Global =>
   /**
     * Locate or create the classloader to load a compiler plugin with `classpath`.
     *
-    * Subclasses may override to customise the behaviour.
+    * Subclasses may override to customise the behaviour. The returned classloader must return the first
+    * from plugin descriptor from `classpath` when `getResource("scalac-plugin.xml")` is called.
     *
     * @param classpath
     * @return
@@ -74,7 +73,19 @@ trait Plugins { global: Global =>
     def newLoader = () => {
       val compilerLoader = classOf[Plugin].getClassLoader
       val urls = classpath map (_.toURL)
-      ScalaClassLoader fromURLs (urls, compilerLoader)
+      new ScalaClassLoader.URLClassLoader(urls, compilerLoader) {
+        // scala/bug#11666 no parent delegation for plugin.xml to avoid getting plugin.xml from parent classloader
+
+        override def getResources(name: String): util.Enumeration[URL] = {
+          if (name == Plugin.PluginXML) findResources(name);
+          else super.getResources(name)
+        }
+
+        override def getResource(name: String): URL = {
+          if (name == Plugin.PluginXML) findResource(name);
+          else super.getResource(name)
+        }
+      }
     }
 
     // Create a class loader with the specified locations plus
@@ -178,8 +189,8 @@ trait Plugins { global: Global =>
   def findMacroClassLoader(): ClassLoader = {
     val classpath: Seq[URL] = if (settings.YmacroClasspath.isSetByUser) {
       for {
-        file <- scala.tools.nsc.util.ClassPath.expandPath(settings.YmacroClasspath.value, true)
-        af <- Option(nsc.io.AbstractFile getDirectory file)
+        file <- ClassPath.expandPath(settings.YmacroClasspath.value, true)
+        af <- Option(AbstractFile getDirectory file)
       } yield af.file.toURI.toURL
     } else global.classPath.asURLs
     def newLoader: () => ScalaClassLoader.URLClassLoader = () => {

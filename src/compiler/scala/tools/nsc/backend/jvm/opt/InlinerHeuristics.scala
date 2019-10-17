@@ -17,8 +17,8 @@ package opt
 import java.util.regex.Pattern
 
 import scala.annotation.tailrec
-import scala.collection.JavaConverters._
 import scala.collection.mutable
+import scala.jdk.CollectionConverters._
 import scala.tools.asm.Type
 import scala.tools.asm.tree.MethodNode
 import scala.tools.nsc.backend.jvm.BTypes.InternalName
@@ -132,7 +132,7 @@ abstract class InlinerHeuristics extends PerRunInit {
   def selectRequestsForMethodSize(method: MethodNode, requests: List[InlineRequest], methodSizes: mutable.Map[MethodNode, Int]): List[InlineRequest] = {
     val byReason = requests.groupBy(_.reason)
     var size = method.instructions.size
-    var res = mutable.ListBuffer.empty[InlineRequest]
+    val res = mutable.ListBuffer.empty[InlineRequest]
     def include(kind: InlineReason, limit: Int): Unit = {
       var rs = byReason.getOrElse(kind, Nil)
       while (rs.nonEmpty && size < limit) {
@@ -244,7 +244,21 @@ abstract class InlinerHeuristics extends PerRunInit {
             // inlined in turn (chosen by the same heuristic), or the code is rolled back. but we don't inline them just because
             // they are forwarders.
             val isTraitSuperAccessor = backendUtils.isTraitSuperAccessor(callee.callee, callee.calleeDeclarationClass)
-            if (isTraitSuperAccessor) null
+            if (isTraitSuperAccessor) {
+              // inline static trait super accessors if the corresponding trait method is a forwarder or trivial (scala-dev#618)
+              {
+                val css = callGraph.callsites(callee.callee)
+                if (css.sizeIs == 1) css.head._2 else null
+              } match {
+                case null => null
+                case traitMethodCallsite =>
+                  val tmCallee = traitMethodCallsite.callee.get
+                  val traitMethodForwarderKind = backendUtils.looksLikeForwarderOrFactoryOrTrivial(
+                    tmCallee.callee, tmCallee.calleeDeclarationClass.internalName, allowPrivateCalls = false)
+                  if (traitMethodForwarderKind > 0) GenericForwarder
+                  else null
+              }
+            }
             else {
               val forwarderKind = backendUtils.looksLikeForwarderOrFactoryOrTrivial(callee.callee, callee.calleeDeclarationClass.internalName, allowPrivateCalls = false)
               if (forwarderKind < 0)

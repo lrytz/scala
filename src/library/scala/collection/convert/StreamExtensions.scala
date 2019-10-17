@@ -24,7 +24,7 @@ import scala.jdk.CollectionConverters._
 import scala.jdk._
 
 /** Defines extension methods to create Java Streams for Scala collections, available through
-  * [[scala.jdk.StreamConverters.Ops]].
+  * [[scala.jdk.javaapi.StreamConverters]].
   */
 trait StreamExtensions {
   // collections
@@ -38,12 +38,12 @@ trait StreamExtensions {
       s.fromStepper(cc.stepper, par = false)
   }
 
-  protected type IterableOnceWithEfficientStepper[A] = IterableOnce[A] {
-    def stepper[B >: A, S <: Stepper[_]](implicit shape : StepperShape[B, S]) : S with EfficientSplit
-  }
-
   // Not `CC[X] <: IterableOnce[X]`, but `C` with an extra constraint, to support non-parametric classes like IntAccumulator
   implicit class IterableNonGenericHasParStream[A, C <: IterableOnce[_]](c: C)(implicit ev: C <:< IterableOnce[A]) {
+    private type IterableOnceWithEfficientStepper = IterableOnce[A] {
+      def stepper[S <: Stepper[_]](implicit shape : StepperShape[A, S]) : S with EfficientSplit
+    }
+
     /** Create a parallel [[java.util.stream.Stream Java Stream]] for this collection. If the
       * collection contains primitive values, a corresponding specialized Stream is returned (e.g.,
       * [[java.util.stream.IntStream `IntStream`]]).
@@ -52,13 +52,13 @@ trait StreamExtensions {
         s: StreamShape[A, S, St],
         st: StepperShape[A, St],
         @implicitNotFound("`parStream` can only be called on collections where `stepper` returns a `Stepper with EfficientSplit`")
-        isEfficient: C <:< IterableOnceWithEfficientStepper[A]): S =
+        isEfficient: C <:< IterableOnceWithEfficientStepper): S =
       s.fromStepper(ev(c).stepper, par = true)
   }
 
   // maps
 
-  implicit class MapHasSeqKeyValueStream[K, V, CC[X, Y] <: collection.MapOps[X, Y, CC, _]](cc: CC[K, V]) {
+  implicit class MapHasSeqKeyValueStream[K, V, CC[X, Y] <: collection.MapOps[X, Y, collection.Map, _]](cc: CC[K, V]) {
     /** Create a sequential [[java.util.stream.Stream Java Stream]] for the keys of this map. If
       * the keys are primitive values, a corresponding specialized Stream is returned (e.g.,
       * [[java.util.stream.IntStream `IntStream`]]).
@@ -82,10 +82,10 @@ trait StreamExtensions {
   }
 
 
-  implicit class MapHasParKeyValueStream[K, V, CC[X, Y] <: collection.MapOps[X, Y, CC, _]](cc: CC[K, V]) {
-    private type MapOpsWithEfficientKeyStepper[K, V] = collection.MapOps[K, V, CC, _] { def keyStepper[S <: Stepper[_]](implicit shape : StepperShape[K, S]) : S with EfficientSplit }
-    private type MapOpsWithEfficientValueStepper[K, V] = collection.MapOps[K, V, CC, _] { def valueStepper[V1 >: V, S <: Stepper[_]](implicit shape : StepperShape[V1, S]) : S with EfficientSplit }
-    private type MapOpsWithEfficientStepper[K, V] = collection.MapOps[K, V, CC, _] { def stepper[B >: (K, V), S <: Stepper[_]](implicit shape : StepperShape[B, S]) : S with EfficientSplit }
+  implicit class MapHasParKeyValueStream[K, V, CC[X, Y] <: collection.MapOps[X, Y, collection.Map, _]](cc: CC[K, V]) {
+    private type MapOpsWithEfficientKeyStepper = collection.MapOps[K, V, collection.Map, _] { def keyStepper[S <: Stepper[_]](implicit shape : StepperShape[K, S]) : S with EfficientSplit }
+    private type MapOpsWithEfficientValueStepper = collection.MapOps[K, V, collection.Map, _] { def valueStepper[S <: Stepper[_]](implicit shape : StepperShape[V, S]) : S with EfficientSplit }
+    private type MapOpsWithEfficientStepper = collection.MapOps[K, V, collection.Map, _] { def stepper[S <: Stepper[_]](implicit shape : StepperShape[(K, V), S]) : S with EfficientSplit }
 
     /** Create a parallel [[java.util.stream.Stream Java Stream]] for the keys of this map. If
       * the keys are primitive values, a corresponding specialized Stream is returned (e.g.,
@@ -95,7 +95,7 @@ trait StreamExtensions {
         s: StreamShape[K, S, St],
         st: StepperShape[K, St],
         @implicitNotFound("parKeyStream can only be called on maps where `keyStepper` returns a `Stepper with EfficientSplit`")
-        isEfficient: CC[K, V] <:< MapOpsWithEfficientKeyStepper[K, V]): S =
+        isEfficient: CC[K, V] <:< MapOpsWithEfficientKeyStepper): S =
       s.fromStepper(cc.keyStepper, par = true)
 
     /** Create a parallel [[java.util.stream.Stream Java Stream]] for the values of this map. If
@@ -106,7 +106,7 @@ trait StreamExtensions {
         s: StreamShape[V, S, St],
         st: StepperShape[V, St],
         @implicitNotFound("parValueStream can only be called on maps where `valueStepper` returns a `Stepper with EfficientSplit`")
-        isEfficient: CC[K, V] <:< MapOpsWithEfficientValueStepper[K, V]): S =
+        isEfficient: CC[K, V] <:< MapOpsWithEfficientValueStepper): S =
       s.fromStepper(cc.valueStepper, par = true)
 
     // The asJavaParStream extension method for IterableOnce doesn't apply because its `CC` takes a single type parameter, whereas the one here takes two
@@ -117,7 +117,7 @@ trait StreamExtensions {
         s: StreamShape[(K, V), S, St],
         st: StepperShape[(K, V), St],
         @implicitNotFound("parStream can only be called on maps where `stepper` returns a `Stepper with EfficientSplit`")
-        isEfficient: CC[K, V] <:< MapOpsWithEfficientStepper[K, V]): S =
+        isEfficient: CC[K, V] <:< MapOpsWithEfficientStepper): S =
       s.fromStepper(cc.stepper, par = true)
   }
 
@@ -246,14 +246,14 @@ trait StreamExtensions {
     /**
      * Copy the elements of this stream into a Scala collection.
      *
-     * Converting a parallel streams to an [[Accumulator]] using `stream.toScala(Accumulator)`
+     * Converting a parallel streams to an [[scala.jdk.Accumulator]] using `stream.toScala(Accumulator)`
      * builds the result in parallel.
      *
      * A `toScala(Accumulator)` call automatically converts streams of boxed integers, longs or
-     * doubles are converted to the primitive accumulators ([[IntAccumulator]], etc.).
+     * doubles are converted to the primitive accumulators ([[scala.jdk.IntAccumulator]], etc.).
      *
      * When converting a parallel stream to a different Scala collection, the stream is first
-     * converted into an [[Accumulator]], which supports parallel building. The accumulator is
+     * converted into an [[scala.jdk.Accumulator]], which supports parallel building. The accumulator is
      * then converted to the target collection. Note that the stream is processed eagerly while
      * building the accumulator, even if the target collection is lazy.
      *
@@ -281,14 +281,14 @@ trait StreamExtensions {
     /**
      * Copy the elements of this stream into a Scala collection.
      *
-     * Converting a parallel streams to an [[Accumulator]] using `stream.toScala(Accumulator)`
+     * Converting a parallel streams to an [[scala.jdk.Accumulator]] using `stream.toScala(Accumulator)`
      * builds the result in parallel.
      *
      * A `toScala(Accumulator)` call automatically converts the `IntStream` to a primitive
-     * [[IntAccumulator]].
+     * [[scala.jdk.IntAccumulator]].
      *
      * When converting a parallel stream to a different Scala collection, the stream is first
-     * converted into an [[Accumulator]], which supports parallel building. The accumulator is
+     * converted into an [[scala.jdk.Accumulator]], which supports parallel building. The accumulator is
      * then converted to the target collection. Note that the stream is processed eagerly while
      * building the accumulator, even if the target collection is lazy.
      *
@@ -308,14 +308,14 @@ trait StreamExtensions {
     /**
      * Copy the elements of this stream into a Scala collection.
      *
-     * Converting a parallel streams to an [[Accumulator]] using `stream.toScala(Accumulator)`
+     * Converting a parallel streams to an [[scala.jdk.Accumulator]] using `stream.toScala(Accumulator)`
      * builds the result in parallel.
      *
      * A `toScala(Accumulator)` call automatically converts the `LongStream` to a primitive
-     * [[LongAccumulator]].
+     * [[scala.jdk.LongAccumulator]].
      *
      * When converting a parallel stream to a different Scala collection, the stream is first
-     * converted into an [[Accumulator]], which supports parallel building. The accumulator is
+     * converted into an [[scala.jdk.Accumulator]], which supports parallel building. The accumulator is
      * then converted to the target collection. Note that the stream is processed eagerly while
      * building the accumulator, even if the target collection is lazy.
      *
@@ -335,14 +335,14 @@ trait StreamExtensions {
     /**
      * Copy the elements of this stream into a Scala collection.
      *
-     * Converting a parallel streams to an [[Accumulator]] using `stream.toScala(Accumulator)`
+     * Converting a parallel streams to an [[scala.jdk.Accumulator]] using `stream.toScala(Accumulator)`
      * builds the result in parallel.
      *
      * A `toScala(Accumulator)` call automatically converts the `DoubleStream` to a primitive
-     * [[DoubleAccumulator]].
+     * [[scala.jdk.DoubleAccumulator]].
      *
      * When converting a parallel stream to a different Scala collection, the stream is first
-     * converted into an [[Accumulator]], which supports parallel building. The accumulator is
+     * converted into an [[scala.jdk.Accumulator]], which supports parallel building. The accumulator is
      * then converted to the target collection. Note that the stream is processed eagerly while
      * building the accumulator, even if the target collection is lazy.
      *
@@ -439,7 +439,7 @@ object StreamExtensions {
 
 
   /** An implicit `AccumulatorFactoryInfo` connects primitive element types to the corresponding
-    * specialized [[Accumulator]] factory. This is used in the `stream.toScala` extension methods
+    * specialized [[scala.jdk.Accumulator]] factory. This is used in the `stream.toScala` extension methods
     * to ensure collecting a primitive stream into a primitive accumulator does not box.
     *
     * When converting to a collection other than `Accumulator`, the generic

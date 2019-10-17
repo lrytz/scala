@@ -14,14 +14,12 @@ package scala.collection.mutable
 
 import scala.annotation.migration
 import scala.collection.generic.DefaultSerializable
-import scala.collection.{IterableFactoryDefaults, IterableOnce, SeqFactory, StrictOptimizedSeqFactory, StrictOptimizedSeqOps, mutable}
+import scala.collection.{IterableFactoryDefaults, IterableOnce, SeqFactory, StrictOptimizedSeqFactory, StrictOptimizedSeqOps}
 
 /** A stack implements a data structure which allows to store and retrieve
   *  objects in a last-in-first-out (LIFO) fashion.
   *
   *  @tparam A    type of the elements contained in this stack.
-  *
-  *  @since   2.13
   *
   *  @define Coll `Stack`
   *  @define coll stack
@@ -45,7 +43,6 @@ class Stack[A] protected (array: Array[AnyRef], start: Int, end: Int)
 
   override def iterableFactory: SeqFactory[Stack] = Stack
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "Stack"
 
   /**

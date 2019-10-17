@@ -14,8 +14,6 @@ package scala
 package collection
 package immutable
 
-import java.io.{ObjectInputStream, ObjectOutputStream}
-
 import mutable.{Builder, ImmutableBuilder}
 import scala.annotation.tailrec
 import scala.collection.generic.DefaultSerializable
@@ -34,7 +32,6 @@ import scala.collection.generic.DefaultSerializable
   *
   * @tparam A the type of the elements contained in this list set
   *
-  * @since 1
   * @define Coll ListSet
   * @define coll list set
   * @define mayNotTerminateInf
@@ -85,7 +82,7 @@ sealed class ListSet[A]
 
     override def isEmpty: Boolean = false
 
-    override def contains(e: A) = containsInternal(this, e)
+    override def contains(e: A): Boolean = containsInternal(this, e)
 
     @tailrec private[this] def containsInternal(n: ListSet[A], e: A): Boolean =
       !n.isEmpty && (n.elem == e || containsInternal(n.next, e))
@@ -114,7 +111,6 @@ sealed class ListSet[A]
   * n elements will take O(n^2^) time. This makes the builder suitable only for a small number of
   * elements.
   *
-  * @since 1
   * @define Coll ListSet
   * @define coll list set
   */

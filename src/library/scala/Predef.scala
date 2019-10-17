@@ -16,7 +16,7 @@ import scala.language.implicitConversions
 
 import scala.collection.{mutable, immutable, ArrayOps, StringOps}, immutable.WrappedString
 import scala.annotation.{elidable, implicitNotFound}, elidable.ASSERTION
-import scala.annotation.meta.companionMethod
+import scala.annotation.meta.{ companionClass, companionMethod }
 
 /** The `Predef` object provides definitions that are accessible in all Scala
  *  compilation units without explicit qualification.
@@ -118,7 +118,7 @@ object Predef extends LowPriorityImplicits {
    * // mapIntString is java.lang.Class[Map[Int,String]] = interface scala.collection.immutable.Map
    * }}}
    *
-   * @return The runtime [[Class]] representation of type [[T]].
+   * @return The runtime [[Class]] representation of type `T`.
    * @group utilities
    */
   def classOf[T]: Class[T] = null // This is a stub method. The actual implementation is filled in by the compiler.
@@ -207,7 +207,7 @@ object Predef extends LowPriorityImplicits {
   /**
    * A method that returns its input value.
    * @tparam A type of the input value x.
-   * @param x the value of type [[A]] to be returned.
+   * @param x the value of type `A` to be returned.
    * @return the value `x`.
    * @group utilities */
   @inline def identity[A](x: A): A = x // see `$conforms` for the implicit version
@@ -249,7 +249,7 @@ object Predef extends LowPriorityImplicits {
    *           }}}
    *  @group utilities
    */
-  @inline def locally[T](x: T): T = x
+  @inline def locally[T](@deprecatedName("x") x: T): T = x
 
   // assertions ---------------------------------------------------------
 
@@ -372,9 +372,12 @@ object Predef extends LowPriorityImplicits {
     @inline def formatted(fmtstr: String): String = fmtstr format self
   }
 
-  // scala/bug#8229 retaining the pre 2.11 name for source compatibility in shadowing this implicit
-  /** @group implicit-classes-any */
+  /** Injects String concatenation operator `+` to any classes. 
+   * @group implicit-classes-any
+   */
   @(deprecated @companionMethod)("Implicit injection of + is deprecated. Convert to String to call +", "2.13.0")
+  @(deprecated @companionClass)("Implicit injection of + is deprecated. Convert to String to call +", "2.13.0") // for Scaladoc
+  // scala/bug#8229 retaining the pre 2.11 name for source compatibility in shadowing this implicit
   implicit final class any2stringadd[A](private val self: A) extends AnyVal {
     def +(other: String): String = String.valueOf(self) + other
   }
@@ -506,8 +509,6 @@ object Predef extends LowPriorityImplicits {
 *  are valid in all Scala compilation units without explicit qualification,
 *  but that are partially overridden by higher-priority conversions in object
 *  `Predef`.
-*
-*  @since 2.8
 */
 // scala/bug#7335 Parents of Predef are defined in the same compilation unit to avoid
 // cyclic reference errors compiling the standard library *without* a previously

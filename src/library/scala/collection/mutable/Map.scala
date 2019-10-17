@@ -116,7 +116,6 @@ trait MapOps[K, V, +CC[X, Y] <: MapOps[X, Y, CC, _], +C <: MapOps[K, V, CC, C]]
    * @param key the key value
    * @param remappingFunction a partial function that receives current optionally-mapped value and return a new mapping
    * @return the new value associated with the specified key
-   * @since 2.13.0
    */
   def updateWith(key: K)(remappingFunction: Option[V] => Option[V]): Option[V] = {
     val previousValue = this.get(key)
@@ -200,8 +199,17 @@ trait MapOps[K, V, +CC[X, Y] <: MapOps[X, Y, CC, _], +C <: MapOps[K, V, CC, C]]
     * @return   the map itself.
     */
   def mapValuesInPlace(f: (K, V) => V): this.type = {
-    iterator foreach {
-      case (key, value) => update(key, f(key, value))
+    if (nonEmpty) this match {
+      case hm: mutable.HashMap[_, _] => hm.asInstanceOf[mutable.HashMap[K, V]].mapValuesInPlaceImpl(f)
+      case _ =>
+        val array = this.toArray[Any]
+        val arrayLength = array.length
+        var i = 0
+        while (i < arrayLength) {
+          val (k, v) = array(i).asInstanceOf[(K, V)]
+          update(k, f(k, v))
+          i += 1
+        }
     }
     this
   }

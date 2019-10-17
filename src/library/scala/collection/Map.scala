@@ -52,7 +52,6 @@ trait Map[K, +V]
   @deprecated("Use -- or removedAll on an immutable Map", "2.13.0")
   def - (key1: K, key2: K, keys: K*): Map[K, V]
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix: String = "Map"
 
   override def toString(): String = super[Iterable].toString() // Because `Function1` overrides `toString` too
@@ -90,7 +89,7 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
   }
 
   /** Returns a [[Stepper]] for the values of this map. See method [[stepper]]. */
-  def valueStepper[V1 >: V, S <: Stepper[_]](implicit shape: StepperShape[V1, S]): S = {
+  def valueStepper[S <: Stepper[_]](implicit shape: StepperShape[V, S]): S = {
     import convert.impl._
     val s = shape.shape match {
       case StepperShape.IntShape    => new IntIteratorStepper   (valuesIterator.asInstanceOf[Iterator[Int]])
@@ -182,7 +181,10 @@ trait MapOps[K, +V, +CC[_, _] <: IterableOps[_, AnyConstr, _], +C]
     *
     *  @return the values of this map as an iterable.
     */
-  def values: Iterable[V] = View.fromIteratorProvider(() => valuesIterator)
+  def values: Iterable[V] = new AbstractIterable[V] with DefaultSerializable {
+    override def knownSize: Int = MapOps.this.knownSize
+    override def iterator: Iterator[V] = valuesIterator
+  }
 
   /** Creates an iterator for all keys.
     *
@@ -371,6 +373,4 @@ object Map extends MapFactory.Delegate[Map](immutable.Map) {
 }
 
 /** Explicit instantiation of the `Map` trait to reduce class file size in subclasses. */
-@SerialVersionUID(3L)
 abstract class AbstractMap[K, +V] extends AbstractIterable[(K, V)] with Map[K, V]
-

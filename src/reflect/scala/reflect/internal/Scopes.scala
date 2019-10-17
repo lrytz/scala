@@ -48,6 +48,8 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
     def depth = owner.nestingLevel
     override def hashCode(): Int = sym.name.start
     override def toString() = s"$sym (depth=$depth)"
+    // OPT: compare raw names when pre-flatten, saving needsFlatClasses within the loop
+    final def name(flat: Boolean): Name = if (flat) sym.name else sym.rawname
   }
 
   private def newScopeEntry(sym: Symbol, owner: Scope): ScopeEntry = {
@@ -59,6 +61,19 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
 
   object Scope {
     def unapplySeq(decls: Scope): Some[Seq[Symbol]] = Some(decls.toList)
+  }
+
+  /** A default Scope iterator, that retrieves elements in the order given by ScopeEntry. */
+  private[Scopes] class ScopeIterator(owner: Scope) extends Iterator[Symbol] {
+    private[this] var elem: ScopeEntry = owner.elems
+
+    def hasNext: Boolean = (elem ne null) && (elem.owner == this.owner)
+    def next: Symbol =
+      if (hasNext){
+        val res = elem
+        elem = elem.next
+        res.sym
+      } else throw new NoSuchElementException
   }
 
   /** Note: constructor is protected to force everyone to use the factory methods newScope or newNestedScope instead.
@@ -317,14 +332,15 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
     def lookupEntry(name: Name): ScopeEntry = {
       val startTime = if (StatisticsStatics.areSomeColdStatsEnabled) statistics.startTimer(statistics.scopeLookupTime) else null
       var e: ScopeEntry = null
+      val flat = phase.flatClasses
       if (hashtable ne null) {
         e = hashtable(name.start & HASHMASK)
-        while ((e ne null) && (e.sym.name ne name)) {
+        while ((e ne null) && (e.name(flat) ne name)) {
           e = e.tail
         }
       } else {
         e = elems
-        while ((e ne null) && (e.sym.name ne name)) {
+        while ((e ne null) && (e.name(flat) ne name)) {
           e = e.next
         }
       }
@@ -339,10 +355,12 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
      */
     def lookupNextEntry(entry: ScopeEntry): ScopeEntry = {
       var e = entry
+      val flat = phase.flatClasses
+      val entryName = entry.name(flat)
       if (hashtable ne null)
-        do { e = e.tail } while ((e ne null) && e.sym.name != entry.sym.name)
+        do { e = e.tail } while ((e ne null) && e.name(flat) != entryName)
       else
-        do { e = e.next } while ((e ne null) && e.sym.name != entry.sym.name)
+        do { e = e.next } while ((e ne null) && e.name(flat) != entryName)
       e
     }
 
@@ -380,7 +398,7 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
         }
         entryContainsSym(this lookupEntry sym.name)
       }
-      other.toList forall scopeContainsSym
+      other.reverseIterator.forall(scopeContainsSym)
     }
 
     /** Return all symbols as a list in the order they were entered in this scope.
@@ -412,6 +430,12 @@ trait Scopes extends api.Scopes { self: SymbolTable =>
     /** Return all symbols as an iterator in the order they were entered in this scope.
      */
     def iterator: Iterator[Symbol] = toList.iterator
+
+    /** Returns all symbols as an iterator, in an order reversed to that in which they
+      * were entered: symbols first in the scopes are last out of the iterator.
+      * NOTE: when using the `reverseIterator`, it is not safe to mutate the Scope.
+      *  So, be careful not to use this when you do need to mutate this Scope. */
+    def reverseIterator: Iterator[Symbol] = new ScopeIterator(this)
 
     override def foreach[U](p: Symbol => U): Unit = toList foreach p
 

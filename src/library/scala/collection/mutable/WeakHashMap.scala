@@ -23,7 +23,6 @@ import scala.collection.convert.JavaCollectionWrappers.{JMapWrapper, JMapWrapper
  *  @tparam K      type of keys contained in this map
  *  @tparam V      type of values associated with the keys
  *
- *  @since 2.8
  *  @see [[http://docs.scala-lang.org/overviews/collections/concrete-mutable-collection-classes.html#weak-hash-maps "Scala's Collection Library overview"]]
  *  section on `Weak Hash Maps` for more information.
  *
@@ -38,7 +37,6 @@ class WeakHashMap[K, V] extends JMapWrapper[K, V](new java.util.WeakHashMap)
     with MapFactoryDefaults[K, V, WeakHashMap, Iterable] {
   override def empty = new WeakHashMap[K, V]
   override def mapFactory: MapFactory[WeakHashMap] = WeakHashMap
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "WeakHashMap"
 }
 

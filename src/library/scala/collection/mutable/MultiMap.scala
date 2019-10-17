@@ -49,8 +49,8 @@ package scala.collection.mutable
   *
   *  @define coll multimap
   *  @define Coll `MultiMap`
-  *  @since   1
   */
+@deprecated("Use a scala.collection.mutable.MultiDict in the scala-collection-contrib module", "2.13.0")
 trait MultiMap[K, V] extends Map[K, Set[V]] {
   /** Creates a new set.
     *

@@ -248,6 +248,55 @@ final class StringOps(private val s: String) extends AnyVal {
     sb.toString
   }
 
+  /** Builds a new String by applying a partial function to all chars of this String
+    * on which the function is defined.
+    *
+    *  @param pf     the partial function which filters and maps the String.
+    *  @return       a new String resulting from applying the given partial function
+    *                `pf` to each char on which it is defined and collecting the results.
+    */
+  def collect(pf: PartialFunction[Char, Char]): String = {
+    var i = 0
+    var matched = true
+    def d(x: Char): Char = {
+      matched = false
+      0
+    }
+    val b = new StringBuilder
+    while(i < s.length) {
+      matched = true
+      val v = pf.applyOrElse(s.charAt(i), d)
+      if(matched) b += v
+      i += 1
+    }
+    b.result()
+  }
+
+  /** Builds a new collection by applying a partial function to all chars of this String
+    * on which the function is defined.
+    *
+    *  @param pf     the partial function which filters and maps the String.
+    *  @tparam B     the element type of the returned collection.
+    *  @return       a new collection resulting from applying the given partial function
+    *                `pf` to each char on which it is defined and collecting the results.
+    */
+  def collect[B](pf: PartialFunction[Char, B]): immutable.IndexedSeq[B] = {
+    var i = 0
+    var matched = true
+    def d(x: Char): B = {
+      matched = false
+      null.asInstanceOf[B]
+    }
+    val b = immutable.IndexedSeq.newBuilder[B]
+    while(i < s.length) {
+      matched = true
+      val v = pf.applyOrElse(s.charAt(i), d)
+      if(matched) b += v
+      i += 1
+    }
+    b.result()
+  }
+
   /** Returns a new collection containing the chars from this string followed by the elements from the
     * right hand operand.
     *
@@ -679,12 +728,13 @@ final class StringOps(private val s: String) extends AnyVal {
     else s
 
   /** Replace all literal occurrences of `literal` with the literal string `replacement`.
-    *  This method is equivalent to [[java.lang.String#replace]].
+    * This method is equivalent to [[java.lang.String#replace(CharSequence,CharSequence)]].
     *
-    *  @param    literal     the string which should be replaced everywhere it occurs
-    *  @param    replacement the replacement string
-    *  @return               the resulting string
+    * @param    literal     the string which should be replaced everywhere it occurs
+    * @param    replacement the replacement string
+    * @return               the resulting string
     */
+  @deprecated("Use `s.replace` as an exact replacement", "2.13.2")
   def replaceAllLiterally(literal: String, replacement: String): String = s.replace(literal, replacement)
 
   /** For every line in this string:

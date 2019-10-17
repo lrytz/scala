@@ -33,8 +33,6 @@ import java.lang.Integer
  *  its size is automatically doubled. Both parameters may be changed by
  *  overriding the corresponding values in class `HashTable`.
  *
- *  @since   1
- *
  *  @tparam A     type of the elements contained in this hash table.
  */
 // Was an abstract class, but to simplify the upgrade of the parallel collections I’ve made it a trait
@@ -178,7 +176,11 @@ private[collection] /*abstract class*/ trait HashTable[A, B, Entry >: Null <: Ha
   /** Remove entry from table if present.
    */
   final def removeEntry(key: A) : Entry = {
-    val h = index(elemHashCode(key))
+    removeEntry0(key, index(elemHashCode(key)))
+  }
+  /** Remove entry from table if present.
+   */
+  private[collection] final def removeEntry0(key: A, h: Int) : Entry = {
     var e = table(h).asInstanceOf[Entry]
     if (e != null) {
       if (elemEquals(e.key, key)) {
@@ -408,7 +410,6 @@ private[collection] object HashTable {
 }
 
 /** Class used internally.
-  * @since 2.8
   */
 private[collection] trait HashEntry[A, E <: HashEntry[A, E]] {
   val key: A

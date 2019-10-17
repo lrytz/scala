@@ -19,8 +19,6 @@ import scala.collection.generic.DefaultSerializable
 /** `Queue` objects implement data structures that allow to
   *  insert and retrieve elements in a first-in-first-out (FIFO) manner.
   *
-  *  @since   2.13
-  *
   *  @define Coll `mutable.Queue`
   *  @define coll mutable queue
   *  @define orderDependent
@@ -42,7 +40,6 @@ class Queue[A] protected (array: Array[AnyRef], start: Int, end: Int)
 
   override def iterableFactory: SeqFactory[Queue] = Queue
 
-  @deprecatedOverriding("Compatibility override", since="2.13.0")
   override protected[this] def stringPrefix = "Queue"
 
   /**

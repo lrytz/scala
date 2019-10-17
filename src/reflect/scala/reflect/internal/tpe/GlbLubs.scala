@@ -63,13 +63,13 @@ private[internal] trait GlbLubs {
     *
     *    xs <= ys   iff   forall y in ys exists x in xs such that x <: y
     *
-    *  @arg tsParams for each type in the original list of types `ts0`, its list of type parameters (if that type is a type constructor)
+    *  @param tsParams for each type in the original list of types `ts0`, its list of type parameters (if that type is a type constructor)
     *                (these type parameters may be referred to by type arguments in the BTS column of those types,
     *                and must be interpreted as bound variables; i.e., under a type lambda that wraps the types that refer to these type params)
-    *  @arg tsBts    a matrix whose columns are basetype sequences
+    *  @param tsBts    a matrix whose columns are basetype sequences
     *                the first row is the original list of types for which we're computing the lub
     *                  (except that type constructors have been applied to their dummyArgs)
-    *  @See baseTypeSeq  for a definition of sorted and upwards closed.
+    *  @see baseTypeSeq  for a definition of sorted and upwards closed.
     */
   def lubList(ts: List[Type], depth: Depth): List[Type] = {
     var lubListDepth = Depth.Zero
@@ -376,7 +376,7 @@ private[internal] trait GlbLubs {
     if (printLubs) {
       println(indent + "lub of " + ts + " at depth "+depth)//debug
       indent = indent + "  "
-      assert(indent.length <= 100)
+      assert(indent.length <= 100, "LUB is highly indented")
     }
     if (StatisticsStatics.areSomeColdStatsEnabled) statistics.incCounter(nestedLubCount)
     val res = lub0(ts)
@@ -477,7 +477,7 @@ private[internal] trait GlbLubs {
                 }
                 res.toList
               }
-              assert(!symtypes.isEmpty)
+              assert(!symtypes.isEmpty, "No types for GLB")
               proto.cloneSymbol(glbRefined.typeSymbol).setInfoOwnerAdjusted(
                 if (proto.isTerm) glb(symtypes, depth.decr)
                 else {

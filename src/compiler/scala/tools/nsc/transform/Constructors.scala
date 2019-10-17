@@ -382,7 +382,7 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
         }
 
         if (stat1 eq stat) {
-          assert(ctorParams(genericClazz).length == primaryConstrParams.length)
+          assert(ctorParams(genericClazz).length == primaryConstrParams.length, "Bad param len")
           // this is just to make private fields public
           (new specializeTypes.ImplementationAdapter(ctorParams(genericClazz), primaryConstrParams, null, true))(stat1)
 
@@ -749,11 +749,20 @@ abstract class Constructors extends Statics with Transform with TypingTransforme
       * See test case files/run/bug4680.scala, the output of which is wrong in many
       * particulars.
       */
+      var needFenceForDelayedInit = false
       val (delayedHookDefs, remainingConstrStatsDelayedInit) =
-        if (isDelayedInitSubclass && remainingConstrStats.nonEmpty) delayedInitDefsAndConstrStats(defs, remainingConstrStats)
-        else (Nil, remainingConstrStats)
+        if (isDelayedInitSubclass && remainingConstrStats.nonEmpty) {
+          remainingConstrStats foreach {
+            case Assign(lhs, _ ) =>
+              lhs.symbol.setFlag(MUTABLE) // delayed init fields cannot be final, scala/bug#11412
+              needFenceForDelayedInit = true
+            case _ =>
+          }
+          delayedInitDefsAndConstrStats(defs, remainingConstrStats)
+        } else
+          (Nil, remainingConstrStats)
 
-      val fence = if (clazz.primaryConstructor.hasAttachment[ConstructorNeedsFence.type]) {
+      val fence = if (needFenceForDelayedInit || clazz.primaryConstructor.hasAttachment[ConstructorNeedsFence.type]) {
         val tree = localTyper.typedPos(clazz.primaryConstructor.pos)(gen.mkMethodCall(RuntimeStaticsModule, nme.releaseFence, Nil))
         tree :: Nil
       } else Nil

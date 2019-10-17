@@ -31,7 +31,6 @@ import scala.language.implicitConversions
 /** This trait provides methods to find various kinds of implicits.
  *
  *  @author  Martin Odersky
- *  @version 1.0
  */
 trait Implicits {
   self: Analyzer =>
@@ -135,7 +134,7 @@ trait Implicits {
       if (context.owner.hasTransOwner(s))
         context.warning(result.tree.pos, s"Implicit resolves to enclosing ${result.tree.symbol}")
     }
-    implicitSearchContext.emitImplicitDictionary(search.pos, result)
+    implicitSearchContext.emitImplicitDictionary(result)
   }
 
   /** A friendly wrapper over inferImplicit to be used in macro contexts and toolboxes.
@@ -184,6 +183,7 @@ trait Implicits {
   private val improvesCache = perRunCaches.newMap[(ImplicitInfo, ImplicitInfo), Boolean]()
   private val implicitSearchId = { var id = 1 ; () => try id finally id += 1 }
 
+  private val shadowerUseOldImplementation = java.lang.Boolean.getBoolean("scalac.implicit.shadow.old")
   def resetImplicits(): Unit = {
     implicitsCache.clear()
     infoMapCache.clear()
@@ -266,6 +266,7 @@ trait Implicits {
 
     var useCountArg: Int = 0
     var useCountView: Int = 0
+    def useCount(isView: Boolean): Int = if (isView) useCountView else useCountArg
 
     /** Does type `tp` contain an Error type as parameter or result?
      */
@@ -758,6 +759,7 @@ trait Implicits {
       loop(tp0, pt0)
     }
 
+    @annotation.unused
     private def isImpossibleSubType(tp1: Type, tp2: Type): Boolean = !isPlausiblySubType(tp1, tp2)
     private def isPlausiblySubType(tp1: Type, tp2: Type): Boolean =
       tp1.dealiasWiden match {
@@ -1079,7 +1081,7 @@ trait Implicits {
 
       /** Sorted list of eligible implicits.
        */
-      val eligible = Shadower.using(isLocalToCallsite){ shadower =>
+      private def eligibleOld = Shadower.using(isLocalToCallsite){ shadower =>
         val matches = iss flatMap { is =>
           val result = is filter (info => checkValid(info.sym) && survives(info, shadower))
           shadower addInfos is
@@ -1093,6 +1095,88 @@ trait Implicits {
           matches sortBy (x => if (isView) -x.useCountView else -x.useCountArg)
         }
       }
+
+      /** Sorted list of eligible implicits.
+       */
+      private def eligibleNew = {
+        final case class Candidate(info: ImplicitInfo, level: Int)
+        var matches: java.util.ArrayList[Candidate] = null
+        var matchesNames: java.util.HashSet[Name] = null
+
+        var maxCandidateLevel = 0
+
+        {
+          var i = 0
+          // Collect candidates, the level at which each was found and build a set of their names
+          var iss = this.iss
+          while (!iss.isEmpty) {
+            var is = iss.head
+            while (!is.isEmpty) {
+              val info = is.head
+              if (checkValid(info.sym) && survives(info, NoShadower)) {
+                if (matches == null) {
+                  matches = new java.util.ArrayList(16)
+                  matchesNames = new java.util.HashSet(16)
+                }
+                matches.add(Candidate(info, i))
+                matchesNames.add(info.name)
+                maxCandidateLevel = i
+              }
+              is = is.tail
+            }
+            iss = iss.tail
+            i += 1
+          }
+        }
+
+        if (matches == null)
+          Nil // OPT common case: no candidates
+        else {
+          if (isLocalToCallsite) {
+            // A second pass to filter out results that are shadowed by implicits in inner scopes.
+            var i = 0
+            var removed = false
+            var iss = this.iss
+            while (!iss.isEmpty && i < maxCandidateLevel) {
+              var is = iss.head
+              while (!is.isEmpty) {
+                val info = is.head
+                if (matchesNames.contains(info.name)) {
+                  var j = 0
+                  val numMatches = matches.size()
+                  while (j < numMatches) {
+                    val matchInfo = matches.get(j)
+                    if (matchInfo != null && matchInfo.info.name == info.name && matchInfo.level > i) {
+                      // Shadowed. For now set to null, so as not to mess up the indexing our current loop.
+                      matches.set(j, null)
+                      removed = true
+                    }
+                    j += 1
+                  }
+                }
+                is = is.tail
+              }
+              iss = iss.tail
+              i += 1
+            }
+            if (removed) matches.removeIf(_ == null) // remove for real now.
+          }
+          val result = new ListBuffer[ImplicitInfo]
+          matches.forEach(x => result += x.info)
+          result.toList
+        }
+      }
+
+      val eligible: List[ImplicitInfo] = {
+        val matches = if (shadowerUseOldImplementation) eligibleOld else eligibleNew
+        if (currentRun.isScala213) matches
+        else {
+          // most frequent one first under Scala 2.12 mode. We've turned this optimization off to avoid
+          // compilation order variation in whether a search succeeds or diverges.
+          matches sortBy (x => if (isView) -x.useCountView else -x.useCountArg)
+        }
+      }
+
       if (eligible.nonEmpty)
         printTyping(tree, eligible.size + s" eligible for pt=$pt at ${fullSiteString(context)}")
 
@@ -1779,7 +1863,7 @@ trait Implicits {
     private def typeArgsAtSym(paramTp: Type) = paramTp.baseType(sym).typeArgs
 
     def formatDefSiteMessage(paramTp: Type): String =
-      formatDefSiteMessage(typeArgsAtSym(paramTp) map (_.toString))
+      formatDefSiteMessage(typeArgsAtSym(paramTp).map(_.toString))
 
     def formatDefSiteMessage(typeArgs: List[String]): String =
       interpolate(msg, Map(symTypeParamNames zip typeArgs: _*))
@@ -1793,13 +1877,13 @@ trait Implicits {
         case _ => NoType
       }
 
-      val argTypes1 = if (prefix == NoType) paramTypeRefs else paramTypeRefs.map(t => t.asSeenFrom(prefix, fun.symbol.owner))
+      val argTypes1 = if (prefix == NoType) paramTypeRefs else paramTypeRefs.map(_.asSeenFrom(prefix, fun.symbol.owner))
       val argTypes2 = fun match {
         case treeInfo.Applied(_, targs, _) => argTypes1.map(_.instantiateTypeParams(fun.symbol.info.typeParams, targs.map(_.tpe)))
         case _ => argTypes1
       }
 
-      val argTypes = argTypes2.map{
+      val argTypes = argTypes2.map {
         case PolyType(tps, tr@TypeRef(_, _, tprefs)) =>
           if (tps.corresponds(tprefs)((p, r) => p == r.typeSymbol)) tr.typeConstructor.toString
           else {
@@ -1836,7 +1920,7 @@ trait Implicits {
     def isShadowed(name: Name): Boolean
   }
   object Shadower {
-    private[this] val localShadowerCache = new ReusableInstance[LocalShadower](() => new LocalShadower)
+    private[this] val localShadowerCache = new ReusableInstance[LocalShadower](() => new LocalShadower, enabled = true)
 
     def using[T](local: Boolean)(f: Shadower => T): T =
       if (local) localShadowerCache.using { shadower =>

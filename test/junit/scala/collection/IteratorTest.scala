@@ -1,4 +1,3 @@
-
 package scala.collection
 
 import org.junit.Assert._
@@ -109,49 +108,49 @@ class IteratorTest {
     val step = 100000000
     val numExpectedSamples = 22
     def createIterator = Iterator.range(0, Int.MaxValue, step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, 0)
-    assertEquals(createIterator.max, (numExpectedSamples - 1) * step)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals(0, createIterator.min)
+    assertEquals((numExpectedSamples - 1) * step, createIterator.max)
   }
   @Test def rangeOverflow2() : Unit = {
     val step = (Int.MaxValue / 2) + 1
     val numExpectedSamples = 2
     def createIterator = Iterator.range(0, Int.MaxValue, step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, 0)
-    assertEquals(createIterator.max, step)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals(0, createIterator.min)
+    assertEquals(step, createIterator.max)
   }
   @Test def rangeOverflow3() : Unit = {
     val step = 1000000000
     val numExpectedSamples = 5
-    def createIterator = Iterator.range(Int.MinValue +10,Int.MaxValue - 10,step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, Int.MinValue + 10)
-    assertEquals(createIterator.max, Int.MinValue + 10 + (numExpectedSamples - 1) * step)
+    def createIterator = Iterator.range(Int.MinValue +10,Int.MaxValue - 10, step)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals(Int.MinValue + 10, createIterator.min)
+    assertEquals(Int.MinValue + 10 + (numExpectedSamples - 1) * step, createIterator.max)
   }
   @Test def rangeUnderflow() : Unit = {
     val step = -100000000
     val numExpectedSamples = 22
     def createIterator = Iterator.range(0, -Int.MaxValue, step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, (numExpectedSamples - 1) * step)
-    assertEquals(createIterator.max, 0)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals((numExpectedSamples - 1) * step, createIterator.min)
+    assertEquals(0, createIterator.max)
   }
   @Test def rangeUnderflow2() : Unit = {
     val step = -(Int.MaxValue / 2) - 1
     val numExpectedSamples = 2
     def createIterator = Iterator.range(0, -Int.MaxValue, step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, step)
-    assertEquals(createIterator.max, 0)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals(step, createIterator.min)
+    assertEquals(0, createIterator.max)
   }
   @Test def rangeUnderflow3() : Unit = {
     val step = -1000000000
     val numExpectedSamples = 5
     def createIterator = Iterator.range(Int.MaxValue -10,Int.MinValue + 10,step)
-    assertEquals(createIterator.size, numExpectedSamples)
-    assertEquals(createIterator.min, Int.MaxValue - 10 + (numExpectedSamples - 1) * step)
-    assertEquals(createIterator.max, Int.MaxValue - 10)
+    assertEquals(numExpectedSamples, createIterator.count(_ => true))
+    assertEquals(Int.MaxValue - 10 + (numExpectedSamples - 1) * step, createIterator.min)
+    assertEquals(Int.MaxValue - 10, createIterator.max)
   }
   @Test def take(): Unit = {
     assertEquals(10, (Iterator from 0 take 10).size)
@@ -369,6 +368,107 @@ class IteratorTest {
     indexedSeq(immutable.NumericRange(start = -10, end = -5, step = 1))
   }
 
+  private def knownSizeDecreases[A](it: Iterator[A]): Unit = {
+    val size = it.knownSize
+    it.next
+    assertEquals(size - 1, it.knownSize)
+  }
+
+  @Test
+  def knownSize2: Unit = {
+    assertEquals(10, Iterator.fill(10)(1).knownSize)
+    assertEquals(0, Iterator.fill(-10)(1).knownSize)
+    knownSizeDecreases(Iterator.fill(10)(1))
+
+    assertEquals(10, Iterator.tabulate(10)(_.toString).knownSize)
+    assertEquals(0, Iterator.tabulate(-10)(_.toString).knownSize)
+    knownSizeDecreases(Iterator.tabulate(10)(_.toString))
+
+    assertEquals(10, Iterator.range(1, 11).knownSize)
+    knownSizeDecreases(Iterator.range(1, 11))
+    assertEquals(5, Iterator.range(1, 11, 2).knownSize)
+    assertEquals(4, Iterator.range(1, 11, 3).knownSize)
+    assertEquals(5, Iterator.range(1, 10, 2).knownSize)
+    assertEquals(3, Iterator.range(1, 10, 3).knownSize)
+    knownSizeDecreases(Iterator.range(1, 10, 3))
+    assertEquals(4, Iterator.range(-5, 5, 3).knownSize)
+    assertEquals(4, Iterator.range(-15, -5, 3).knownSize)
+    assertEquals(-1, Iterator.range(Int.MinValue, Int.MaxValue).knownSize)
+    assertEquals(-1, Iterator.range(Int.MinValue, Int.MaxValue, 2).knownSize)
+    assertEquals(1431655765, Iterator.range(Int.MinValue, Int.MaxValue, 3).knownSize)
+    assertEquals(Int.MaxValue, Iterator.range(Int.MinValue, Int.MaxValue - 1, 2).knownSize)
+  }
+
+  @Test
+  def knownSize3: Unit = {
+    def it = Iterator.fill(10)(1)
+
+    val buf = it.buffered
+    assertEquals(10, buf.knownSize)
+    buf.head
+    assertEquals(10, buf.knownSize)
+    knownSizeDecreases(buf)
+    val buf2 = Iterator.continually(1).buffered
+    assertEquals(-1, buf2.knownSize)
+    buf2.head
+    assertEquals(-1, buf2.knownSize)
+
+    assertEquals(10, it.padTo(5, 0).knownSize)
+    assertEquals(15, it.padTo(15, 0).knownSize)
+    knownSizeDecreases(it.padTo(15, 0))
+
+    val sl = it.scanLeft(0)(_ + _)
+    assertEquals(11, sl.knownSize)
+    knownSizeDecreases(sl)
+    knownSizeDecreases(sl) // first element is special so check twice
+
+    assertEquals(10, it.map(_ + 1).knownSize)
+    knownSizeDecreases(it.map(_ + 1))
+
+    assertEquals(5, it.zip(it.take(5)).knownSize)
+    assertEquals(5, it.take(5).zip(it).knownSize)
+    knownSizeDecreases(it.zip(it.take(5)))
+
+    assertEquals(10, it.zipAll(it.take(5), 2, 3).knownSize)
+    assertEquals(10, it.take(5).zipAll(it, 2, 3).knownSize)
+    knownSizeDecreases(it.zipAll(it.take(5), 2, 3))
+
+    val (a, b) = it.duplicate
+    assertEquals(10, a.knownSize)
+    assertEquals(10, b.knownSize)
+    knownSizeDecreases(a)
+    assertEquals(10, b.knownSize)
+    knownSizeDecreases(b)
+    knownSizeDecreases(b)
+    assertEquals(9, a.knownSize)
+
+    assertEquals(10, it.zipWithIndex.knownSize)
+    knownSizeDecreases(it.zipWithIndex)
+  }
+
+  @Test
+  def sliceKnownSize: Unit = {
+    def it = Iterator.fill(10)(1)
+
+    assertEquals(4, it.take(4).knownSize)
+    assertEquals(10, it.take(30).knownSize)
+
+    assertEquals(6, it.drop(4).knownSize)
+    assertEquals(0, it.drop(15).knownSize)
+
+    assertEquals(2, it.slice(4, 6).knownSize)
+    assertEquals(2, it.slice(8, 15).knownSize)
+    assertEquals(5, it.slice(-5, 5).knownSize)
+
+    assertEquals(-1, Iterator.continually(1).take(5).knownSize)
+    assertEquals(-1, List.fill(10)(1).take(5).knownSize)
+
+    assertEquals(3, new Iterator.SliceIterator(it, 7, -1).knownSize)
+
+    knownSizeDecreases(it.slice(2, 9))
+    knownSizeDecreases(new Iterator.SliceIterator(it, 7, -1))
+  }
+
   @Test
   def emptyKnownSize(): Unit = {
     assertEquals(0, Iterator.empty.knownSize)
@@ -531,6 +631,7 @@ class IteratorTest {
 
   @Test def `flatMap is memory efficient in previous element`(): Unit = {
     import java.lang.ref._
+    import scala.util.chaining._
     // Array.iterator holds onto array reference; by contrast, iterating over List walks tail.
     // Avoid reaching seq1 through test class. Avoid testing Array.iterator.
     class C extends Iterable[String] {
@@ -541,11 +642,7 @@ class IteratorTest {
 
         def hasNext = i < ss.length
 
-        def next() =
-          if (hasNext) {
-            val res = ss(i); i += 1; res
-          }
-          else Iterator.empty.next()
+        def next() = if (hasNext) ss(i).tap(_ => i += 1) else Iterator.empty.next()
       }
 
       def apply(i: Int) = ss(i)
@@ -554,13 +651,14 @@ class IteratorTest {
     val seq2 = List("third")
     val it0: Iterator[Int] = Iterator(1, 2)
     lazy val it: Iterator[String] = it0.flatMap {
-      case 1 => seq1.get
-      case _ => check(); seq2
+      case 1 => Option(seq1.get).getOrElse(Nil)
+      case 2 => check(); seq2
+      case _ => ???
     }
 
     def check() = assertNotReachable(seq1.get, it)(())
 
-    def checkHasElement() = assertNotReachable(seq1.get.apply(1), it)(())
+    def checkHasElement() = assertNotReachable(Option(seq1.get).map(_.apply(1)).orNull, it)(())
 
     assert(it.hasNext)
     assertEquals("first", it.next())
@@ -610,5 +708,94 @@ class IteratorTest {
       .take(3)
       .foreach(_ => ())
     assertEquals(3, i)
+  }
+
+  @Test
+  def flatMap(): Unit = {
+    def check[T](mkIterator: () => Iterator[T], expected: Array[T]): Unit = {
+      // tests that the iterator produces the expected array of elems, when alternating hasNext/next() calls
+      // then continues to be empty after repeated calls to hasNext/next after exhausted
+      // additional variants are included, where we:
+      // * avoid calls to hasNext, in this case `next()` should still work as expected
+      // * avoid calls to hasNext in the post-exhaustion check -- next() should still throw each time
+      // * avoid calls to next() in the post-exhaustion check -- hasNext should still return `false` each time
+      locally {
+        val iter = mkIterator()
+        var i = 0
+        while (i < expected.length) {
+          assert(iter.hasNext)
+          assertEquals(expected(i), iter.next())
+          i += 1
+        }
+        i = 0
+        while (i < 10) {
+          assertThrows[Exception](iter.next())
+          assert(!iter.hasNext)
+          i += 1
+        }
+      }
+      locally {
+        val iter = mkIterator()
+        var i = 0
+        while (i < expected.length) {
+          assertEquals(expected(i), iter.next())
+          i += 1
+        }
+        i = 0
+        while (i < 10) {
+          assertThrows[Exception](iter.next())
+          assert(!iter.hasNext)
+          i += 1
+        }
+      }
+      locally {
+        val iter = mkIterator()
+        var i = 0
+        while (i < expected.length) {
+          assertEquals(expected(i), iter.next())
+          i += 1
+        }
+        i = 0
+        while (i < 10) {
+          assertThrows[Exception](iter.next())
+          i += 1
+        }
+      }
+      locally {
+        val iter = mkIterator()
+        var i = 0
+        while (i < expected.length) {
+          assertEquals(expected(i), iter.next())
+          i += 1
+        }
+        i = 0
+        while (i < 10) {
+          i += 1
+          assert(!iter.hasNext)
+        }
+      }
+    }
+
+    check(() => Iterator.empty[Int].flatMap(_ => Iterator.empty[Int]), Array())
+    check(() => Iterator.empty[Int].flatMap(_ => 1 to 10), Array())
+    check(() => Iterator(1).flatMap(i => List(i + 1, i + 2)), Array(2, 3))
+    check(() => Iterator(1).flatMap(i => List(i + 1, i + 2)), Array(2, 3))
+
+    check(() => (0 to 100 by 10).iterator.flatMap(i => i to (i + 9)), (0 to 109).toArray)
+
+
+    check(() => Iterator.from(1 to 10).flatMap {
+      case 1 => Nil
+      case 2 => List(1,2,3)
+      case 3 => Nil
+      case 4 => List(4)
+      case 5 => List(5,6,7,8,9)
+      case 6 => List(10)
+      case 7 => List(11,12,13,14,15)
+      case 8 => Nil
+      case 9 => Nil
+      case 10 => Nil
+      case _ => Nil
+    }, Array.from(1 to 15))
   }
 }

@@ -15,7 +15,6 @@ package typechecker
 
 /**
  *  @author Lukas Rytz
- *  @version 1.0
  */
 trait AnalyzerPlugins { self: Analyzer =>
   import global._
@@ -326,23 +325,26 @@ trait AnalyzerPlugins { self: Analyzer =>
   }
 
   /** @see AnalyzerPlugin.pluginsPt */
-  def pluginsPt(pt: Type, typer: Typer, tree: Tree, mode: Mode): Type =
-    // performance opt
-    if (analyzerPlugins.isEmpty) pt
-    else invoke(new CumulativeOp[Type] {
-      def default = pt
-      def accumulate = (pt, p) => p.pluginsPt(pt, typer, tree, mode)
-    })
+  def pluginsPt(pt: Type, typer: Typer, tree: Tree, mode: Mode): Type = {
+    var result = pt
+    var plugins = analyzerPlugins
+    while (!plugins.isEmpty) { // OPT use loop rather than the invoke combinator to reduce allocations
+      result = plugins.head.pluginsPt(result, typer, tree, mode)
+      plugins = plugins.tail
+    }
+    result
+  }
 
   /** @see AnalyzerPlugin.pluginsTyped */
-  def pluginsTyped(tpe: Type, typer: Typer, tree: Tree, mode: Mode, pt: Type): Type =
-    // performance opt
-    if (analyzerPlugins.isEmpty) addAnnotations(tree, tpe)
-    else invoke(new CumulativeOp[Type] {
-      // support deprecated methods in annotation checkers
-      def default = addAnnotations(tree, tpe)
-      def accumulate = (tpe, p) => p.pluginsTyped(tpe, typer, tree, mode, pt)
-    })
+  def pluginsTyped(tpe: Type, typer: Typer, tree: Tree, mode: Mode, pt: Type): Type = {
+    var result = addAnnotations(tree, tpe)
+    var plugins = analyzerPlugins
+    while (!plugins.isEmpty) { // OPT use loop rather than the invoke combinator to reduce allocations
+      result = plugins.head.pluginsTyped(result, typer, tree, mode, pt)
+      plugins = plugins.tail
+    }
+    result
+  }
 
   /** @see AnalyzerPlugin.pluginsTypeSig */
   def pluginsTypeSig(tpe: Type, typer: Typer, defTree: Tree, pt: Type): Type = invoke(new CumulativeOp[Type] {
@@ -407,12 +409,27 @@ trait AnalyzerPlugins { self: Analyzer =>
   private def invoke[T](op: NonCumulativeOp[T]): T = {
     if (macroPlugins.isEmpty) op.default
     else {
-      val results = macroPlugins.filter(_.isActive()).map(plugin => (plugin, op.custom(plugin)))
-      results.flatMap { case (p, Some(result)) => Some((p, result)); case _ => None } match {
-        case (p1, _) :: (p2, _) :: _ => typer.context.error(op.position, s"both $p1 and $p2 want to ${op.description}"); op.default
-        case (_, custom) :: Nil => custom
-        case Nil => op.default
+      var result: Option[T] = None
+      var resultPlugin: MacroPlugin = null
+      var plugins = macroPlugins
+      while (!plugins.isEmpty) {
+        val plugin = plugins.head
+        if (plugin.isActive()) {
+          op.custom(plugin) match {
+            case None =>
+            case s @ Some(custom) =>
+              if (result.isDefined) {
+                typer.context.error(op.position, s"both $resultPlugin and $plugin want to ${op.description}")
+                op.default
+              } else {
+                result = s
+                resultPlugin = plugin
+              }
+          }
+        }
+        plugins = plugins.tail
       }
+      result.getOrElse(op.default)
     }
   }
 
