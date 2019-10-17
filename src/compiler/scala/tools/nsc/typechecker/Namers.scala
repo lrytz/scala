@@ -1689,13 +1689,8 @@ trait Namers extends MethodSynthesis {
       val result =
         if (tpt.isEmpty) {
           if (rhs.isEmpty) {
-            vdef.getAndRemoveAttachment[InferFromOtherRhs] match {
-              case Some(InferFromOtherRhs(concreteVd)) => // used only for early vals!
-                concreteVd.symbol.info // literally the same type is totally fine
-              case _                                   =>
-                MissingParameterOrValTypeError(tpt)
-                ErrorType
-            }
+            MissingParameterOrValTypeError(tpt)
+            ErrorType
           } else {
             // enterGetterSetter assigns the getter's symbol to a ValDef when there's no underlying field
             // (a deferred val or most vals defined in a trait -- see Field.noFieldFor)
