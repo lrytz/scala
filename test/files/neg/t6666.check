@@ -31,7 +31,4 @@ t6666.scala:106: error: Implementation restriction: access of method x$13 in cla
 t6666.scala:114: error: Implementation restriction: access of method foo$1 in class COuter from class CInner$1, would require illegal premature access to the unconstructed `this` of class COuter
   class CInner extends C({foo})
                           ^
-t6666.scala:120: error: Implementation restriction: access of method x$14 in class CEarly from object Nested$5, would require illegal premature access to the unconstructed `this` of class CEarly
-    object Nested { def xx = x}
-                             ^
-12 errors found
+11 errors found

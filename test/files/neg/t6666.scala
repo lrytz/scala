@@ -113,11 +113,3 @@ class COuter extends C({
   def foo = 0
   class CInner extends C({foo})
 })
-
-
-class CEarly(a: Any) extends {
-  val early = {def x = "".toString
-    object Nested { def xx = x}
-    Nested.xx
-  }
-} with AnyRef
