@@ -1,4 +1,7 @@
-Macros_Test_2.scala:3: error: only concrete field definitions allowed in early object initialization section
+Macros_Test_2.scala:3: error: early initializers are no longer supported; use trait parameters instead
 class D extends { def x = macro impl } with AnyRef
-                      ^
-one error found
+                ^
+Macros_Test_2.scala:3: error: ';' expected but 'with' found.
+class D extends { def x = macro impl } with AnyRef
+                                       ^
+two errors found

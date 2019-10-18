@@ -1,6 +1,7 @@
-t6595.scala:5: warning: early initializers are deprecated; they will be replaced by trait parameters in 2.14, see the migration guide on avoiding var/val in traits.
+t6595.scala:5: error: early initializers are no longer supported; use trait parameters instead
 class Foo extends {
                   ^
-error: No warnings can be incurred under -Werror.
-one warning found
-one error found
+t6595.scala:7: error: ';' expected but 'with' found.
+} with AnyRef {
+  ^
+two errors found
