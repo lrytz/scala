@@ -1237,7 +1237,7 @@ trait Contexts { self: Analyzer =>
     def isNameInScope(name: Name) = lookupSymbol(name, _ => true).isSuccess
 
     def lookupSymbol(name: Name, qualifies: Symbol => Boolean): NameLookup =
-      symbolLookupCache.using(_(this, name)(qualifies))
+      symbolLookupCache.using(lookup => lookup(this, name)(qualifies))
 
     final def lookupCompanionInIncompleteOwner(original: Symbol): Symbol = {
       // Must have both a class and module symbol, so that `{ class C; def C }` or `{ type T; object T }` are not companions.
