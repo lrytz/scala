@@ -1770,7 +1770,7 @@ self =>
                 parent match {
                     // templateParents adds the New application when constructor arguments were supplied
                   case _: Apply => parent
-                  case parent => atPos(npos)(Apply(Select(New(parent.setPos(npos.focus)), nme.CONSTRUCTOR), Nil)) // unapplied parent
+                  case parent => atPos(npos)(Apply(Select(New(parent), nme.CONSTRUCTOR), Nil)) // unapplied parent
                 }
               case _ => // need an anonymous class (either multiple parents or a block for a refinement)
                 gen.mkNew(parents, self, stats, npos, cpos)
@@ -3003,14 +3003,16 @@ self =>
     def templateParents(precedingNewPos: Position): List[Tree] = {
       val parents = new ListBuffer[Tree]
       def readAppliedParent() = {
-        val start = in.offset
+        val start  = in.offset
+        val newPos = if (precedingNewPos == NoPosition) o2p(start) else precedingNewPos
+
         val parent = startAnnotType()
         parents += (in.token match {
           case LPAREN => // an applied parent `P(args)` is encoded as `new P(args)`
-            val ctorCall = Select(New(parent).setPos(precedingNewPos), nme.CONSTRUCTOR).setPos(precedingNewPos)
-            atPos(precedingNewPos /* TODO should union with the whole apply expr? */)(multipleArgumentExprs() match {
-              case Nil        => Apply(ctorCall, Nil).setPos(precedingNewPos)
-              case xs :: rest => rest.foldLeft(Apply(ctorCall, xs).setPos(precedingNewPos))(Apply.apply)
+            val ctorCall = Select(New(parent).setPos(newPos), nme.CONSTRUCTOR)
+            atPos(newPos.start, in.offset)(multipleArgumentExprs() match {
+              case Nil        => Apply(ctorCall, Nil)
+              case xs :: rest => rest.foldLeft(Apply(ctorCall, xs))(Apply.apply) // TODO: correct positions for argument expressions in rest?
             })
           case _      => parent // no constructor args --> no Apply node (will be one of Select/Ident/TypTree)
         })
