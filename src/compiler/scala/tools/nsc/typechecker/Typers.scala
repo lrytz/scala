@@ -1610,7 +1610,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 // and type checking a simple type only needs to get the scoping right. Since a type ref cannot define
                 // local methods/closures, the context owner (the primary constructor) is not relevant.
                 // This means we don't need a constructor for traits, since they cannot have applied parents.
-                case _        => typedType(parent)
+                case _        => typedTypeConstructor(parent)
               }) match {
                 case err if err.tpe == null => // TODO is this the right cond?
                   MissingTypeArgumentsParentTpeError(parent)
@@ -1668,8 +1668,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
             fixDuplicateSyntheticParents(normalizeFirstParent(parents map typedParentType)).mapConserve(tpt =>
               checkNoEscaping.privates(this, context.owner, tpt)
             )
-          }
-          catch {
+          } catch {
             case ex: TypeError if !global.propagateCyclicReferences =>
               // fallback in case of cyclic errors
               // @H none of the tests enter here but I couldn't rule it out
