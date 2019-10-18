@@ -254,6 +254,15 @@ abstract class Pickler extends SubComponent {
 
       if (putEntry(sym)) {
         if (isLocalToPickle(sym)) {
+          // rename trait constructor to JVM name ($init$ instead of <init>) -- we use CONSTRUCTOR for all
+          // trait constructors during typer so that we can uniformly turn parent types into constructor calls
+          // (we are typing parent types, so we can't determine whether the type references a trait/class without
+          //  potentially running into cycles)
+          if (sym.name == nme.CONSTRUCTOR && sym.owner.isTrait) {
+            sym.name = nme.MIXIN_CONSTRUCTOR
+
+          }
+
           putEntry(sym.name)
           putSymbol(sym.owner)
           putSymbol(sym.privateWithin)

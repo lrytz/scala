@@ -231,8 +231,6 @@ abstract class Mixin extends Transform with ast.TreeDSL with AccessorSynthesis {
 
       for (member <- clazz.info.decls) {
         if (member.isMethod) {
-          // TODO: drop arguments from trait constructors, rename to JVM name ($init$ instead of <init>)
-          if (member.isConstructor) member.name = nme.MIXIN_CONSTRUCTOR
           publicizeTraitMethod(member)
         }
         else {

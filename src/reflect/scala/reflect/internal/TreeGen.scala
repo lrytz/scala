@@ -399,7 +399,7 @@ abstract class TreeGen {
       DefDef(constrMods,
         nme.CONSTRUCTOR, // we'll change the name later -- we need a unified name to simplify typedParentType
         Nil, vparamss1, TypeTree(),
-        Block(Nil, mkLiteralUnit)))
+        Block(Nil, mkLiteralUnit))) // Block(Nil, mkLiteralUnit) == primary constructor body marker
 
     ensureNonOverlapping(constr, parents, focus = false)
     // Field definitions for the class - remove defaults.
