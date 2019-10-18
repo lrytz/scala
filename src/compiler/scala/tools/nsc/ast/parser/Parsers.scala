@@ -3009,11 +3009,18 @@ self =>
         val parent = startAnnotType()
         parents += (in.token match {
           case LPAREN => // an applied parent `P(args)` is encoded as `new P(args)`
-            val ctorCall = Select(New(parent).setPos(newPos), nme.CONSTRUCTOR)
-            atPos(newPos.start, in.offset)(multipleArgumentExprs() match {
-              case Nil        => Apply(ctorCall, Nil)
-              case xs :: rest => rest.foldLeft(Apply(ctorCall, xs))(Apply.apply) // TODO: correct positions for argument expressions in rest?
-            })
+            val selectNewPos = (newPos union parent.pos).withPoint(newPos.point)
+            val ctorCall     = Select(New(parent).setPos(selectNewPos), nme.CONSTRUCTOR).setPos(selectNewPos)
+
+            // TODO: pretty sure the range pos is still wrong (should point at open paren for each arg list?)
+            def ApplyWithPos(fun: Tree, args: List[Tree]) = {
+              val t = Apply(fun, args)
+              if (args.isEmpty) t.setPos(fun.pos) else t.setPos(fun.pos union args.last.pos)
+            }
+            multipleArgumentExprs() match {
+              case Nil        => ApplyWithPos(ctorCall, Nil)
+              case xs :: rest => rest.foldLeft(ApplyWithPos(ctorCall, xs))(ApplyWithPos)
+            }
           case _      => parent // no constructor args --> no Apply node (will be one of Select/Ident/TypTree)
         })
       }
