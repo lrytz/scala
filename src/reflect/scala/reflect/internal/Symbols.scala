@@ -3366,10 +3366,16 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
 
     override def existentialBound = GenPolyType(this.typeParams, TypeBounds.upper(this.classBound))
 
-    override def primaryConstructor = {
-      val c = info.decl(nme.CONSTRUCTOR).orElse(info.decl(nme.MIXIN_CONSTRUCTOR))
-      if (c.isOverloaded) c.alternatives.head else c
-    }
+    // We used to accidentally return NoSymbol because for a TRAIT (this includes Java interfaces) we would look for a
+    // decl named `nme.MIXIN_CONSTRUCTOR`, while in Java the constructor is called `nme.CONSTRUCTOR`.
+    // Now that we also always name our constructors `nme.CONSTRUCTOR` (until mixins anyway), we have to explicitly
+    // exclude Java interface constructors (TODO: why is there even such a decl in a Java interface's info?)
+    override def primaryConstructor =
+      if (isJavaInterface) NoSymbol
+      else {
+        val c = info.decl(nme.CONSTRUCTOR).orElse(info.decl(nme.MIXIN_CONSTRUCTOR))
+        if (c.isOverloaded) c.alternatives.head else c
+      }
 
     override def associatedFile = (
       if (!isTopLevel) super.associatedFile
