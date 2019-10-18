@@ -1969,7 +1969,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         checkFinitary(clazz.info.resultType.asInstanceOf[ClassInfoType])
 
       val body3 =
-        if (clazz.isTrait || phase.erasedTypes) typedStats(body1, templ.symbol)
+        if (clazz.isTrait) typedStats(body1, templ.symbol)
         else {
           val rest = body1.filter(_ ne firstCtor)
 
