@@ -9,7 +9,7 @@
  * See the NOTICE file distributed with this work for
  * additional information regarding copyright ownership.
  */
- 
+/*
 package xsbt;
 
 import java.util.Optional;
@@ -55,3 +55,4 @@ final public class Problem implements xsbti.Problem {
     return "Problem(" + _position + ", " + _message + ", " + _severity + ", " + _rendered + ")";
   }
 }
+*/
