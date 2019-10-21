@@ -1624,8 +1624,9 @@ trait Namers extends MethodSynthesis {
     }
 
     private object DefaultGetterNamerSearch {
-      def apply(c: Context, meth: Symbol, initCompanionModule: Boolean) = if (meth.isConstructor) new DefaultGetterInCompanion(c, meth, initCompanionModule)
-      else new DefaultMethodInOwningScope(c, meth)
+      def apply(c: Context, meth: Symbol, initCompanionModule: Boolean) =
+        if (meth.isConstructor) new DefaultGetterInCompanion(c, meth, initCompanionModule)
+        else new DefaultMethodInOwningScope(c, meth)
     }
     private abstract class DefaultGetterNamerSearch {
       def addGetter(rtparams0: List[TypeDef])(create: (Namer, List[TypeDef]) => Tree): Unit
@@ -1634,7 +1635,10 @@ trait Namers extends MethodSynthesis {
     }
     private class DefaultGetterInCompanion(c: Context, meth: Symbol, initCompanionModule: Boolean) extends DefaultGetterNamerSearch {
       private val module = companionSymbolOf(meth.owner, context)
-      if (initCompanionModule) module.initialize
+      if (initCompanionModule) {
+        // call type completer (typedTemplate), which adds the ConstructorDefaultsAttachment to `module`
+        module.initialize
+      }
       private val cda: Option[ConstructorDefaultsAttachment] = module.attachments.get[ConstructorDefaultsAttachment]
       private val moduleNamer = cda.flatMap(x => Option(x.companionModuleClassNamer))
 

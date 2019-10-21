@@ -1519,28 +1519,28 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           context.error(tparam.pos, "type parameter of value class may not be specialized")
     }
 
-    /* copy/pasted from dotty:
-     // The context for a supercall. This context is used for elaborating
-     //  the parents of a class and their arguments.
-     //  The context is computed from the current class context. It has
-     //
-     //  - as owner: The primary constructor of the class
-     //  - as outer context: The context enclosing the class context
-     //  - as scope: The parameter accessors in the class context
-     //  - with additional mode: InSuperCall
-     //
-     //  The reasons for this peculiar choice of attributes are as follows:
-     //
-     //  - The constructor must be the owner, because that's where any local methods or closures
-     //    should go.
-     //  - The context may not see any class members (inherited or defined), and should
-     //    instead see definitions defined in the outer context which might be shadowed by
-     //    such class members. That's why the outer context must be the outer context of the class.
-     //  - At the same time the context should see the parameter accessors of the current class,
-     //    that's why they get added to the local scope. An alternative would have been to have the
-     //    context see the constructor parameters instead, but then we'd need a final substitution step
-     //    from constructor parameters to class parameter accessors.
-     //
+    /**
+      The context for a supercall. This context is used for elaborating
+       the parents of a class and their arguments.
+       The context is computed from the current class context. It has
+
+       - as owner: The primary constructor of the class
+       - as outer context: The context enclosing the class context
+
+       The reasons for this peculiar choice of attributes are as follows:
+
+       - The constructor must be the owner, because that's where any local methods or closures should go.
+       - The context may not see any class members (inherited or defined), and should
+         instead see definitions defined in the outer context which might be shadowed by
+         such class members. That's why the outer context must be the outer context of the class.
+       - At the same time the context should see the parameter accessors of the current class,
+         that's why they get added to the local scope.
+         An alternative would have been to have the context see the constructor parameters instead, but
+         then we'd need a final substitution step from constructor parameters to class parameter accessors.
+         ^^-- TODO: we actually use this alternative for the prototype
+                    (I don't understand what substitution is needed? for types that depend on ctor args?)
+
+    Copy/pasted from dotty, where it's implemented as follows:
     def superCallContext: Context = {
       val locals = newScopeWith(owner.typeParams ++ owner.asClass.paramAccessors: _*)
       superOrThisCallContext(owner.primaryConstructor, locals)
@@ -1554,45 +1554,28 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         .setMode(classCtx.mode | Mode.InSuperCall)
     }
      */
-
     def mkCtorTyper(firstCtor: Tree, clazzContext: Context, templateNamer: Namer): Typer = {
       // Create our own little constructor typer to type check the parent types, which we need to do before we
       // can type check the actual constructor (in templateSig and typedTemplate).
-      // This typer puts the class's type params, any early vals and the primary constructor arguments into scope.
-
-      // scala/bug#9086 The position of this symbol is material: implicit search will avoid triggering
-      //         cyclic errors in an implicit search in argument to the super constructor call on
-      //         account of the "ignore symbols without complete info that succeed the implicit search"
-      //         in this source file. See `ImplicitSearch#isValid` and `ImplicitInfo#isCyclicOrErroneous`.
-      //              if (ctorOwner.isTopLevel) currentRun.symSource(ctorOwner) = currentUnit.source.file
-
-      // relevant tests: pos/CustomGlobal.scala, pos/t7591
-
+      // This typer puts the class's type params and the primary constructor arguments into scope.
       val ctorSym = firstCtor.symbol
       firstCtor match {
-        case DefDef(_, _, _, vparamss, _, body) if ctorSym.exists && !ctorSym.isJava =>
-          ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
-
+        case DefDef(_, _, _, vparamss, _, _) if ctorSym.exists && !ctorSym.isJava =>
           val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
 
-          // pos/presuperContext.scala
-          //   (spec:) "any reference to `this` in the right-hand side of an early definition refers to the identity of `this` just outside the template."
-          // VS pos/CustomGlobal.scala
-          //   a nested class's early definition can refer to the outer class's this
-//          ctorContext.enclClass = clazzContext.enclClass
-//          println(s"enclClass for ${ctorContext.owner} / ${System.identityHashCode(ctorContext)} : ${ctorContext.enclClass.owner}")
-          val ctorTyper = newTyper(ctorContext)
+          // enter class's type params
+          ctorSym.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
 
-          val clazz = ctorSym.owner
-          clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
-
-          // use existing symbols -- TODO relation to constructor parameter accessors
+          // enter constructor vparams
           // TODO are params of secondary param lists actually in scope for parent types according to spec?
+          ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
           vparamss.foreach(_.foreach(vparam => ctorContext.scope.enter(vparam.symbol)))
 
-          ctorTyper
+          // TODO: set super mode?
+
+          newTyper(ctorContext)
         case _                                       =>
-          // TODO: add some diagnostics/asserts under which conditions it's ok not to have a constructor
+          // TODO: add some diagnostics/asserts under which conditions it's ok not to have a constructor (trait without params?)
           // assert(ctorSym.exists, s"No ctor symbol for $firstCtor in ${clazzContext.tree}")
           this
       }
