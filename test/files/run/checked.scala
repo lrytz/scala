@@ -35,10 +35,6 @@ abstract class NeedsXEarly {
   val y = x + 1
 }
 
-// should pass
-class GoodX extends { val x = 1 } with NeedsXEarly {
-}
-
 // should throw
 class BadX extends NeedsXEarly {
   val x = 1
@@ -76,20 +72,6 @@ class BadMixin extends LazyFields with XY {
   println("[OK]: " + needsSomeEarly)
 }
 
-// should print 24
-class GoodMixin extends {
-        override val x = 10
-        override val y = 11
-      } with LazyFields with XY {
-  println("[OK]: " + needsSomeEarly)
-}
-
-class TestInterference extends {
-  override val x = 10
-  override val y = 11
-} with A with T with LazyFields {
-  println("[OK]: " + needsSomeEarly)
-}
 
 
 object Test extends App {
@@ -107,11 +89,7 @@ object Test extends App {
   println(d)
 
   shouldThrow(new BadX)
-  (new GoodX)
   (new UglyX)
 
   shouldThrow(new BadMixin)
-  (new GoodMixin)
-
-  (new TestInterference)
 }

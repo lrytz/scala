@@ -56,16 +56,8 @@ object Test {
     new D() { }
     p("new D() { val x = 5 }")
     new D() { val x = 5 }
-    p("new { val x = 5 } with D()")
-    new { val x = 5 } with D()
 
     p("new E() { val x = 5 }")
     new E() { val x = 5 }
-    p("new { val x = 5 } with E()")
-    new { val x = 5 } with E()
-    p("new { val x = 5 } with E() { }")
-    new { val x = 5 } with E() { }
-    p("new { val x = 5 } with E() { 5 }")
-    new { val x = 5 } with E() { 5 }
   }
 }

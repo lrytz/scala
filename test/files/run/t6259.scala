@@ -28,11 +28,6 @@ trait NeedsEarly {
  val x: AnyRef
 }
 
-object Early extends {
-  // Drops to this.getClass and is not ok...
-  val x = { object EarlyOk extends A[String]; EarlyOk }
-} with NeedsEarly
-
 
 class DoubleTrouble[X](x: AnyRef)(implicit override val tt: TypeTag[X]) extends A[X]
 
@@ -49,8 +44,7 @@ object Test extends App {
   val g = new G; g.H
 
   locally(HasX.x)
-  // locally(Early.x) TODO sort out VerifyError in Early$.<init>
-  // DoubleOk         TODO sort out VerifyError in DoubleOk$.<init>
+  //DoubleOk         TODO sort out VerifyError in DoubleOk$.<init>
 }
 
 

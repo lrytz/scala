@@ -8,7 +8,7 @@ object Test extends DirectTest {
   def code = """
     class testAnn extends annotation.TypeConstraint
 
-    class A(param: Double) extends { val x: Int = 1; val y = "two" } with AnyRef {
+    class A(param: Double) {
       type T = A
 
       val inferField = ("str": @testAnn)
