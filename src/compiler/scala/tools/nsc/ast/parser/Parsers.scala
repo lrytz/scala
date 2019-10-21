@@ -3012,7 +3012,9 @@ self =>
             val selectNewPos = (newPos union parent.pos).withPoint(newPos.point)
             val ctorCall     = Select(New(parent).setPos(selectNewPos), nme.CONSTRUCTOR).setPos(selectNewPos)
 
-            // TODO: pretty sure the range pos is still wrong (should point at open paren for each arg list?)
+            // TODO: range pos is still wrong
+            //  - does not include full range of argument list (for empty list: parens are missing, for others: missing last paren?)
+            //  - (should point at open paren for each arg list?)
             def ApplyWithPos(fun: Tree, args: List[Tree]) = {
               val t = Apply(fun, args)
               if (args.isEmpty) t.setPos(fun.pos) else t.setPos(fun.pos union args.last.pos)
