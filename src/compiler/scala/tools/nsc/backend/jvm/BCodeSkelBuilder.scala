@@ -526,6 +526,7 @@ abstract class BCodeSkelBuilder extends BCodeHelpers {
         case dd : DefDef =>
           val sym = dd.symbol
           if (needsStaticImplMethod(sym)) {
+            if (sym.isClassConstructor) assert(!sym.owner.isTrait, s"Forgot to rename trait init method in ${sym.owner}: $sym")
             if (sym.isMixinConstructor) {
               val statified = global.gen.mkStatic(dd, sym.name, _.cloneSymbol)
               genDefDef(statified)

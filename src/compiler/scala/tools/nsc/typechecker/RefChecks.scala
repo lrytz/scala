@@ -1669,16 +1669,19 @@ abstract class RefChecks extends Transform {
                 checkAccessibilityOfReferencedTypes(tree)
             }
             tree match {
-              case dd: DefDef if sym.hasAnnotation(NativeAttr) =>
-                if (sym.owner.isTrait) {
-                  reporter.error(tree.pos, "A trait cannot define a native method.")
-                  tree
-                } else if (dd.rhs == EmptyTree) {
-                  // pretend it had a stub implementation
-                  sym resetFlag DEFERRED
-                  deriveDefDef(dd)(_ => typed(gen.mkThrowNewRuntimeException("native method stub")))
-                } else
-                  tree
+              case dd: DefDef =>
+                if (sym.name == nme.CONSTRUCTOR && sym.owner.isTrait) sym.name = nme.MIXIN_CONSTRUCTOR
+
+                if (sym.hasAnnotation(NativeAttr)) {
+                  if (sym.owner.isTrait) {
+                    reporter.error(tree.pos, "A trait cannot define a native method.")
+                    tree
+                  } else if (dd.rhs == EmptyTree) {
+                    // pretend it had a stub implementation
+                    sym resetFlag DEFERRED
+                    deriveDefDef(dd)(_ => typed(gen.mkThrowNewRuntimeException("native method stub")))
+                  } else tree
+                } else tree
               case _ => tree
             }
 

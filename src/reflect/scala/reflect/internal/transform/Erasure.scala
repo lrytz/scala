@@ -248,7 +248,7 @@ trait Erasure {
   def specialErasure(sym: Symbol)(tp: Type): Type =
     if (sym != NoSymbol && sym.enclClass.isJavaDefined)
       erasure(sym)(tp)
-    else if (sym.isClassConstructor)
+    else if (sym.isClassConstructor) // TODO: trait constructors should have been renamed to $init$ by now
       specialConstructorErasure(sym.owner, tp)
     else
       specialScalaErasure(tp)
