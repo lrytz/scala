@@ -1575,9 +1575,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           newTyper(ctorContext)
         case _                                       =>
-          // TODO: add some diagnostics/asserts under which conditions it's ok not to have a constructor (trait without params?)
-          // assert(ctorSym.exists, s"No ctor symbol for $firstCtor in ${clazzContext.tree}")
-          this
+          val ctorContext = clazzContext.outer.makeNewScope(clazzContext.outer.tree, clazzContext.outer.owner)
+          clazzContext.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
+          newTyper(ctorContext)
       }
     }
 
@@ -1593,7 +1593,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                 // and type checking a simple type only needs to get the scoping right. Since a type ref cannot define
                 // local methods/closures, the context owner (the primary constructor) is not relevant.
                 // This means we don't need a constructor for traits, since they cannot have applied parents.
-                case _        => typedTypeConstructor(parent)
+                case _        => ctorTyper.typedTypeConstructor(parent)
               }) match {
                 case err if err.tpe == null => // TODO is this the right cond?
                   MissingTypeArgumentsParentTpeError(parent)
