@@ -297,7 +297,7 @@ object Test extends App {
   // #2820
   class Test2820 {
     class A[T](f: String = "ski!")
-    class C extends A
+    class C extends A[Nothing]
   }
 
   object t3178 {

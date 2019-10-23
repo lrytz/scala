@@ -1575,6 +1575,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           newTyper(ctorContext)
         case _                                       =>
+          // we don't have a symbol/tree for the constructor
           val ctorContext = clazzContext.outer.makeNewScope(clazzContext.outer.tree, clazzContext.outer.owner)
           clazzContext.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
           newTyper(ctorContext)
@@ -1588,12 +1589,11 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           try {
             def typedParentType(parent: Tree): Tree =
               (parent match {
-                case _: Apply => ctorTyper.typed(parent)
-                // we don't need ctorTyper because a parent that doesn't have an Apply node on the outside must be a simple type,
-                // and type checking a simple type only needs to get the scoping right. Since a type ref cannot define
-                // local methods/closures, the context owner (the primary constructor) is not relevant.
-                // This means we don't need a constructor for traits, since they cannot have applied parents.
-                case _        => ctorTyper.typedTypeConstructor(parent)
+                case _: Apply =>
+                  assert(ctorTyper.context.owner.isConstructor, s"Typing applied parent $parent for class without a constructor? (context: ${ctorTyper.context})")
+                  ctorTyper.typed(parent)
+                // we don't infer type arguments (they would just be Any/Nothing since there's no expected type), so don't use typedTypeConstructor
+                case _        => ctorTyper.typedType(parent)
               }) match {
                 case err if err.tpe == null => // TODO is this the right cond?
                   MissingTypeArgumentsParentTpeError(parent)
