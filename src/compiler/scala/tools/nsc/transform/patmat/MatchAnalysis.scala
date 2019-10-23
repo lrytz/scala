@@ -832,7 +832,7 @@ trait MatchAnalysis extends MatchApproximation {
               // constructor call
               // or we did not gather any information about equality but we have information about the fields
               //  --> typical example is when the scrutinee is a tuple and all the cases first unwrap that tuple and only then test something interesting
-              case _ if cls != NoSymbol && !isPrimitiveValueClass(cls) &&
+              case _ if cls != NoSymbol && !cls.isTrait && !isPrimitiveValueClass(cls) &&
                         (  uniqueEqualTo.nonEmpty
                         || (fields.nonEmpty && prunedEqualTo.isEmpty && notEqualTo.isEmpty)) =>
 
