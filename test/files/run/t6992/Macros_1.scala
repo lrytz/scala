@@ -13,7 +13,7 @@ object Macros {
       ClassDef(
         Modifiers(Flag.FINAL), anon, Nil, Template(
           Nil, noSelfType, List(
-            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(pendingSuperCall), Literal(Constant(())))),
+            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(), Literal(Constant(())))),
             TypeDef(Modifiers(), TypeName(lit), Nil, TypeTree(typeOf[Int]))
           )
         )
@@ -33,7 +33,7 @@ object Macros {
       ClassDef(
         Modifiers(Flag.FINAL), anon, Nil, Template(
           Nil, noSelfType, List(
-            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(pendingSuperCall), Literal(Constant(())))),
+            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(), Literal(Constant(())))),
             DefDef(
               Modifiers(), TermName(lit), Nil, Nil, TypeTree(),
               c.literal(42).tree
@@ -57,7 +57,7 @@ object Macros {
       ClassDef(
         Modifiers(), anon, Nil, Template(
           Nil, emptyValDef, List(
-            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(pendingSuperCall), Literal(Constant(())))),
+            DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(), Literal(Constant(())))),
             DefDef(
               Modifiers(), TermName(lit), Nil, Nil, TypeTree(),
               c.literal(42).tree
@@ -67,7 +67,7 @@ object Macros {
       ),
       ClassDef(
         Modifiers(Flag.FINAL), wrapper, Nil,
-        Template(Ident(anon) :: Nil, noSelfType, DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(pendingSuperCall), Literal(Constant(())))) :: Nil)
+        Template(Ident(anon) :: Nil, noSelfType, DefDef(Modifiers(), termNames.CONSTRUCTOR, List(), List(List()), TypeTree(), Block(List(), Literal(Constant(())))) :: Nil)
       ),
       Apply(Select(New(Ident(wrapper)), termNames.CONSTRUCTOR), Nil)
     ))
