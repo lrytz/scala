@@ -1575,7 +1575,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           newTyper(ctorContext)
         case _                                       =>
-          // we don't have a symbol/tree for the constructor
+          // we don't have a symbol/tree for the constructor -- TODO: when does this happen? TODOTODO: abstract classes don't have constructors -- should traits?
+          // With default methods for traits, it's not a big deal to have an empty $init$ trait method.
+          // Plus, this means it's binary compatible to go from a "pure" constructorless trait to one with an init effect.
           val ctorContext = clazzContext.outer.makeNewScope(clazzContext.outer.tree, clazzContext.outer.owner)
           clazzContext.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
           newTyper(ctorContext)
@@ -1588,19 +1590,13 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         case parents =>
           try {
             def typedParentType(parent: Tree): Tree =
-              (parent match {
+              parent match {
                 case _: Apply =>
                   assert(ctorTyper.context.owner.isConstructor, s"Typing applied parent $parent for class without a constructor? (context: ${ctorTyper.context})")
                   ctorTyper.typed(parent)
-                // we don't infer type arguments (they would just be Any/Nothing since there's no expected type), so don't use typedTypeConstructor
+                // Note, we no longer infer type arguments (they would just be Any/Nothing since there's no expected type), so don't use typedTypeConstructor
                 case _        => ctorTyper.typedType(parent)
-              }) match {
-                case err if err.tpe == null => // TODO is this the right cond?
-                  MissingTypeArgumentsParentTpeError(parent)
-                  parent setType ErrorType
-                case tpd => tpd
               }
-
 
             /** Makes sure that the first type tree in the list of parent types is always a class.
              * If the first parent is a trait, prepend its supertype to the list until it's a class.
