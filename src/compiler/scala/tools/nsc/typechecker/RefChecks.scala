@@ -1203,7 +1203,7 @@ abstract class RefChecks extends Transform {
         case Select(New(_), _)     => withInParents(transform(tree))
         case _ => transform(tree)
       }
-      treeCopy.Template(tree, tree.parents mapConserve coreFunWithParents, tree.self, transformStats(tree.body, tree.symbol))
+      transform(treeCopy.Template(tree, tree.parents mapConserve coreFunWithParents, tree.self, transformStats(tree.body, tree.symbol))).asInstanceOf[Template]
     }
 
 
