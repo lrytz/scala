@@ -1336,7 +1336,7 @@ trait Namers extends MethodSynthesis {
 
       if (tpt.isEmpty && meth.name == nme.CONSTRUCTOR) {
         val clazz = context.enclClass.owner
-        tpt defineType (if (clazz.isTrait) UnitTpe else clazz.tpe_*)
+        tpt defineType clazz.tpe_* // for both class constructors and trait init methods -- they return `this` to make it all type check
         tpt setPos meth.pos.focus
       }
 

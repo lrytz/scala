@@ -1953,7 +1953,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           val rest = body1.filter(_ ne firstCtor)
 
           val primaryCtorTyped = firstCtor match {
-            case DefDef(_, _, _, _, _, Block(Nil, unit)) => // Block(Nil, unit) == primary constructor body marker
+            case DefDef(_, _, _, _, _, Block(Nil, res)) => // Block(Nil, res) == primary constructor body marker
               val firstParent = parents1.head
               val pos         = wrappingPos(firstParent.pos, firstCtor :: Nil).makeTransparent
 
@@ -1981,7 +1981,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
 //              println(s"turning $firstParent into call $superCall")
 
-              val ctorTyped = typedByValueExpr(deriveDefDef(firstCtor)(block => Block(atPos(pos)(superCall) :: Nil, unit) setPos pos) setPos pos).asInstanceOf[DefDef]
+              val ctorTyped = typedByValueExpr(deriveDefDef(firstCtor)(block => Block(atPos(pos)(superCall) :: Nil, res) setPos pos) setPos pos).asInstanceOf[DefDef]
 
               ctorTyped
 

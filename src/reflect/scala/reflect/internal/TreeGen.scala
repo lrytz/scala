@@ -397,9 +397,14 @@ abstract class TreeGen {
 
     val constr = atPos(wrappingPos(superPos, vparamss1.flatten).makeTransparent)(
       DefDef(constrMods,
-        nme.CONSTRUCTOR, // we'll change the name later -- we need a unified name to simplify typedParentType
+        // for traits, we'll change the name to nme.MIXIN_CONSTRUCTOR after typers (in pickler/refchecks),
+        // until then we need a unified name to simplify typedParentType
+        // (there, we cannot know whether a parent refers to a trait/class until we type check it, which is precisely what we're trying to do)
+        nme.CONSTRUCTOR,
         Nil, vparamss1, TypeTree(),
-        Block(Nil, mkLiteralUnit))) // Block(Nil, mkLiteralUnit) == primary constructor body marker
+        // Mark this as the primary constructor with this body shape not expressible in user code (a user-written empty block would have a list of EmptyTree for stats).
+        // TODO: could we just leave the method abstract until phase Constructors?
+        Block(Nil, This(tpnme.EMPTY))))
 
     ensureNonOverlapping(constr, parents, focus = false)
     // Field definitions for the class - remove defaults.
