@@ -113,9 +113,17 @@ abstract class RefChecks extends Transform {
     var currentApplication: Tree = EmptyTree
     var inAnnotation: Boolean = false
     var inPattern: Boolean = false
+    var inParents: Boolean = false
+
     @inline final def savingInPattern[A](body: => A): A = {
       val saved = inPattern
       try body finally inPattern = saved
+    }
+
+    @inline final def withInParents[A](body: => A): A = {
+      val saved = inParents
+      inParents = true
+      try body finally inParents = saved
     }
 
     // Track symbols of the refinement's parents and the base at which we've checked them,
@@ -1185,6 +1193,18 @@ abstract class RefChecks extends Transform {
       finally popLevel()
     }
 
+    override def transformTemplate(tree: Template): Template = {
+      // for parents, skip restrictions on instantiating abstract classes or those that don't meet their self type
+      // a constructor could be curried, so we have to strip down to the constructor Select node;
+      // Any constructor calls in arguments to new expressions are not exempt from full refchecks
+      def coreFunWithParents(tree: Tree): Tree = tree match {
+        case Apply(fun, args)      => treeCopy.Apply(tree, coreFunWithParents(fun), transformTrees(args))
+        case TypeApply(fun, targs) => treeCopy.TypeApply(tree, coreFunWithParents(fun), transformTrees(targs))
+        case Select(New(_), _)     => withInParents(transform(tree))
+        case _ => transform(tree)
+      }
+      treeCopy.Template(tree, tree.parents mapConserve coreFunWithParents, tree.self, transformStats(tree.body, tree.symbol))
+    }
 
 
     def transformStat(tree: Tree, index: Int): List[Tree] = tree match {
@@ -1587,17 +1607,33 @@ abstract class RefChecks extends Transform {
       } else {
         qual match {
           case Super(_, mix)  => checkSuper(mix)
-            // TODO check new, was in typedNew, but that's too soon since parent type inference types synthetic new expressions
-//            if ((sym.isAbstractType || sym.hasAbstractFlag)
-//                && !(sym.isJavaAnnotation && context.inAnnotation))
-//              IsAbstractError(tree, sym)
-//            else if (!(  tp == sym.typeOfThis // when there's no explicit self type -- with (#3612) or without self variable
-//                         // sym.thisSym.tpe == tp.typeOfThis (except for objects)
-//                         || narrowRhs(tp) <:< tp.typeOfThis
-//                         || phase.erasedTypes
-//                      )) {
-//              DoesNotConformToSelfTypeError(tree, sym, tp.typeOfThis)
-//            }
+          case New(tpt) if !inParents =>
+            val tp = tpt.tpe
+            val sym = tp.typeSymbol.initialize
+
+            /* If current tree <tree> appears in <val x(: T)? = <tree>>
+             * return `tp with x.type' else return `tp`.
+             */
+            def narrowRhs(tp: Type) = { val sym = localTyper.context.tree.symbol
+              localTyper.context.tree match {
+                case ValDef(mods, _, _, Apply(Select(`tree`, _), _)) if !mods.isMutable && sym != null && sym != NoSymbol =>
+                  val sym1 =
+                    if (sym.owner.isClass && sym.getterIn(sym.owner) != NoSymbol) sym.getterIn(sym.owner)
+                    else sym
+                  val pre = if (sym1.owner.isClass) sym1.owner.thisType else NoPrefix
+                  intersectionType(List(tp, singleType(pre, sym1)))
+                case _ => tp
+              }}
+
+            // We have to wait until after typer for these, because we type check parent types by turning them into
+            // equivalent new expressions (which should not be subject to the folowing conditions)
+            if ((sym.isAbstractType || sym.hasAbstractFlag)
+                && !(sym.isJavaAnnotation && inAnnotation))
+              localTyper.TyperErrorGen.IsAbstractError(tree, sym)
+            else if (tp != sym.typeOfThis // only check for an explicit self type -- with (#3612) or without self variable
+                     && !(narrowRhs(tp) <:< tp.typeOfThis)) {
+              localTyper.TyperErrorGen.DoesNotConformToSelfTypeError(tree, sym, tp.typeOfThis)
+            }
           case _              =>
         }
         tree

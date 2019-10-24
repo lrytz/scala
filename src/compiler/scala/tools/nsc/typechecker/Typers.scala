@@ -4653,20 +4653,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           else tpt0
         }
 
-        /* If current tree <tree> appears in <val x(: T)? = <tree>>
-         * return `tp with x.type' else return `tp`.
-         */
-        def narrowRhs(tp: Type) = { val sym = context.tree.symbol
-          context.tree match {
-            case ValDef(mods, _, _, Apply(Select(`tree`, _), _)) if !mods.isMutable && sym != null && sym != NoSymbol =>
-              val sym1 =
-                if (sym.owner.isClass && sym.getterIn(sym.owner) != NoSymbol) sym.getterIn(sym.owner)
-                else sym
-              val pre = if (sym1.owner.isClass) sym1.owner.thisType else NoPrefix
-              intersectionType(List(tp, singleType(pre, sym1)))
-            case _ => tp
-          }}
-
         val tp = tpt1.tpe
         val sym = tp.typeSymbol.initialize
 
