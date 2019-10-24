@@ -1578,7 +1578,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           // we don't have a symbol/tree for the constructor -- TODO: when does this happen?
 //      test/files/run/t4300.scala
 
-          println(s"!!! No constructor in ${clazzContext}")
+//          println(s"!!! No constructor in ${clazzContext}")
 
           // With default methods for traits, it's not a big deal to have an empty $init$ trait method.
           // Plus, this means it's binary compatible to go from a "pure" constructorless trait to one with an init effect.

@@ -1713,7 +1713,7 @@ abstract class SpecializeTypes extends InfoTransform with TypingTransformers {
           if (symbol.isConstructor) {
             val t = atOwner(symbol)(forwardCtorCall(tree.pos, gen.mkSuperInitCall, vparamss, symbol.owner))
             if (symbol.isPrimaryConstructor)
-              localTyper.typedPos(symbol.pos)(deriveDefDef(tree)(_ => Block(List(t), Literal(Constant(())))))
+              localTyper.typedPos(symbol.pos)(deriveDefDef(tree)(_ => Block(List(t), This(tpnme.EMPTY)))) // primary constructor shape
             else // duplicate the original constructor
               duplicateBody(ddef, info(symbol).target)
           }
