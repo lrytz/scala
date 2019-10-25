@@ -550,10 +550,10 @@ trait ReificationSupport { self: SymbolTable =>
         val vparamss0 = mkParam(vparamss, PARAM)
         val rhs0 = {
           if (name != nme.CONSTRUCTOR) rhs
-          else rhs match {
+          else rhs match { // try to reshape into primary constructor body
             case Block(_, _) => rhs
-            case Literal(Constant(())) => Block(Nil, rhs) // SyntacticBlock.apply stripped the block created by gen.mkTemplate for the constructor's RHS -- reconstitute so that typedTemplate recognizes it
-            case _ => Block(List(rhs), gen.mkSyntheticUnit)
+            case This(_) => Block(Nil, rhs) // SyntacticBlock.apply stripped the block created by gen.mkTemplate for the constructor's RHS -- reconstitute so that typedTemplate recognizes it
+            case _ => Block(List(rhs), This(tpnme.EMPTY))
           }
         }
         DefDef(mods, name, tparams0, vparamss0, tpt, rhs0)

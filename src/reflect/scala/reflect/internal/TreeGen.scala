@@ -404,7 +404,7 @@ abstract class TreeGen {
         Nil, vparamss1, TypeTree(),
         // Mark this as the primary constructor with this body shape not expressible in user code (a user-written empty block would have a list of EmptyTree for stats).
         // TODO: could we just leave the method abstract until phase Constructors?
-        Block(Nil, This(tpnme.EMPTY))))
+        Block(Nil, This(tpnme.EMPTY)))) // primary constructor body
 
     ensureNonOverlapping(constr, parents, focus = false)
     // Field definitions for the class - remove defaults.
