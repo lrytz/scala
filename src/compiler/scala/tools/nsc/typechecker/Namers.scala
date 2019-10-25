@@ -1155,15 +1155,21 @@ trait Namers extends MethodSynthesis {
       val decls = newScope
       val templateNamer = newNamer(context.make(templ, clazz, decls))
 
-      val ctor = treeInfo.firstConstructor(templ.body)
-      if (ctor != EmptyTree && ctor.symbol == NoSymbol) {
-        templateNamer enterSym ctor // for typedParentTypes/mkCtorTyper
-      }
+      val (paramAccessors, rest) = templ.body span { case vd: ValDef => vd.mods.hasFlag(PARAMACCESSOR) case _ => false }
+      val firstCtor = if (rest.isEmpty) EmptyTree else rest.head
+
+//      (firstCtor :: paramAccessors) foreach { stat => assert(stat.symbol == NoSymbol, s"Not expecting symbol for $stat")}
+
+      // Preserve ordering of param accessors and constructor (see mkTemplate).
+      // Use enterSym to create the constructor (and its param accessor) symbols,
+      // the constructor is used as context.owner in typedParentTypes/mkCtorTyper.
+      paramAccessors.foreach(templateNamer.enterSym)
+      if (firstCtor != EmptyTree) templateNamer.enterSym(firstCtor)
 
       // TODO: for test/files/pos/t0039.scala  -- see TempClassInfo in dotc
       setTempInfo(ClassInfoType(Nil, decls, clazz))
 
-      val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(ctor, context, templateNamer))
+      val parentTrees = typer.typedParentTypes(templ, typer.mkCtorTyper(paramAccessors, firstCtor, context))
 
       val pending = mutable.ListBuffer[AbsTypeError]()
       parentTrees foreach { tpt =>
@@ -1190,9 +1196,8 @@ trait Namers extends MethodSynthesis {
 
       enterSelf(templ.self)
 
-      templateNamer enterSyms templ.body.filterNot( already => // these needed to be entered early for mkCtorTyper:
-        (already eq ctor)
-      )
+      // these needed to be entered early for mkCtorTyper:
+      templateNamer.enterSyms(if (firstCtor == EmptyTree) templ.body else templ.body.dropWhile(_ ne firstCtor).tail)
 
       // add apply and unapply methods to companion objects of case classes,
       // unless they exist already; here, "clazz" is the module class

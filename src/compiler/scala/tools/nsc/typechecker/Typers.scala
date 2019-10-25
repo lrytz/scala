@@ -1554,38 +1554,28 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         .setMode(classCtx.mode | Mode.InSuperCall)
     }
      */
-    def mkCtorTyper(firstCtor: Tree, clazzContext: Context, templateNamer: Namer): Typer = {
+    def mkCtorTyper(paramAccessors: List[Tree], firstCtor: Tree, clazzContext: Context): Typer = {
       // Create our own little constructor typer to type check the parent types, which we need to do before we
       // can type check the actual constructor (in templateSig and typedTemplate).
       // This typer puts the class's type params and the primary constructor arguments into scope.
-      val ctorSym = firstCtor.symbol
-      firstCtor match {
-        case DefDef(_, _, _, vparamss, _, _) if ctorSym.exists && !ctorSym.isJava =>
-          val ctorContext = clazzContext.outer.makeNewScope(firstCtor, ctorSym)
+      val ctorContext = clazzContext.outer.makeNewScope(
+        if (firstCtor != EmptyTree) firstCtor else clazzContext.outer.tree,
+        if (firstCtor.symbol.exists && !firstCtor.symbol.isJava) firstCtor.symbol else clazzContext.outer.owner)
 
-          // enter class's type params
-          ctorSym.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
+      // TODO: when don't we have a symbol/tree for the constructor
+      //      test/files/run/t4300.scala
+      // if (firstCtor.symbol == NoSymbol) println(s"!!! No constructor in ${clazzContext}")
 
-          // enter constructor vparams
-          // TODO are params of secondary param lists actually in scope for parent types according to spec?
-          ctorSym.initialize // assign symbols to constructor vparams -- TODO should we be using the constructor param accessors instead?
-          vparamss.foreach(_.foreach(vparam => ctorContext.scope.enter(vparam.symbol)))
+      // enter class's type params
+      val clazz = clazzContext.owner
+      clazz.unsafeTypeParams.foreach(ctorContext.scope.enter)
 
-          // TODO: set super mode?
+      // paramaccessors
+      paramAccessors.foreach { vparam => ctorContext.scope.enter(vparam.symbol.getterIn(clazz)) }
 
-          newTyper(ctorContext)
-        case _                                       =>
-          // we don't have a symbol/tree for the constructor -- TODO: when does this happen?
-//      test/files/run/t4300.scala
+      // TODO: set super mode?
 
-//          println(s"!!! No constructor in ${clazzContext}")
-
-          // With default methods for traits, it's not a big deal to have an empty $init$ trait method.
-          // Plus, this means it's binary compatible to go from a "pure" constructorless trait to one with an init effect.
-          val ctorContext = clazzContext.outer.makeNewScope(clazzContext.outer.tree, clazzContext.outer.owner)
-          clazzContext.owner.unsafeTypeParams.foreach(ctorContext.scope.enter)
-          newTyper(ctorContext)
-      }
+      newTyper(ctorContext)
     }
 
     def typedParentTypes(templ: Template, ctorTyper: Typer): List[Tree] = {
@@ -1877,8 +1867,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       // val templ = treeCopy.Template(templ0, templ0.body, templ0.self, templ0.parents)
       val clazz = context.owner
 
-      val firstCtor   = treeInfo.firstConstructor(templ0.body)
-      val ctorTyper   = mkCtorTyper(firstCtor, clazzTyper.context, namer)
+      val (paramAccessors, rest) = templ.body span { case vd: ValDef => vd.mods.hasFlag(PARAMACCESSOR) case _ => false }
+
+      val ctorTyper   = mkCtorTyper(paramAccessors, if (rest.isEmpty) EmptyTree else rest.head, clazzTyper.context)
       val parents1    = clazzTyper.typedParentTypes(templ0, ctorTyper)
       val parentTypes = parents1.map(_.tpe)
 
@@ -1954,6 +1945,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val body3 =
         if (clazz.isTrait) typedStats(body1, templ.symbol)
         else {
+          // TODO: could we leave the primary constructor abstract until Constructors?
+          val firstCtor = treeInfo.firstConstructor(body1)
           val rest = body1.filter(_ ne firstCtor)
 
           val primaryCtorTyped = firstCtor match {
