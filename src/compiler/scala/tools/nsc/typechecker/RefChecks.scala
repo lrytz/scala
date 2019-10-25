@@ -113,17 +113,10 @@ abstract class RefChecks extends Transform {
     var currentApplication: Tree = EmptyTree
     var inAnnotation: Boolean = false
     var inPattern: Boolean = false
-    var inParents: Boolean = false
 
     @inline final def savingInPattern[A](body: => A): A = {
       val saved = inPattern
       try body finally inPattern = saved
-    }
-
-    @inline final def withInParents[A](body: => A): A = {
-      val saved = inParents
-      inParents = true
-      try body finally inParents = saved
     }
 
     // Track symbols of the refinement's parents and the base at which we've checked them,
@@ -1193,19 +1186,6 @@ abstract class RefChecks extends Transform {
       finally popLevel()
     }
 
-    override def transformTemplate(tree: Template): Template = {
-      // for parents, skip restrictions on instantiating abstract classes or those that don't meet their self type
-      // a constructor could be curried, so we have to strip down to the constructor Select node;
-      // Any constructor calls in arguments to new expressions are not exempt from full refchecks
-      def coreFunWithParents(tree: Tree): Tree = tree match {
-        case Apply(fun, args)      => treeCopy.Apply(tree, coreFunWithParents(fun), transformTrees(args))
-        case TypeApply(fun, targs) => treeCopy.TypeApply(tree, coreFunWithParents(fun), transformTrees(targs))
-        case Select(New(_), _)     => withInParents(transform(tree))
-        case _ => transform(tree)
-      }
-      transform(treeCopy.Template(tree, tree.parents mapConserve coreFunWithParents, tree.self, transformStats(tree.body, tree.symbol))).asInstanceOf[Template]
-    }
-
 
     def transformStat(tree: Tree, index: Int): List[Tree] = tree match {
       case t if treeInfo.isSelfConstrCall(t) =>
@@ -1607,7 +1587,7 @@ abstract class RefChecks extends Transform {
       } else {
         qual match {
           case Super(_, mix)  => checkSuper(mix)
-          case New(tpt) if !inParents =>
+          case New(tpt) if !qual.hasAttachment[NoNewCheckAttachment.type] =>
             val tp = tpt.tpe
             val sym = tp.typeSymbol.initialize
 

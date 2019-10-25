@@ -3004,13 +3004,15 @@ self =>
       val parents = new ListBuffer[Tree]
       def readAppliedParent() = {
         val start  = in.offset
-        val newPos = if (precedingNewPos == NoPosition) o2p(start) else precedingNewPos
+        val inClassDef = precedingNewPos == NoPosition
+        val newPos = if (inClassDef) o2p(start) else precedingNewPos
 
         val parent = startAnnotType()
         parents += (in.token match {
           case LPAREN => // an applied parent `P(args)` is encoded as `new P(args)`
             val selectNewPos = (newPos union parent.pos).withPoint(newPos.point)
-            val ctorCall     = Select(New(parent).setPos(selectNewPos), nme.CONSTRUCTOR).setPos(selectNewPos)
+            val parentNew = if (inClassDef) New(parent).updateAttachment(NoNewCheckAttachment) else New(parent)
+            val ctorCall     = Select(parentNew.setPos(selectNewPos), nme.CONSTRUCTOR).setPos(selectNewPos)
 
             // TODO: range pos is still wrong
             //  - does not include full range of argument list (for empty list: parens are missing, for others: missing last paren?)

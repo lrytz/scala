@@ -81,6 +81,8 @@ trait StdAttachments {
    */
   case object NoWarnAttachment extends PlainAttachment
 
+  case object NoNewCheckAttachment extends PlainAttachment
+
   /** Indicates that a `ValDef` was synthesized from a pattern definition, `val P(x)`.
    */
   case object PatVarDefAttachment extends PlainAttachment
