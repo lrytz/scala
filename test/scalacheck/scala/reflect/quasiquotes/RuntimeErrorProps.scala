@@ -45,10 +45,10 @@ object RuntimeErrorProps extends QuasiquoteProperties("errors") {
     tq"Foo { $stat }"
   }
 
-  property("non-definition early def") = testFails {
-    val stat = q"foo"
-    q"class Foo extends { $stat } with Bar"
-  }
+//  property("non-definition early def") = testFails {
+//    val stat = q"foo"
+//    q"class Foo extends { $stat } with Bar"
+//  }
 
   property("type apply for definition") = testFails {
     val defn = q"def foo"

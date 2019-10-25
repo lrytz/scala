@@ -124,25 +124,25 @@ trait TraitConstruction { self: QuasiquoteProperties =>
     assert(q"trait Foo extends ..$parents" ≈ q"trait Foo extends A with B")
   }
 
-  property("unquote early valdef into trait") = test {
-    val x = q"val x: Int = 1"
-    assertEqAst(q"trait T extends { $x } with Any", "trait T extends { val x: Int = 1} with Any")
-  }
+//  property("unquote early valdef into trait") = test {
+//    val x = q"val x: Int = 1"
+//    assertEqAst(q"trait T extends { $x } with Any", "trait T extends { val x: Int = 1} with Any")
+//  }
 
   property("construct trait with early valdef") = test {
     assertEqAst(q"trait T extends { val x: Int = 1 } with Any", "trait T extends { val x: Int = 1 } with Any")
   }
 
-  property("unquote defs into early block") = test {
-    val defs = q"val x: Int = 0" :: q"type Foo = Bar" :: Nil
-    assert(q"trait T extends { ..$defs } with Bippy" ≈
-           q"trait T extends { val x: Int = 0; type Foo = Bar} with Bippy")
-  }
+//  property("unquote defs into early block") = test {
+//    val defs = q"val x: Int = 0" :: q"type Foo = Bar" :: Nil
+//    assert(q"trait T extends { ..$defs } with Bippy" ≈
+//           q"trait T extends { val x: Int = 0; type Foo = Bar} with Bippy")
+//  }
 
-  property("fail on splicing of non-valid early tree") = test {
-    val defn = q"def x: Int = 0"
-    assertThrows[IllegalArgumentException] { q"trait T extends { $defn } with Bar" }
-  }
+//  property("fail on splicing of non-valid early tree") = test {
+//    val defn = q"def x: Int = 0"
+//    assertThrows[IllegalArgumentException] { q"trait T extends { $defn } with Bar" }
+//  }
 }
 
 trait TypeDefConstruction { self: QuasiquoteProperties =>
@@ -408,11 +408,11 @@ trait PackageConstruction { self: QuasiquoteProperties =>
                  "package object foo { def foo; val x = 1 }")
   }
 
-  property("unquote early def into package object") = test {
-    val edefs = q"val x = 1" :: q"type I = Int" :: Nil
-    assertEqAst(q"package object foo extends { ..$edefs } with Any",
-                 "package object foo extends { val x = 1; type I = Int } with Any")
-  }
+//  property("unquote early def into package object") = test {
+//    val edefs = q"val x = 1" :: q"type I = Int" :: Nil
+//    assertEqAst(q"package object foo extends { ..$edefs } with Any",
+//                 "package object foo extends { val x = 1; type I = Int } with Any")
+//  }
 }
 
 trait DefConstruction { self: QuasiquoteProperties =>
