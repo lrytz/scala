@@ -336,7 +336,9 @@ abstract class BoxUnbox {
           } else {
             for (extraction <- allConsumers) {
               val valueIndex = boxKind.extractedValueIndex(extraction)
-              val replacementOps = if (valueIndex == 0) {
+              val replacementOps = if (valueIndex == -1) {
+                boxKind.boxedTypes.map(t => getPop(t.getSize))
+              } else if (valueIndex == 0) {
                 val pops = boxKind.boxedTypes.tail.map(t => getPop(t.getSize))
                 pops ::: extraction.postExtractionAdaptationOps(boxKind.boxedTypes.head)
               } else {
@@ -621,7 +623,7 @@ abstract class BoxUnbox {
               val afterInit = initCall.getNext
               val stackTopAfterInit = prodCons.frameAt(afterInit).stackTop
               val initializedInstanceCons = prodCons.consumersOfValueAt(afterInit, stackTopAfterInit)
-              if (initializedInstanceCons == dupConsWithoutInit && prodCons.producersForValueAt(afterInit, stackTopAfterInit) == Set(dupOp)) {
+              if (initializedInstanceCons == dupConsWithoutInit) {
                 return Some((dupOp, initCall))
               }
             }
@@ -773,6 +775,7 @@ abstract class BoxUnbox {
       case StaticGetterOrInstanceRead(mi: MethodInsnNode) => tupleGetterIndex(mi.name)
       case PrimitiveBoxingGetter(mi)                      => tupleGetterIndex(mi.name)
       case PrimitiveUnboxingGetter(mi, _)                 => tupleGetterIndex(mi.name)
+      case Drop(_)                                        => -1
       case _ => throw new AssertionError(s"Expected tuple getter, found $extraction")
     }
     def isMutable = false
@@ -824,6 +827,7 @@ abstract class BoxUnbox {
           }
 
         case _ =>
+          if (insn.getOpcode == POP) return Some(Drop(insn))
       }
       None
     }
@@ -943,6 +947,8 @@ abstract class BoxUnbox {
   case class StaticSetterOrInstanceWrite(consumer: AbstractInsnNode) extends BoxConsumer
   /** `.\$isInstanceOf[T]` (can be statically proven true or false) */
   case class BoxedPrimitiveTypeCheck(consumer: AbstractInsnNode, success: Boolean) extends BoxConsumer
+  /** POP */
+  case class Drop(consumer: AbstractInsnNode) extends BoxConsumer
   /** An unknown box consumer */
   case class EscapingConsumer(consumer: AbstractInsnNode) extends BoxConsumer
 }
