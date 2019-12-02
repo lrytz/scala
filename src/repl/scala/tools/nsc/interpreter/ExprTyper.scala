@@ -38,7 +38,7 @@ trait ExprTyper {
 
       doInterpret(line) match {
         case Success =>
-          val sym0 = symbolOfTerm(name)
+          val sym0 = symbolOfTerm(code) orElse symbolOfTerm(name)
           // drop NullaryMethodType
           sym0.cloneSymbol setInfo exitingTyper(sym0.tpe_*.finalResultType)
         case _          => NoSymbol
