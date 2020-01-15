@@ -1585,7 +1585,8 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     /** Set the info and enter this symbol into the owner's scope. */
     def setInfoAndEnter(info: Type): this.type = {
       setInfo(info)
-      owner.info.decls enter this
+      if (name != nme.asInstanceOf_Ob && name != nme.isInstanceOf_Ob)
+        owner.info.decls enter this
       this
     }
 
