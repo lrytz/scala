@@ -302,7 +302,6 @@ trait Variances {
       case ExistentialType(tparams, restpe)                => inSyms(tparams)      & inType(restpe)
       case AnnotatedType(annots, tp)                       => inAnnots(annots)     & inType(tp)
       case SuperType(thistpe, supertpe)                    => inType(thistpe)      & inType(supertpe)
-      case p: PackageClassInfoType                         => reporter.warning(NoPosition, s"Trying to find variance of package ${p.typeSymbol.name} # ${p.typeSymbol.hashCode}"); Invariant // TODO tasty: why is this code path being hit with the root package
     }
 
     def apply(tp: Type, tparam: Symbol): Variance = {
