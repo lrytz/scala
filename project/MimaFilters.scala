@@ -27,6 +27,9 @@ object MimaFilters extends AutoPlugin {
 
     // #9425 Node is private[collection]
     ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.mutable.HashMap#Node.foreachEntry"),
+
+    // #8835
+    ProblemFilters.exclude[ReversedMissingMethodProblem]("scala.reflect.runtime.SynchronizedOps#SynchronizedBaseTypeSeq.scala$reflect$runtime$SynchronizedOps$SynchronizedBaseTypeSeq$$super$maxDepthOfElems"),
   )
 
   override val buildSettings = Seq(
