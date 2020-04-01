@@ -798,24 +798,13 @@ lazy val tastytest = configureAsSubproject(project)
   .settings(
     name := "scala-tastytest",
     description := "Scala TASTy Integration Testing Tool",
-    libraryDependencies ++= List(/*testInterfaceDep,*/ diffUtilsDep, DottySupport.dottyCompiler),
+    libraryDependencies ++= List(/*testInterfaceDep,*/ diffUtilsDep, TastySupport.dottyCompiler),
     pomDependencyExclusions ++= List((organization.value, "scala-repl-frontend"), (organization.value, "scala-compiler-doc")),
     fixPom(
       "/project/name" -> <name>Scala TASTyTest</name>,
       "/project/description" -> <description>Scala TASTy Integration Testing Tool</description>,
       "/project/packaging" -> <packaging>jar</packaging>
     )
-  )
-
-// ??? TODO [tasty]: WTF is this?
-lazy val scalacheckLib = project.in(file("src") / "scalacheck")
-  .dependsOn(library)
-  .settings(commonSettings)
-  .settings(disableDocs)
-  .settings(skip in publish := true)
-  .settings(
-    name := "scalacheck-lib",
-    libraryDependencies += testInterfaceDep
   )
 
 // An instrumented version of BoxesRunTime and ScalaRunTime for partest's "specialized" test category
@@ -1222,29 +1211,29 @@ lazy val root: Project = (project in file("."))
 
     testAll := {
       val results = ScriptCommands.sequence[(Result[Unit], String)](List(
+        SavedLogs.clearSavedLogs.result map (_ -> "clearSavedLogs"),
+        (testOnly in Test in junit).toTask(" -- +v").result map (_ -> "junit/test"),
+        (Keys.test in Test in scalacheck).result map (_ -> "scalacheck/test"),
+        partestDesc("run"),
+        partestDesc("pos neg jvm"),
+        partestDesc("res scalap specialized"),
+        partestDesc("instrumented presentation"),
+        partestDesc("--srcpath scaladoc"),
+        partestDesc("--srcpath macro-annot"),
         (Keys.test in Test in tasty).result map (_ -> "tasty/test"),
-        // SavedLogs.clearSavedLogs.result map (_ -> "clearSavedLogs"),
-        // (testOnly in Test in junit).toTask(" -- +v").result map (_ -> "junit/test"),
-        // (Keys.test in Test in scalacheck).result map (_ -> "scalacheck/test"),
-        // partestDesc("run"),
-        // partestDesc("pos neg jvm"),
-        // partestDesc("res scalap specialized"),
-        // partestDesc("instrumented presentation"),
-        // partestDesc("--srcpath scaladoc"),
-        // partestDesc("--srcpath macro-annot"),
-        // (Keys.test in Test in osgiTestFelix).result map (_ -> "osgiTestFelix/test"),
-        // (Keys.test in Test in osgiTestEclipse).result map (_ -> "osgiTestEclipse/test"),
-        // (mimaReportBinaryIssues in library).result map (_ -> "library/mimaReportBinaryIssues"),
-        // (mimaReportBinaryIssues in reflect).result map (_ -> "reflect/mimaReportBinaryIssues"),
-        // testJDeps.result map (_ -> "testJDeps"),
-        // testJarSize.result map (_ -> "testJarSize"),
-        // (compile in Compile in bench).map(_ => ()).result map (_ -> "bench/compile"),
-        // Def.task(()).dependsOn( // Run these in parallel:
-        //   doc in Compile in library,
-        //   doc in Compile in reflect,
-        //   doc in Compile in compiler,
-        //   doc in Compile in scalap
-        // ).result map (_ -> "doc")
+        (Keys.test in Test in osgiTestFelix).result map (_ -> "osgiTestFelix/test"),
+        (Keys.test in Test in osgiTestEclipse).result map (_ -> "osgiTestEclipse/test"),
+        (mimaReportBinaryIssues in library).result map (_ -> "library/mimaReportBinaryIssues"),
+        (mimaReportBinaryIssues in reflect).result map (_ -> "reflect/mimaReportBinaryIssues"),
+        testJDeps.result map (_ -> "testJDeps"),
+        testJarSize.result map (_ -> "testJarSize"),
+        (compile in Compile in bench).map(_ => ()).result map (_ -> "bench/compile"),
+        Def.task(()).dependsOn( // Run these in parallel:
+          doc in Compile in library,
+          doc in Compile in reflect,
+          doc in Compile in compiler,
+          doc in Compile in scalap
+        ).result map (_ -> "doc")
       )).value
       val log = streams.value.log
       val failed = results.collect { case (Inc(i), d) => (i, d) }
