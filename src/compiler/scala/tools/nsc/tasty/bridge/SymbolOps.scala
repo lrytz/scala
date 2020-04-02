@@ -6,6 +6,7 @@ import scala.tools.nsc.tasty.TastyUniverse
 import scala.tools.nsc.tasty.Signature
 import scala.tools.nsc.tasty.Signature.MethodSignature
 import scala.tools.nsc.tasty.TastyName
+import scala.tools.nsc.tasty.TastyModes._
 import scala.tools.nsc.tasty.Signature.NotAMethod
 
 trait SymbolOps { self: TastyUniverse =>
@@ -35,30 +36,45 @@ trait SymbolOps { self: TastyUniverse =>
     }
   }
 
-  def constructorOfType(space: Type): Either[String, Symbol] =
-    space.member(nme.CONSTRUCTOR).asTerm.alternatives.find(_.isInstanceOf[MethodSymbol]).toRight(
-      s"${space.typeSymbol} has no constructor"
+  def constructorOfType(space: Type): Symbol =
+    space.member(nme.CONSTRUCTOR).asTerm.alternatives.find(_.isInstanceOf[MethodSymbol]).getOrElse(
+      typeError(s"${space.typeSymbol} has no constructor")
     )
 
-  def namedMemberOfType(space: Type, tname: TastyName, selectingTerm: Boolean)(implicit ctx: Context): Either[String, Symbol] = {
+  def namedMemberOfType(space: Type, tname: TastyName, selectingTerm: Boolean)(implicit ctx: Context): Symbol = {
     val selector = encodeTastyName(tname, selectingTerm)
     tname.signature match {
-      case NotAMethod => Right(memberOfSpace(space, selector, tname.isModuleName))
+      case NotAMethod => memberOfSpace(space, selector, tname.isModuleName)
       case sig        => signedMemberOfSpace(space, selector, sig.map(erasedNameToErasedType))
     }
   }
 
-  private def memberOfSpace(space: Type, name: Name, isModuleName: Boolean): Symbol = {
+  private def memberOfSpace(space: Type, name: Name, isModuleName: Boolean)(implicit ctx: Context): Symbol = {
     // TODO [tasty]: dotty uses accessibleDenot which asserts that `fetched.isAccessibleFrom(pre)`,
     //    or else filters for non private.
     // There should be an investigation to see what code makes that false, and what is an equivalent check.
     def lookInTypeCtor = space.typeConstructor.typeParams.filter(_.name == name).headOption.getOrElse(noSymbol)
     val fetched = space.member(name)
     val corrected = if (name.isTypeName) fetched.orElse(lookInTypeCtor) else fetched
-    if (isModuleName) corrected.linkedClassOfClass else corrected
+    val finalSym = if (isModuleName) corrected.linkedClassOfClass else corrected
+    if (isSymbol(finalSym)) {
+      finalSym
+    } else {
+      val kind = if (name.isTermName) "term" else "type"
+      val addendum =
+        if (ctx.mode.is(InParents)) s"$kind in parents of ${if (ctx.owner.isLocalDummy) ctx.owner.owner else ctx.owner}:"
+        else if (ctx.owner.isClass) s"$kind required by a member of ${ctx.owner}:"
+        else s"$kind in signature of ${ctx.owner}:"
+      val msg =
+        if (name.isTypeName && space.typeSymbol.hasPackageFlag)
+          s"can't find $addendum ${space.typeSymbol.fullNameString}.$name; perhaps it is missing from the classpath."
+        else
+          s"can't find $addendum $name, in $space"
+      typeError(msg)
+    }
   }
 
-  private def signedMemberOfSpace(space: Type, name: Name, sig: Signature[Type])(implicit ctx: Context): Either[String, Symbol] = {
+  private def signedMemberOfSpace(space: Type, name: Name, sig: Signature[Type])(implicit ctx: Context): Symbol = {
     ctx.log(s"""looking for overload member[$space]("$name") @@ ${sig.show}""")
     val MethodSignature(args, ret) = sig
     val member = space.member(name)
@@ -84,8 +100,8 @@ trait SymbolOps { self: TastyUniverse =>
         ctx.log(s"""member[$space]("$name") ${showSym(sym)} is not a method""")
         false
     }
-    member.asTerm.alternatives.find(compareSym).toRight(
-      s"No matching overload of $space.$name with signature ${sig.show}")
+    member.asTerm.alternatives.find(compareSym).getOrElse(
+      typeError(s"No matching overload of $space.$name with signature ${sig.show}"))
   }
 
   def showSym(sym: Symbol): String = s"Symbol($sym, #${sym.hashCode})"
