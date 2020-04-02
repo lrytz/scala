@@ -5,8 +5,9 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.reflect.io.AbstractFile
 import scala.tools.nsc.tasty.TastyUniverse
+import scala.tools.nsc.tasty.TastyName
 
-trait ContextOps extends TastyKernel { self: TastyUniverse =>
+trait ContextOps { self: TastyUniverse =>
   import FlagSets._
   import Contexts._
 
@@ -19,19 +20,17 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
     sealed abstract class Context {
       import SymbolOps._
 
-      type ThisContext <: Context
-
       def ignoreAnnotations: Boolean = settings.YtastyNoAnnotations
 
       def adjustModuleCompleter(completer: TastyLazyType, name: Name): TastyLazyType = {
         val scope = this.effectiveScope
         if (name.isTermName)
-          completer withModuleClass (implicit ctx => findModuleBuddy(name.toTypeName, scope))
+          completer withModuleClass (_.findModuleBuddy(name.toTypeName, scope))
         else
-          completer withSourceModule (implicit ctx => findModuleBuddy(name.toTermName, scope))
+          completer withSourceModule (_.findModuleBuddy(name.toTermName, scope))
       }
 
-      private def findModuleBuddy(name: Name, scope: Scope)(implicit ctx: Context): Symbol = {
+      private def findModuleBuddy(name: Name, scope: Scope): Symbol = {
         val it = scope.lookupAll(name).filter(_.is(Module))
         if (it.hasNext) it.next()
         else noSymbol
@@ -47,7 +46,7 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
       def requiredPackage(name: TermName): TermSymbol = loadingMirror.getPackage(name.toString)
 
       final def log(str: => String): Unit =
-        logTasty(str.linesIterator.map(line => s"#[${classRoot}]: $line").mkString(System.lineSeparator))
+        logTasty(str.linesIterator.map(line => s"#[$classRoot]: $line").mkString(System.lineSeparator))
 
       final def picklerPhase: Phase = symbolTable.picklerPhase
       final def extmethodsPhase: Phase = symbolTable.findPhaseWithName("extmethods")
@@ -55,20 +54,17 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
       def owner: Symbol
       def source: AbstractFile
 
-      def EmptyPackage: ModuleSymbol = loadingMirror.EmptyPackage
-      def RootPackage: ModuleSymbol = loadingMirror.RootPackage
+      private[this] var _modules: mutable.AnyRefMap[TermName, ModuleSymbol] = null
+      private[this] def modules = {
+        if (_modules == null) _modules = mutable.AnyRefMap.empty
+        _modules
+      }
 
-      private[this] val modules: mutable.AnyRefMap[TermName, ModuleSymbol] = mutable.AnyRefMap.empty
+      final def loadingMirror: Mirror = mirrorThatLoaded(owner)
 
-      def registerModule(moduleSym: ModuleSymbol): Unit = modules += moduleSym.name -> moduleSym
-      def unlinkModule(moduleName: TermName): ModuleSymbol =
-        modules.remove(moduleName).getOrElse(throw new AssertionError(
-          "unpickling module class from TASTy before its module val."))
+      final lazy val classRoot: Symbol = initialContext.topLevelClass
 
-      final lazy val loadingMirror: Mirror = initialContext.baseLoadingMirror
-      final lazy val classRoot: Symbol = initialContext.baseClassRoot
-
-      def newLocalDummy(owner: Symbol): TermSymbol = owner.newLocalDummy(noPosition)
+      def newLocalDummy: TermSymbol = owner.newLocalDummy(noPosition)
 
       def newWildcardSym(info: TypeBounds): Symbol =
         owner.newTypeParameter(nme.WILDCARD.toTypeName, noPosition, emptyFlags).setInfo(info)
@@ -87,8 +83,9 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
             owner.newConstructor(noPosition, flags & ~Stable)
           }
           else if (flags.is(Module)) {
-            val moduleSym = owner.newModule(name.toTermName, noPosition, flags)
-            registerModule(moduleSym)
+            val moduleName = name.toTermName
+            val moduleSym  = owner.newModule(moduleName, noPosition, flags)
+            modules += moduleName -> moduleSym
             moduleSym
           }
           else if (name.isTypeName) {
@@ -110,6 +107,16 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
         sym
       }
 
+      def moduleClassFor(moduleName: TermName, flags: FlagSet, completer: TastyLazyType, privateWithin: Symbol): Symbol = {
+        val module = modules.remove(moduleName).getOrElse(throw new AssertionError(
+          "unpickling module class from TASTy before its module val."))
+        val moduleClass = module.moduleClass
+        moduleClass.info = completer
+        moduleClass.flags = flags
+        moduleClass.privateWithin = privateWithin
+        moduleClass
+      }
+
       def newRefinedClassSymbol(coord: Position): RefinementClassSymbol = owner.newRefinementClass(coord)
 
       /** if isConstructor, make sure it has one non-implicit parameter list */
@@ -128,9 +135,7 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
         else givenTp
 
       /** The method type corresponding to given parameters and result type */
-      def methodType(typeParams: List[Symbol], valueParamss: List[List[Symbol]], resultType: Type, isJava: Boolean = false): Type = {
-        if (isJava)
-          valueParamss.foreach(vs => vs.headOption.foreach(v => assert(v.flags.not(Implicit))))
+      def methodType(typeParams: List[Symbol], valueParamss: List[List[Symbol]], resultType: Type): Type = {
         val monotpe = valueParamss.foldRight(resultType)((ts, f) => mkMethodType(ts, f))
         val exprMonotpe = {
           if (valueParamss.nonEmpty)
@@ -151,25 +156,22 @@ trait ContextOps extends TastyKernel { self: TastyUniverse =>
       }
 
       final def withOwner(owner: Symbol): Context =
-        if (owner `ne` this.owner) fresh.setOwner(owner) else this
+        if (owner `ne` this.owner) fresh(owner) else this
 
-      final def setNewScope: Context =
-        withOwner(newLocalDummy(this.owner))
+      final def withNewScope: Context =
+        withOwner(newLocalDummy)
 
-      final def fresh: FreshContext = new FreshContext(this)
+      final def selectionCtx(name: TastyName): Context = this // if (name.isConstructorName) this.addMode(Mode.InSuperCall) else this
+      final def fresh(owner: Symbol): FreshContext = new FreshContext(owner, this)
+      final def fresh: FreshContext = new FreshContext(this.owner, this)
     }
 
-    final class InitialContext(val baseClassRoot: Symbol, val baseLoadingMirror: Mirror, val source: AbstractFile) extends Context {
-      type ThisContext = InitialContext
-      val owner: Symbol = baseClassRoot.owner
+    final class InitialContext(val topLevelClass: Symbol, val source: AbstractFile) extends Context {
+      def owner: Symbol = topLevelClass.owner
     }
 
-    final class FreshContext(val outer: Context) extends Context {
-      type ThisContext = FreshContext
-      private[this] var _owner = outer.owner
+    final class FreshContext(val owner: Symbol, val outer: Context) extends Context {
       def source: AbstractFile = outer.source
-      def owner: Symbol = _owner
-      def setOwner(owner: Symbol): ThisContext = { _owner = owner; this }
     }
   }
 }
