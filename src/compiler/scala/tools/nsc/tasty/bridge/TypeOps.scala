@@ -10,6 +10,7 @@ import scala.util.chaining._
 import scala.collection.mutable
 
 trait TypeOps { self: TastyUniverse =>
+  import self.{symbolTable => u}
   import Contexts._
   import SymbolOps._
   import FlagSets._
@@ -17,20 +18,6 @@ trait TypeOps { self: TastyUniverse =>
 
   def mergeableParams(t: Type, u: Type): Boolean =
     t.typeParams.size == u.typeParams.size
-
-  def attachCompiletimeOnly(owner: Symbol, msg: String): Unit = {
-    owner.addAnnotation(defn.CompileTimeOnlyAttr, Literal(Constant(msg)))
-  }
-
-  def attachCompiletimeOnly(msg: Symbol => String)(implicit ctx: Context): Unit = {
-    findOwner(owner => attachCompiletimeOnly(owner, msg(owner)))
-  }
-
-  def findOwner[U](op: Symbol => U)(implicit ctx: Context): Unit = {
-    for (owner <- ctx.owner.ownerChain.find(sym => !sym.is(Param))) {
-      op(owner)
-    }
-  }
 
   def normaliseBounds(bounds: TypeBounds): Type = {
     val TypeBounds(lo, hi) = bounds
@@ -61,11 +48,9 @@ trait TypeOps { self: TastyUniverse =>
 
     def typeRefUncurried(tycon: Type, args: List[Type]): Type = tycon match {
       case tycon: TypeRef if tycon.typeArgs.nonEmpty =>
-        attachCompiletimeOnly(owner =>
-          s"Unsupported Scala 3 curried type application $tycon[${args.mkString(",")}] in signature of $owner")
-        errorType
+        ctx.unsupportedError(s"curried type application $tycon[${args.mkString(",")}]")
       case _ =>
-        mkAppliedType(tycon, args)
+        u.appliedType(tycon, args)
     }
 
     if (args.exists(tpe => tpe.isInstanceOf[TypeBounds] | tpe.isInstanceOf[LambdaPolyType])) {
@@ -77,7 +62,7 @@ trait TypeOps { self: TastyUniverse =>
       }
       val args1 = args.map(bindWildcards)
       if (syms.isEmpty) typeRefUncurried(tycon, args1)
-      else mkExistentialType(syms.toList, typeRefUncurried(tycon, args1))
+      else u.internal.existentialType(syms.toList, typeRefUncurried(tycon, args1))
     }
     else {
       typeRefUncurried(tycon, args)
@@ -101,13 +86,8 @@ trait TypeOps { self: TastyUniverse =>
 
   def selectType(pre: Type, space: Type, name: TastyName)(implicit ctx: Context): Type = {
     if (pre.typeSymbol === defn.ScalaPackage && ( name === nme.And || name === nme.Or ) ) {
-      if (name === nme.And) {
-        AndType
-      }
-      else {
-        attachCompiletimeOnly(owner => s"Scala 3 union types are not supported for $owner")
-        errorType
-      }
+      if (name === nme.And) AndType
+      else ctx.unsupportedError("union type")
     }
     else {
       namedMemberOfTypeWithPrefix(pre, space, name, selectingTerm = false)
@@ -117,24 +97,22 @@ trait TypeOps { self: TastyUniverse =>
   def selectTerm(pre: Type, space: Type, name: TastyName)(implicit ctx: Context): Type =
     namedMemberOfTypeWithPrefix(pre, space, name, selectingTerm = true)
 
+  private[this] val NoSymbolFn = (_: Context) => noSymbol
+
   /**
    * Ported from dotc
    */
-  abstract class TastyLazyType extends LazyType with FlagAgnosticCompleter { self =>
-    private[this] val NoSymbolFn = (_: Context) => noSymbol
+  abstract class TastyLazyType extends u.LazyType with u.FlagAgnosticCompleter {
     private[this] var myDecls: Scope = emptyScope
     private[this] var mySourceModuleFn: Context => Symbol = NoSymbolFn
-    private[this] var myModuleClassFn: Context => Symbol = NoSymbolFn
     private[this] var myTastyFlagSet: TastyFlagSet = emptyTastyFlags
 
     override def decls: Scope = myDecls
     def sourceModule(implicit ctx: Context): Symbol = mySourceModuleFn(ctx)
-    def moduleClass(implicit ctx: Context): Symbol = myModuleClassFn(ctx)
     def tastyFlagSet: TastyFlagSet = myTastyFlagSet
 
     def withDecls(decls: Scope): this.type = { myDecls = decls; this }
     def withSourceModule(sourceModuleFn: Context => Symbol): this.type = { mySourceModuleFn = sourceModuleFn; this }
-    def withModuleClass(moduleClassFn: Context => Symbol): this.type = { myModuleClassFn = moduleClassFn; this }
     def withTastyFlagSet(flags: TastyFlagSet): this.type = { myTastyFlagSet = flags; this }
 
     override def load(sym: Symbol): Unit = complete(sym)
@@ -167,8 +145,6 @@ trait TypeOps { self: TastyUniverse =>
     if (tParams.nonEmpty) tpe = mkPolyType(tParams, tpe)
     tpe
   }
-
-  def typeError[T](msg: String): T = throw new symbolTable.TypeError(msg)
 
   def namedMemberOfPrefix(pre: Type, name: TastyName, selectingTerm: Boolean)(implicit ctx: Context): Type =
     namedMemberOfTypeWithPrefix(pre, pre, name, selectingTerm)
@@ -217,7 +193,29 @@ trait TypeOps { self: TastyUniverse =>
     }
   }
 
-  def typeRef(tpe: Type): Type = mkAppliedType(tpe, Nil)
+  def typeRef(tpe: Type): Type = u.appliedType(tpe, Nil)
+
+  /** The given type, unless `sym` is a constructor, in which case the
+   *  type of the constructed instance is returned
+   */
+  def effectiveResultType(sym: Symbol, typeParams: List[Symbol], givenTp: Type): Type =
+    if (sym.name == nme.CONSTRUCTOR) sym.owner.tpe
+    else givenTp
+
+  /** The method type corresponding to given parameters and result type */
+  def mkDefDefType(typeParams: List[Symbol], valueParamss: List[List[Symbol]], resultType: Type): Type = {
+    val monotpe = valueParamss.foldRight(resultType)((ts, f) => u.internal.methodType(ts, f))
+    val exprMonotpe = {
+      if (valueParamss.nonEmpty)
+        monotpe
+      else
+        mkNullaryMethodType(monotpe)
+    }
+    if (typeParams.nonEmpty)
+      mkPolyType(typeParams, exprMonotpe)
+    else
+      exprMonotpe
+  }
 
   def mkLambdaPolyType(typeParams: List[Symbol], resTpe: Type): LambdaPolyType = new LambdaPolyType(typeParams, resTpe)
   def mkLambdaFromParams(typeParams: List[Symbol], ret: Type): PolyType = mkPolyType(typeParams, lambdaResultType(ret))
@@ -345,7 +343,7 @@ trait TypeOps { self: TastyUniverse =>
 
     validateThisLambda()
 
-    def canonical: MethodType = mkMethodType(params, resType)
+    def canonical: MethodType = u.internal.methodType(params, resType)
 
     override def canEqual(that: Any): Boolean = that.isInstanceOf[MethodTermLambda]
   }
@@ -402,5 +400,4 @@ trait TypeOps { self: TastyUniverse =>
     override def canEqual(that: Any): Boolean = that.isInstanceOf[PolyTypeLambda]
   }
 
-  def showRaw(tpe: Type): String = symbolTable.showRaw(tpe)
 }
