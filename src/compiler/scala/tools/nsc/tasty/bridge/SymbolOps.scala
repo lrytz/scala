@@ -10,32 +10,28 @@ import scala.tools.nsc.tasty.Signature.NotAMethod
 
 trait SymbolOps { self: TastyUniverse =>
   import self.{symbolTable => u}
-  import Contexts.Context
   import FlagSets._
-  import SymbolOps._
 
-  object SymbolOps {
-    implicit class SymbolDecorator(sym: Symbol) {
-      def completer: TastyLazyType = {
-        assert(sym.rawInfo.isInstanceOf[TastyLazyType], s"Expected TastyLazyType, is ${showRaw(sym.rawInfo)} ")
-        sym.rawInfo.asInstanceOf[TastyLazyType]
-      }
-      def ensureCompleted(): Unit = sym.info
-      def ref(args: List[Type]): Type = u.appliedType(sym, args)
-      def ref: Type = sym.ref(Nil)
-      def singleRef: Type = mkSingleType(noPrefix, sym)
-      def termRef: Type = sym.preciseRef(noPrefix)
-      def preciseRef(pre: Type): Type = u.typeRef(pre, sym, Nil)
-      def safeOwner: Symbol = if (sym.owner eq sym) sym else sym.owner
-      def isOneOf(mask: FlagSet): Boolean = sym.hasFlag(mask)
-      def is(mask: FlagSet): Boolean = sym.hasAllFlags(mask)
-      def is(mask: FlagSet, butNot: FlagSet): Boolean =
-        if (isEmpty(butNot))
-          sym.hasFlag(mask)
-        else
-          sym.hasFlag(mask) && sym.hasNoFlags(butNot)
-      def not(mask: FlagSet): Boolean = !is(mask)
+  implicit class SymbolDecorator(sym: Symbol) {
+    def completer: TastyLazyType = {
+      assert(sym.rawInfo.isInstanceOf[TastyLazyType], s"Expected TastyLazyType, is ${showRaw(sym.rawInfo)} ")
+      sym.rawInfo.asInstanceOf[TastyLazyType]
     }
+    def ensureCompleted(): Unit = sym.info
+    def ref(args: List[Type]): Type = u.appliedType(sym, args)
+    def ref: Type = sym.ref(Nil)
+    def singleRef: Type = mkSingleType(noPrefix, sym)
+    def termRef: Type = sym.preciseRef(noPrefix)
+    def preciseRef(pre: Type): Type = u.typeRef(pre, sym, Nil)
+    def safeOwner: Symbol = if (sym.owner eq sym) sym else sym.owner
+    def isOneOf(mask: FlagSet): Boolean = sym.hasFlag(mask)
+    def is(mask: FlagSet): Boolean = sym.hasAllFlags(mask)
+    def is(mask: FlagSet, butNot: FlagSet): Boolean =
+      if (isEmpty(butNot))
+        sym.hasFlag(mask)
+      else
+        sym.hasFlag(mask) && sym.hasNoFlags(butNot)
+    def not(mask: FlagSet): Boolean = !is(mask)
   }
 
   /** if isConstructor, make sure it has one non-implicit parameter list */
@@ -45,11 +41,6 @@ trait SymbolOps { self: TastyUniverse =>
       Nil :: termParamss
     else
       termParamss
-
-  def constructorOfType(space: Type): Symbol =
-    space.member(nme.CONSTRUCTOR).asTerm.alternatives.find(_.isInstanceOf[MethodSymbol]).getOrElse(
-      typeError(s"${space.typeSymbol} has no constructor")
-    )
 
   def namedMemberOfType(space: Type, tname: TastyName, selectingTerm: Boolean)(implicit ctx: Context): Symbol = {
     val selector = encodeTastyName(tname, selectingTerm)
@@ -71,15 +62,15 @@ trait SymbolOps { self: TastyUniverse =>
       finalSym
     } else {
       val kind = if (name.isTermName) "term" else "type"
-      val addendum =
-        if (ctx.mode.is(InParents)) s"$kind in parents of ${if (ctx.owner.isLocalDummy) ctx.owner.owner else ctx.owner}:"
-        else if (ctx.owner.isClass) s"$kind required by a member of ${ctx.owner}:"
-        else s"$kind in signature of ${ctx.owner}:"
+      def addendum(name: String) =
+        if (ctx.mode.is(ReadParents)) s"$kind in parents of ${if (ctx.owner.isLocalDummy) ctx.owner.owner else ctx.owner}: $name"
+        else if (ctx.owner.isClass) s"$kind required by a member of ${ctx.owner}: $name"
+        else s"$kind $name while unpickling ${ctx.owner}"
       val msg =
         if (name.isTypeName && space.typeSymbol.hasPackageFlag)
-          s"can't find $addendum ${space.typeSymbol.fullNameString}.$name; perhaps it is missing from the classpath."
+          s"can't find ${addendum(s"${space.typeSymbol.fullNameString}.$name")}; perhaps it is missing from the classpath."
         else
-          s"can't find $addendum $name, in $space"
+          s"can't find ${addendum("" + name)}, in $space"
       typeError(msg)
     }
   }
@@ -90,7 +81,7 @@ trait SymbolOps { self: TastyUniverse =>
     val (tyParamCount, argTpes) = {
       val (tyParamCounts, params) = sig.params.partitionMap(identity)
       if (tyParamCounts.length > 1) {
-        ctx.unsupportedError(s"multiple type parameter lists on erased method signature ${sig.show}")
+        unsupportedError(s"multiple type parameter lists on erased method signature ${sig.show}")
       }
       (tyParamCounts.headOption.getOrElse(0), params)
     }

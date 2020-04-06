@@ -2,6 +2,7 @@ package scala.tools.nsc.tasty.bridge
 
 import scala.tools.nsc.tasty.TastyFlags.TastyFlagSet
 import scala.tools.nsc.tasty.TastyUniverse
+import scala.tools.nsc.tasty.TastyModes._
 
 import scala.tools.nsc.tasty._
 import scala.reflect.internal.Variance
@@ -11,13 +12,14 @@ import scala.collection.mutable
 
 trait TypeOps { self: TastyUniverse =>
   import self.{symbolTable => u}
-  import Contexts._
-  import SymbolOps._
   import FlagSets._
-  import SymbolOps._
 
   def mergeableParams(t: Type, u: Type): Boolean =
     t.typeParams.size == u.typeParams.size
+
+  def unionIsUnsupported[T](implicit ctx: Context): T = unsupportedError(s"union in bounds of ${ctx.owner}")
+  def matchTypeIsUnsupported[T](implicit ctx: Context): T = unsupportedError(s"match type in bounds of ${ctx.owner}")
+  def erasedRefinementIsUnsupported[T](implicit ctx: Context): T = unsupportedError(s"erased modifier in refinement of ${ctx.owner}")
 
   def normaliseBounds(bounds: TypeBounds): Type = {
     val TypeBounds(lo, hi) = bounds
@@ -48,7 +50,7 @@ trait TypeOps { self: TastyUniverse =>
 
     def typeRefUncurried(tycon: Type, args: List[Type]): Type = tycon match {
       case tycon: TypeRef if tycon.typeArgs.nonEmpty =>
-        ctx.unsupportedError(s"curried type application $tycon[${args.mkString(",")}]")
+        unsupportedError(s"curried type application $tycon[${args.mkString(",")}]")
       case _ =>
         u.appliedType(tycon, args)
     }
@@ -74,8 +76,13 @@ trait TypeOps { self: TastyUniverse =>
     val sym =
       if (ref.isModule) ctx.loadingMirror.getModuleIfDefined(ref.qualifiedName)
       else ctx.loadingMirror.getClassIfDefined(ref.qualifiedName)
-    if (!isSymbol(sym))
-      typeError(s"could not find ${if (ref.isModule) "object" else "class"} for ${ref.qualifiedName}")
+    if (!isSymbol(sym)) {
+      val kind = if (ref.isModule) "object" else "class"
+      val addendum = if (ctx.mode.is(ReadAnnotation)) s" whilst reading annotation of ${ctx.owner}" else ""
+      val msg =
+        s"could not find $kind ${ref.qualifiedName}$addendum; perhaps it is missing from the classpath."
+      typeError(msg)
+    }
     defn.arrayType(ref.arrayDims, sym.tpe.erasure)
   }
 
@@ -87,7 +94,7 @@ trait TypeOps { self: TastyUniverse =>
   def selectType(pre: Type, space: Type, name: TastyName)(implicit ctx: Context): Type = {
     if (pre.typeSymbol === defn.ScalaPackage && ( name === nme.And || name === nme.Or ) ) {
       if (name === nme.And) AndType
-      else ctx.unsupportedError("union type")
+      else unionIsUnsupported
     }
     else {
       namedMemberOfTypeWithPrefix(pre, space, name, selectingTerm = false)
@@ -151,11 +158,6 @@ trait TypeOps { self: TastyUniverse =>
 
   def namedMemberOfTypeWithPrefix(pre: Type, space: Type, tname: TastyName, selectingTerm: Boolean)(implicit ctx: Context): Type =
     prefixedRef(pre, namedMemberOfType(space, tname, selectingTerm))
-
-  def constructorOfPrefix(pre: Type)(implicit ctx: Context): Type = {
-    val ctor = constructorOfType(pre)
-    normaliseConstructorRef(ctor).tap(tpe => ctx.log(s"selected ${showSym(ctor)} : $tpe"))
-  }
 
   def lambdaResultType(resType: Type): Type = resType match {
     case res: LambdaPolyType => res.toNested
