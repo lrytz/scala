@@ -1,16 +1,15 @@
 package scala.tools
 package testing
 
-import org.junit.Assert
-import Assert._
+import java.lang.ref._
+import java.lang.reflect.{Field, Modifier}
+import java.util.IdentityHashMap
+
+import org.junit.Assert._
+
+import scala.collection.{GenIterable, IterableLike, mutable}
 import scala.reflect.ClassTag
 import scala.runtime.ScalaRunTime.stringOf
-import scala.collection.{ GenIterable, IterableLike }
-import scala.collection.JavaConverters._
-import scala.collection.mutable
-import java.lang.ref._
-import java.lang.reflect._
-import java.util.IdentityHashMap
 
 /** This module contains additional higher-level assert statements
  *  that are ultimately based on junit.Assert primitives.
@@ -68,24 +67,30 @@ object AssertUtil {
    */
   def assertNotReachable[A <: AnyRef](a: => A, roots: AnyRef*)(body: => Unit): Unit = {
     val wkref = new WeakReference(a)
-    def refs(root: AnyRef): mutable.Set[AnyRef] = {
-      val seen = new IdentityHashMap[AnyRef, Unit]
-      def loop(o: AnyRef): Unit =
-        if (wkref.nonEmpty && o != null && !seen.containsKey(o)) {
+    // fail if following strong references from root discovers referent. Quit if ref is empty.
+    def assertNoRef(root: AnyRef): Unit = {
+      val seen  = new IdentityHashMap[AnyRef, Unit]
+      val stack = new mutable.Stack[AnyRef]()
+      def loop(): Unit = if (wkref.nonEmpty && stack.nonEmpty) {
+        val o: AnyRef = stack.pop()
+        if (o != null && !seen.containsKey(o)) {
           seen.put(o, ())
-          for {
-            f <- o.getClass.allFields
-            if !Modifier.isStatic(f.getModifiers)
-            if !f.getType.isPrimitive
-            if !classOf[Reference[_]].isAssignableFrom(f.getType)
-          } loop(f follow o)
+          assertFalse(s"Root $root held reference $o", o eq wkref.get)
+          o match {
+            case a: Array[AnyRef] =>
+              a.foreach(e => if (!e.isInstanceOf[Reference[_]]) stack.push(e))
+            case _ =>
+              for (f <- o.getClass.allFields)
+                if (!Modifier.isStatic(f.getModifiers) && !f.getType.isPrimitive && !classOf[Reference[_]].isAssignableFrom(f.getType))
+                  stack.push(f.follow(o))
+          }
         }
-      loop(root)
-      seen.keySet.asScala
+        loop()
+      }
+      stack.push(root)
+      loop()
     }
     body
-    for (r <- roots if wkref.nonEmpty) {
-      assertFalse(s"Root $r held reference", refs(r) contains wkref.get)
-    }
+    roots.foreach(assertNoRef)
   }
 }
