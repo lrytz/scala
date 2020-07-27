@@ -27,6 +27,8 @@ object MimaFilters extends AutoPlugin {
 
     // #9425 Node is private[collection]
     ProblemFilters.exclude[DirectMissingMethodProblem]("scala.collection.mutable.HashMap#Node.foreachEntry"),
+
+    ProblemFilters.exclude[MissingClassProblem]("scala.annotation.inheritSignature"),
   )
 
   override val buildSettings = Seq(
