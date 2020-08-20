@@ -141,6 +141,8 @@ object ExecutionContext {
    */
   final lazy val global: ExecutionContextExecutor = impl.ExecutionContextImpl.fromExecutor(null: Executor)
 
+  import scala.language.experimental.macros
+
   /**
    * This `ExecutionContext` is ideally suited to execute short-lived tasks on the `global` `ExecutionContext` as it
    * attempts to locally batch the execution of nested tasks.
@@ -148,7 +150,11 @@ object ExecutionContext {
    * WARNING: long-running and/or blocking tasks should be demarcated within `scala.concurrent.blocking`-blocks,
    *          to ensure that any pending tasks in the current batch can be executed by another thread on `global`.
    */
-  object batchingGlobal extends ExecutionContextExecutor with BatchingExecutor {
+  // fast-tracked, i.e., macro implementation lives in the compiler
+  final def opportunistic: ExecutionContextExecutor = macro ???
+
+  private[concurrent] object batchingGlobal extends ExecutionContextExecutor with BatchingExecutor {
+    println("batching init")
     final override def submitForExecution(runnable: Runnable): Unit = global.execute(runnable)
 
     final override def execute(runnable: Runnable): Unit =
@@ -195,6 +201,8 @@ object ExecutionContext {
      * [[https://docs.oracle.com/javase/8/docs/api/java/lang/Runtime.html#availableProcessors-- available processors]].
      */
     implicit final def global: ExecutionContext = ExecutionContext.global
+
+    implicit final def opportunistic: ExecutionContext = macro ???
   }
 
   /** Creates an `ExecutionContext` from the given `ExecutorService`.

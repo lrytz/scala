@@ -1682,6 +1682,9 @@ trait Definitions extends api.StandardDefinitions {
       lazy val Boxes_isNumberOrBool  = getDecl(BoxesRunTimeClass, nme.isBoxedNumberOrBoolean)
       lazy val Boxes_isNumber        = getDecl(BoxesRunTimeClass, nme.isBoxedNumber)
 
+      lazy val EC_opportunistic = getDecl(requiredModule[scala.concurrent.ExecutionContext.type], TermName("opportunistic"))
+      lazy val ECI_opportunistic = getDecl(getDecl(requiredModule[scala.concurrent.ExecutionContext], TermName("Implicits")), TermName("opportunistic"))
+
       private def valueClassCompanion(name: TermName): ModuleSymbol = {
         getMember(ScalaPackageClass, name) match {
           case x: ModuleSymbol => x

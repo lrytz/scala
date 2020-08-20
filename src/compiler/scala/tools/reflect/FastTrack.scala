@@ -64,8 +64,10 @@ class FastTrack[MacrosAndAnalyzer <: Macros with Analyzer](val macros: MacrosAnd
       makeBlackbox(           ApiUniverseReify) { case Applied(_, ttag :: Nil, (expr :: _) :: _)  => c => c.materializeExpr(c.prefix.tree, EmptyTree, expr) },
       makeBlackbox(            StringContext_f) { case _                                          => _.interpolateF },
       makeBlackbox(            StringContext_s) { case _                                          => _.interpolateS },
-      makeBlackbox(            StringContext_raw) { case _                                        => _.interpolateRaw },
+      makeBlackbox(          StringContext_raw) { case _                                          => _.interpolateRaw },
       makeBlackbox(ReflectRuntimeCurrentMirror) { case _                                          => c => currentMirror(c).tree },
+      makeBlackbox(           EC_opportunistic) { case _                                          => _.batchingEC },
+      makeBlackbox(          ECI_opportunistic) { case _                                          => _.batchingEC },
       makeWhitebox(  QuasiquoteClass_api_apply) { case _                                          => _.expandQuasiquote },
       makeWhitebox(QuasiquoteClass_api_unapply) { case _                                          => _.expandQuasiquote }
      )

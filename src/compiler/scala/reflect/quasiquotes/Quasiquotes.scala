@@ -69,4 +69,11 @@ abstract class Quasiquotes extends Parsers
     debug(s"reified tree:\n$sreified\n")
     reified
   }
+
+  def batchingEC: Tree = {
+    q"""if (_root_.scala.Predef.classOf[_root_.scala.concurrent.ExecutionContext].getDeclaredClasses.exists(_.getName == "scala.concurrent.ExecutionContext$$batchingGlobal$$"))
+      _root_.java.lang.Class.forName("scala.concurrent.ExecutionContext$$batchingGlobal$$").getField("MODULE$$").get(null).asInstanceOf[_root_.scala.concurrent.ExecutionContextExecutor]
+    else
+      _root_.scala.concurrent.ExecutionContext.global"""
+  }
 }
