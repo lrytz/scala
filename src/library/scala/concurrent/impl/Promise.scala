@@ -378,7 +378,7 @@ private[concurrent] object Promise {
     private[this] final var _arg: Try[F],
     private[this] final val _xform: Int
   ) extends DefaultPromise[T]() with Callbacks[F] with Runnable with Batchable {
-    final def this(xform: Int, f: _ => _, ec: ExecutionContext) =
+    private[Promise] final def this(xform: Int, f: _ => _, ec: ExecutionContext) =
       this(f.asInstanceOf[Any => Any], ec.prepare(): @nowarn("cat=deprecation"), null, xform)
 
     final def benefitsFromBatching: Boolean = _xform != Xform_onComplete && _xform != Xform_foreach
@@ -387,7 +387,7 @@ private[concurrent] object Promise {
     // submitWithValue *happens-before* run(), through ExecutionContext.execute.
     // Invariant: _arg is `null`, _ec is non-null. `this` ne Noop.
     // requireNonNull(resolved) will hold as guarded by `resolve`
-    final def submitWithValue(resolved: Try[F]): this.type = {
+    private[Promise] final def submitWithValue(resolved: Try[F]): this.type = {
       _arg = resolved
       val e = _ec
       try e.execute(this) /* Safe publication of _arg, _fun, _ec */

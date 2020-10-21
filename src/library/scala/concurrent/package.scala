@@ -110,6 +110,9 @@ package object concurrent {
   type CancellationException = java.util.concurrent.CancellationException
   type TimeoutException =      java.util.concurrent.TimeoutException
 
+  type TheBatchingExecutor = BatchingExecutor
+  type ThePromiseTransformation[-F, T] = scala.concurrent.impl.Promise.Transformation[F, T]
+
   /** Used to designate a piece of code which potentially blocks, allowing the current [[BlockContext]] to adjust
    *  the runtime's behavior.
    *  Properly marking blocking code may improve performance or avoid deadlocks.
