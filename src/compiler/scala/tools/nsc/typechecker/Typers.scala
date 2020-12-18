@@ -2153,6 +2153,11 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           } else tpt1.tpe
           transformedOrTyped(vdef.rhs, EXPRmode | BYVALmode, tpt2)
         }
+      if (sym.hasDefault && sym.owner.isPrimaryConstructor && sym.enclClass.isNonBottomSubClass(ConstantAnnotationClass)) rhs1.tpe match {
+        case ConstantType(c) =>
+          sym.addAnnotation(AnnotationInfo(DefaultArgAttr.tpe, Nil, List((TermName("arg"), LiteralAnnotArg(c)))))
+        case _ =>
+      }
       val vdef1 = treeCopy.ValDef(vdef, typedMods, sym.name, tpt1, checkDead(context, rhs1)) setType NoType
       if (sym.isSynthetic && sym.name.startsWith(nme.RIGHT_ASSOC_OP_PREFIX))
         rightAssocValDefs += ((sym, vdef1.rhs))
@@ -2387,9 +2392,40 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         if (meth.isClassConstructor && !isPastTyper && !meth.owner.isSubClass(AnyValClass) && !meth.isJava) {
           // There are no supercalls for AnyVal or constructors from Java sources, which
           // would blow up in analyzeSuperConsructor; there's nothing to be computed for them anyway.
-          if (meth.isPrimaryConstructor)
+          if (meth.isPrimaryConstructor) {
             analyzeSuperConsructor(meth, vparamss1, rhs1)
-          else
+
+            if (meth.owner.isNonBottomSubClass(ConstantAnnotationClass)) {
+              var namedArgs: Map[Name, Tree] = Map.empty
+              val treeInfo.Applied(constr, _, argss) = rhs1 match {
+                case Block(List(Block(stats, call)), Literal(Constant(()))) =>
+                  // when named / default args are used
+                  namedArgs = Map.from(stats collect {
+                    case ValDef(_, name, _, rhs) => (name, rhs)
+                  })
+                  call
+                case Block(_ :+ call, Literal(Constant(()))) => call
+                case call => call
+              }
+              def add(param: Symbol, c: Constant) =
+                meth.owner.addAnnotation(AnnotationInfo(SuperArgAttr.tpe, Nil, List((TermName("param"), LiteralAnnotArg(Constant(param.name.toString))), (TermName("arg"), LiteralAnnotArg(c)))))
+              constr.symbol.paramss.flatten.zip(argss.flatten).foreach {
+                case (param, arg) => arg.tpe match {
+                  case ConstantType(c) => add(param, c)
+                  case _ => arg match {
+                    case Ident(n) =>
+                      namedArgs.get(n) match {
+                        case Some(treeInfo.Applied(fun, _, _)) if fun.symbol.isDefaultGetter =>
+                          param.getAnnotation(definitions.DefaultArgAttr).flatMap(_.constantAtIndex(0)).foreach(c => add(param, c))
+                        case _ =>
+                      }
+                    case _ =>
+                  }
+
+                }
+              }
+            }
+          } else
             checkSelfConstructorArgs(ddef, meth.owner)
         }
 
@@ -4143,19 +4179,22 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               case call => call
             }
             val params = constr.symbol.paramss.headOption.getOrElse(Nil)
+            def defaultArg(p: Symbol) =
+              if (p.hasDefault) p.getAnnotation(definitions.DefaultArgAttr).flatMap(_.constantAtIndex(0)).map(LiteralAnnotArg)
+              else None
             val assocs = info.args.zip(params) map {
               case (arg, param) =>
                 val origArg = arg match {
                   case Ident(n) => namedArgs.getOrElse(n, arg)
                   case _ => arg
                 }
-                (param.name, tree2ConstArg(origArg, param.tpe.resultType))
+                (param.name, tree2ConstArg(origArg, param.tpe.resultType).orElse(defaultArg(param)))
             }
             if (hasError) ErroneousAnnotation
             else if (unmappable) UnmappableAnnotation
             else AnnotationInfo(info.atp, Nil, assocs.collect({ case (n, Some(arg)) => (n, arg) })).setOriginal(info.original).setPos(info.pos)
           } else
-              info
+            info
         }
       }
     }
