@@ -55,6 +55,11 @@ class BSO2 extends BS {
 object Test {
   def show(i: Int) = println(i)
   def show(s: String) = println(s)
+  def showSigs[T](implicit t: reflect.ClassTag[T]) = {
+    val c = t.runtimeClass
+    println(c.getName)
+    println(c.getDeclaredMethods.filter(m => m.getName == "f" || m.getName == "g").map(_.toString).sorted.mkString("- ", "\n- ", ""))
+  }
   def main(args: Array[String]): Unit = {
     val bi = new BI
     show(bi.f + 11)  // need unbox
@@ -79,5 +84,13 @@ object Test {
     val bso2 = new BSO2
     show(bso2.f.trim)
     show(bso2.g(" hui "))
+
+    showSigs[A[_]]
+    showSigs[BI]
+    showSigs[BS]
+    showSigs[BIO1]
+    showSigs[BSO1]
+    showSigs[BIO2]
+    showSigs[BSO2]
   }
 }
