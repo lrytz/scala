@@ -1235,6 +1235,9 @@ private[internal] trait TypeMaps {
             if (decl.hasAllFlags(METHOD | MODULE))
               // HACK: undo flag Uncurry's flag mutation from prior run
               decl.resetFlag(METHOD | STABLE)
+            if (decl.hasAllFlags(METHOD | JAVA_ANNOTATION))
+              // JAVA_ANNOTATION is a marker; hasAnnotation(inheritSignatureClass) causes cycles
+              decl.setFlag(Flags.OVERRIDE).resetFlag(Flags.PRIVATE | Flags.ARTIFACT | Flags.JAVA_ANNOTATION)
           }
           if (parents1 eq parents) tp
           else ClassInfoType(parents1, decls, clazz)
