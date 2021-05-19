@@ -1,0 +1,7 @@
+t1980b.scala:26: warning: right-associative application requires right-to-left evaluation
+  f(27) ##:: g(5) #:: f(42) ##:: xs
+        ^
+empty
+g5
+f42
+f27

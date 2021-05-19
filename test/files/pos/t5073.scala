@@ -24,3 +24,13 @@ class A {
   def self = this
   def bar(x: A, y: A) = (x.self /: y.self)(1)
 }
+
+class B {
+  @annotation.nowarn
+  def f(xs: List[Int]) = (0 /: xs) _
+  def g = f(List(1,2,3,4))
+  def test = g(_ + _)
+}
+
+// issue 11117
+class A2[B](val b: B) { def c: List[b.type] = b :: Nil }

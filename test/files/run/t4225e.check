@@ -1,4 +1,4 @@
-t4225e.scala:19: warning: right-associative application requires evaluating right-to-left
+t4225e.scala:19: warning: right-associative application requires right-to-left evaluation
   mkBarString andThen_: mkFoo
               ^
 t4225e.scala:12: warning: a pure expression does nothing in statement position; multiline expressions might require enclosing parentheses

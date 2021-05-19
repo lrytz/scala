@@ -902,7 +902,7 @@ self =>
       case _ => t
     }
 
-    /** Create tree representing (unencoded) binary operation expression or pattern. */
+    /** Create tree representing (unencoded) binary operation expression or pattern. Pos set by caller. */
     def makeBinop(isExpr: Boolean, left: Tree, op: TermName, right: Tree, opPos: Position, targs: List[Tree] = Nil): Tree = {
       require(isExpr || targs.isEmpty || targs.exists(_.isErroneous),
         s"Incompatible args to makeBinop: !isExpr but targs=$targs")
@@ -913,12 +913,11 @@ self =>
         val pos = (opPos union t.pos) makeTransparentIf rightAssoc
         val sel = atPos(pos)(Select(stripParens(t), op.encode))
         if (targs.isEmpty) sel
-        else {
-          /* if it's right-associative, `targs` are between `op` and `t` so make the pos transparent */
+        else
+          // if it's right-associative, `targs` are between `op` and `t` so make the pos transparent
           atPos((pos union targs.last.pos) makeTransparentIf rightAssoc) {
             TypeApply(sel, targs)
           }
-        }
       }
       def mkNamed(args: List[Tree]) = if (isExpr) args.map(treeInfo.assignmentToMaybeNamedArg) else args
       var isMultiarg = false

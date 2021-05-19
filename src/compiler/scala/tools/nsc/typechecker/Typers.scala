@@ -23,6 +23,7 @@ import scala.util.chaining._
 import mutable.ListBuffer
 import symtab.Flags._
 import Mode._
+import PartialFunction.cond
 
 /** A provider of methods to assign types to trees.
  *
@@ -5083,25 +5084,17 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               // The enclosing context may be case c @ C(_) => or val c @ C(_) = v.
               tree1 modifyType (_.finalResultType)
               tree1
-            case tree1 @ Apply(fun1, arg1 :: Nil) if tree.hasAttachment[RightAssociative.type] =>
-              tree.removeAttachment[RightAssociative.type]
+            case tree1 @ Apply(fun1, arg1 :: Nil) if !phase.erasedTypes && tree.hasAttachment[RightAssociative.type] =>
               fun1.tpe match {
                 // fix evaluation order of `x op_: y` if necessary to `{ val tmp = x ; y.op_:(tmp) }`
                 case MethodType(p :: Nil, _) if !tree1.isErroneous && !p.isByNameParam && (!treeInfo.isStableIdentifier(arg1, allowVolatile = false) || !treeInfo.isExprSafeToInline(arg1)) =>
-                  import symtab.Flags._
-                  val tmp = freshTermName(nme.RIGHT_ASSOC_OP_PREFIX)
-                  val valSym = context.owner.newValue(tmp, arg1.pos.focus, FINAL | SYNTHETIC | ARTIFACT)
-                  val rhs = arg1.changeOwner(context.owner -> valSym)
-                  valSym.setInfo(rhs.tpe)
-                  val liftedArg = atPos(arg1.pos) { ValDef(valSym, rhs) }
-                  val blk = Block(
-                    liftedArg :: Nil,
-                    treeCopy.Apply(tree1, fun1, List(Ident(valSym) setPos arg1.pos.focus)).clearType()
-                  )
-                  typed(blk, mode, pt) match {
-                    case b @ Block(_, res) => res.updateAttachment(RightAssociative) ; b
-                    case b => b
-                  }
+                  val vsym = context.owner.newValue(freshTermName(nme.RIGHT_ASSOC_OP_PREFIX), arg1.pos.focus, FINAL | SYNTHETIC | ARTIFACT)
+                  vsym.setInfo(arg1.tpe)
+                  val vdef = atPos(arg1.pos) { ValDef(vsym, arg1) setType NoType }
+                  context.pendingStabilizers ::= vdef
+                  arg1.changeOwner(context.owner -> vsym)
+                  val arg = Ident(vsym) setType singleType(NoPrefix, vsym) setPos arg1.pos.focus
+                  treeCopy.Apply(tree1, fun1, arg :: Nil)
                 case _ => tree1
               }
             case tree1 @ Apply(_, args1) if settings.multiargInfix && tree.hasAttachment[MultiargInfixAttachment.type] && args1.lengthCompare(1) > 0 =>
@@ -6081,15 +6074,30 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       }
     }
 
+    // Insert stabilizing ValDefs (if any) introduced during the typing of the original expression.
     private def addStabilizers(newStabilizers: List[Tree], expr: Tree): Tree = if (newStabilizers.isEmpty) expr else {
       devWarningIf(newStabilizers.forall(_.symbol.owner == context.owner))(s"${context.owner} - ${(newStabilizers.map(vd => (vd.symbol, vd.symbol.owner.fullNameString)), context.owner)}")
-      // Insert stabilizing ValDefs (if any) which might have been introduced during the typing of the original expression.
-      expr match {
-        case Block(_, res) if res.hasAttachment[RightAssociative.type] =>
-          runReporting.warning(res.pos, s"right-associative application requires evaluating right-to-left", WarningCategory.Other, context.owner)
-        case _ =>
-      }
-      Block(newStabilizers.reverse, expr).setPos(expr.pos).setType(expr.tpe)
+      def isStab(prefix: String)(x: Tree) = cond(x) { case ValDef(_, nm, _, _) => nm.startsWith(prefix) }
+      val hasStabs   = newStabilizers.exists(isStab(nme.STABILIZER_PREFIX))
+      val hasRassocs = newStabilizers.exists(isStab(nme.RIGHT_ASSOC_OP_PREFIX))
+      // stabilizers are in reverse order, but re-ordered operands are in desired (left-to-right) order
+      val res =
+        if (hasStabs && hasRassocs) {
+          runReporting.warning(expr.pos.focus, s"right-associative application requires right-to-left evaluation", WarningCategory.Other, context.owner)
+          var remaining = newStabilizers.reverse
+          val ordered = ListBuffer.empty[Tree]
+          while (remaining.nonEmpty) {
+            val (stabs, more) = remaining.span(isStab(nme.STABILIZER_PREFIX))
+            ordered.addAll(stabs)
+            val (rassocs, rest) = more.span(isStab(nme.RIGHT_ASSOC_OP_PREFIX))
+            ordered.addAll(rassocs.reverse)
+            remaining = rest
+          }
+          ordered.toList
+        }
+        else if (hasStabs) newStabilizers.reverse
+        else newStabilizers
+      Block(res, expr).setPos(expr.pos).setType(expr.tpe)
     }
 
     def atOwner(owner: Symbol): Typer =
