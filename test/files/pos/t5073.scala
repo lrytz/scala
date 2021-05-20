@@ -1,7 +1,9 @@
 
+//scalac: -Xlint -Werror
+
 trait Test {
 
-  trait T[A]
+  trait T[_]
 
   class C {
     def -:(x: AnyRef): T[x.type] = ???
@@ -33,4 +35,9 @@ class B {
 }
 
 // issue 11117
-class A2[B](val b: B) { def c: List[b.type] = b :: Nil }
+class A2[B2](val b: B2) { def c: List[b.type] = b :: Nil }
+
+// don't bug me about adapting a tuple when I wrote a tuple arg to infix
+class `lukas warned me about this and I brushed him off but that was last year before pandemic` {
+  def `tuple in infix expression must not warn` = (42, 27) :: Nil
+}
