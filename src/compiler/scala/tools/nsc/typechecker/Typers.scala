@@ -5040,6 +5040,20 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         )
         silentResult match {
           case SilentResultValue(fun1) =>
+            val args1 = (fun1.symbol.tpe, args) match {
+              case (MethodType(p :: Nil, _), arg0 :: Nil) if tree.hasAttachment[RightAssociative.type] && !p.isByNameParam =>
+                val arg1 = typed(arg0)
+                println(context.owner)
+                val vsym = context.owner.newValue(freshTermName(nme.RIGHT_ASSOC_OP_PREFIX), arg1.pos.focus, FINAL | SYNTHETIC | ARTIFACT)
+                vsym.setInfo(arg1.tpe)
+                val vdef = atPos(arg1.pos) { ValDef(vsym, arg1) setType NoType }
+                context.pendingStabilizers ::= vdef
+                arg1.changeOwner(context.owner -> vsym)
+                val arg = Ident(vsym) setType singleType(NoPrefix, vsym) setPos arg1.pos.focus
+                List(arg)
+              case _ =>
+                args
+            }
             val fun2 = if (stableApplication) stabilizeFun(fun1, mode, pt) else fun1
             if (settings.areStatisticsEnabled) statistics.incCounter(typedApplyCount)
             val noSecondTry = (
@@ -5053,9 +5067,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               case _            => false
             }
             if (isFirstTry)
-              tryTypedApply(fun2, args)
+              tryTypedApply(fun2, args1)
             else
-              doTypedApply(tree, fun2, args, mode, pt)
+              doTypedApply(tree, fun2, args1, mode, pt)
           case err: SilentTypeError => onError(err)
         }
       }
@@ -5084,19 +5098,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               // The enclosing context may be case c @ C(_) => or val c @ C(_) = v.
               tree1 modifyType (_.finalResultType)
               tree1
-            case tree1 @ Apply(fun1, arg1 :: Nil) if !phase.erasedTypes && tree.hasAttachment[RightAssociative.type] =>
-              fun1.tpe match {
-                // fix evaluation order of `x op_: y` if necessary to `{ val tmp = x ; y.op_:(tmp) }`
-                case MethodType(p :: Nil, _) if !tree1.isErroneous && !p.isByNameParam && (!treeInfo.isStableIdentifier(arg1, allowVolatile = false) || !treeInfo.isExprSafeToInline(arg1)) =>
-                  val vsym = context.owner.newValue(freshTermName(nme.RIGHT_ASSOC_OP_PREFIX), arg1.pos.focus, FINAL | SYNTHETIC | ARTIFACT)
-                  vsym.setInfo(arg1.tpe)
-                  val vdef = atPos(arg1.pos) { ValDef(vsym, arg1) setType NoType }
-                  context.pendingStabilizers ::= vdef
-                  arg1.changeOwner(context.owner -> vsym)
-                  val arg = Ident(vsym) setType singleType(NoPrefix, vsym) setPos arg1.pos.focus
-                  treeCopy.Apply(tree1, fun1, arg :: Nil)
-                case _ => tree1
-              }
             case tree1 @ Apply(_, args1) if settings.multiargInfix && tree.hasAttachment[MultiargInfixAttachment.type] && args1.lengthCompare(1) > 0 =>
               context.warning(tree1.pos, "multiarg infix syntax looks like a tuple and will be deprecated", WarningCategory.LintMultiargInfix)
               tree.removeAttachment[MultiargInfixAttachment.type]
@@ -5307,6 +5308,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               context.pendingStabilizers ::= vdef
               qual.changeOwner(context.owner -> vsym)
               val newQual = Ident(vsym) setType singleType(NoPrefix, vsym) setPos qual.pos.focus
+              println(s"unstable prefix select $name\n  - from $qual\n  - to $newQual\n  - pending $vdef")
               return typedSelect(tree, newQual, name)
             }
 
@@ -6097,6 +6099,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         }
         else if (hasStabs) newStabilizers.reverse
         else newStabilizers
+      println(s"adding stabs\n  - $newStabilizers\n  - order $res")
       Block(res, expr).setPos(expr.pos).setType(expr.tpe)
     }
 
