@@ -14,8 +14,6 @@ package scala
 package reflect
 package internal
 
-import scala.language.existentials // scala/bug#6541
-
 package object util {
 
   // An allocation-avoiding reusable instance of the so-common List(Nil).
