@@ -305,7 +305,7 @@ trait NamesDefaults { self: Analyzer =>
           val argTpe = (
             if (repeated) arg match {
               case WildcardStarArg(expr) => expr.tpe
-              case _                     => seqType(arg.tpe)
+              case _                     => seqType(arg.tpe.widen)
             }
             else {
               // TODO In 83c9c764b, we tried to a stable type here to fix scala/bug#7234. But the resulting TypeTree over a
