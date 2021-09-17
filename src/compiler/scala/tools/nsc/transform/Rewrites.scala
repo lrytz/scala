@@ -106,15 +106,6 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
-  private def isInferredArg(tree: Tree) = tree match {
-    case tt: TypeTree => tt.original eq null
-    case _ =>
-      val pos = tree.pos
-      pos.isOffset && tree.forAll(t => {
-        val tpos = t.pos
-        tpos == NoPosition || tpos.isOffset && tpos.point == pos.point
-      })
-  }
 
   // Applied.unapply matches any tree, not just applications
   private object Application {
@@ -170,11 +161,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
             transform(stat)
           }
           val expr1  = transform(expr)
+          treeCopy.Block(tree, stats1, expr1)
         } finally {
           localTyper = saved
           entered.foreach(localTyper.context.scope.unlink(_))
         }
-        treeCopy.Block(tree, stats1, expr1)
       case dd: DefDef =>
         localTyper.reenterTypeParams(dd.tparams)
         localTyper.reenterValueParams(dd.vparamss)
@@ -257,6 +248,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class BreakoutTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
     import BreakoutTraverser._
     val patches = collection.mutable.ArrayBuffer.empty[Patch]
+
+    def isInferredArg(tree: Tree): Boolean = tree match {
+      case tt: TypeTree => tt.original eq null
+      case _ =>
+        val pos = tree.pos
+        pos.isOffset && tree.forAll(t => {
+          val tpos = t.pos
+          tpos == NoPosition || tpos.isOffset && tpos.point == pos.point
+        })
+    }
+
     override def transform(tree: Tree): Tree = tree match {
       case Application(fun, targs, argss) if fun.symbol == breakOutSym =>
         val inferredBreakOut = targs.forall(isInferredArg) && mforall(argss)(isInferredArg)
