@@ -2,7 +2,7 @@ package scala.tools.nsc
 package transform
 
 import scala.annotation.tailrec
-import scala.collection.mutable
+import scala.collection.{GenTraversableOnce, mutable}
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.internal.util.{Position, SourceFile}
 import scala.tools.nsc.Reporting.WarningCategory
@@ -352,4 +352,27 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else Patch(topLevelImportPos, (if (topLevelImportPos.point == 0) "" else "\n") + "import scala.collection.compat._\n") :: Nil
     }
   }
+  /*
+  private class MapValuesRewriter(unit: CompilationUnit, parseTree: ParseTree, patches: mutable.LinkedHashSet[Patch])
+    extends RewriteTypingTransformer(unit) {
+    val GenMapLike_mapValues =
+      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
+    val GenTraversableOnce_toMap =
+      rootMirror.requiredClass[GenTraversableOnce[_]].info.decl(TermName("toMap"))
+    private def overrides(sym: Symbol, base: Symbol): Boolean =
+      sym.name == base.name && sym.overriddenSymbol(base.owner) == base
+
+    override def transform(tree: Tree): Tree = {
+      tree match {
+        case Select(Apply(fun, args), _) if overrides(tree.symbol, GenTraversableOnce_toMap) =>
+          transform(fun)
+          // ...
+          // patches ++= patchSelect(s, ap, "toMap")
+        case _ =>
+          super.transform(tree)
+      }
+      tree
+    }
+  }
+  */
 }
