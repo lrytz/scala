@@ -282,7 +282,7 @@ trait ScalaSettings extends StandardScalaSettings with Warnings { _: MutableSett
     val breakOutArgs = Choice("breakOutArgs", "Add explicit type argumetns to calls of `collection.breakOut`")
     val collectionSeq = Choice("collectionSeq", "(Indexed)Seq => collection.(Indexed)Seq")
     val varargsToSeq = Choice("varargsToSeq", "(xs: _*) => (xs.toSeq: _*) ")
-    val importCollectionsCompat = Choice("importCollectionsCompat", "")
+    val importCollectionsCompat = Choice("importCollectionsCompat", "Add `import scala.collection.compat._` (unless it's already there)")
   }
 
   object optChoices extends MultiChoiceEnumeration {

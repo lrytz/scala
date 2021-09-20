@@ -28,6 +28,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       val reparseUnit = new CompilationUnit(unit.source)
       reparseUnit.body = newUnitParser(reparseUnit).parse()
       val treeByRangePos = mutable.HashMap[Position, Tree]()
+      reparseUnit.body.foreach { tree =>
+        if (tree.pos.isRange && !tree.pos.isTransparent)
+          treeByRangePos(tree.pos) = tree
+      }
 
       val settings = global.settings
       val rws = settings.Yrewrites
@@ -326,13 +330,14 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   /** Add `import scala.collection.compat._` at the top-level */
   private class AddImports(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
-    val ScalaCollectionCompatPackage = rootMirror.getPackage("scala.collection.compat")
-    override def transform(tree: Tree): Tree = {
-      super.transform(tree)
-    }
+    val ScalaCollectionCompatPackage = rootMirror.getPackageIfDefined("scala.collection.compat")
+    private def skip = ScalaCollectionCompatPackage == NoSymbol
+
+    override def transform(tree: Tree): Tree =
+      if (skip) tree else super.transform(tree)
 
     def patches = {
-      val importAlreadyExists = lastTopLevelContext match {
+      def importAlreadyExists = lastTopLevelContext match {
         case analyzer.NoContext =>
           false
         case ctx =>
@@ -343,8 +348,8 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
             case _ => false
           }
       }
-      if (importAlreadyExists) Nil
-      else Patch(topLevelImportPos, "\nimport scala.collection.compat._\n") :: Nil
+      if (skip || importAlreadyExists) Nil
+      else Patch(topLevelImportPos, (if (topLevelImportPos.point == 0) "" else "\n") + "import scala.collection.compat._\n") :: Nil
     }
   }
 }
