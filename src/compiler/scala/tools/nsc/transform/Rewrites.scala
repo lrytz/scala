@@ -36,7 +36,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       val settings = global.settings
       val rws = settings.Yrewrites
       if (rws.contains(rws.domain.breakOutArgs)) {
-        val rewriter = new BreakoutTraverser(unit)
+        val rewriter = new BreakoutArgsTraverser(unit)
         rewriter.transform(unit.body)
         patches ++= rewriter.patches
       }
@@ -242,15 +242,15 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   // Rewrites
 
-  private object BreakoutTraverser {
+  private object BreakoutArgsTraverser {
     lazy val breakOutSym = {
       import definitions._
       getMemberMethod(rootMirror.getPackageObject("scala.collection"), TermName("breakOut"))
     }
   }
 
-  private class BreakoutTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
-    import BreakoutTraverser._
+  private class BreakoutArgsTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+    import BreakoutArgsTraverser._
     val patches = collection.mutable.ArrayBuffer.empty[Patch]
 
     def isInferredArg(tree: Tree): Boolean = tree match {

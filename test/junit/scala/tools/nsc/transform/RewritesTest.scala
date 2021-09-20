@@ -46,6 +46,23 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def varargsToSeq(): Unit = {
+    def s(p: String*) =
+      s"""class C {
+         |  List(List(1, 2): _*)
+         |  List(${p(0)}Seq(1, 2)${p(1)}: _*)
+         |  List(Array(1, 2): _*)
+         |}""".stripMargin
+    assertEquals(compat(s("collection.", ".toSeq")), rewrite(s("", "")))
+  }
+
+  @Test def addImports(): Unit = {
+    def s(p: String*) = s"import scala.collection.{mutable => m, compat}${p(0)}\n class C"
+    assertEquals(s("\nimport scala.collection.compat._\n"), rewrite(s("")))
+    def t = s"import scala.collection.compat._\n class C"
+    assertEquals(t, rewrite(t))
+  }
+
   @Ignore @Test def mapValues(): Unit = {
     val i = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }""")
     val e = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }""")
