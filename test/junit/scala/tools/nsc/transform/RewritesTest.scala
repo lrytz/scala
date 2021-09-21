@@ -63,6 +63,11 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(t, rewrite(t))
   }
 
+  @Test def breakOutOps(): Unit = {
+    def s = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
+    println(rewrite(s))
+  }
+
   @Ignore @Test def mapValues(): Unit = {
     val i = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }""")
     val e = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }""")

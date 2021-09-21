@@ -2,7 +2,7 @@ package scala.tools.nsc
 package transform
 
 import scala.annotation.tailrec
-import scala.collection.{GenTraversableOnce, mutable}
+import scala.collection.{GenIterableLike, GenTraversableOnce, mutable}
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.internal.util.{Position, SourceFile}
 import scala.tools.nsc.Reporting.WarningCategory
@@ -37,6 +37,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       val rws = settings.Yrewrites
       if (rws.contains(rws.domain.breakOutArgs)) {
         val rewriter = new BreakoutArgsTraverser(unit)
+        rewriter.transform(unit.body)
+        patches ++= rewriter.patches
+      }
+      if (rws.contains(rws.domain.breakOutOps)) {
+        val rewriter = new BreakoutToIteratorOp(unit)
         rewriter.transform(unit.body)
         patches ++= rewriter.patches
       }
@@ -242,16 +247,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   // Rewrites
 
-  private object BreakoutArgsTraverser {
-    lazy val breakOutSym = {
-      import definitions._
-      getMemberMethod(rootMirror.getPackageObject("scala.collection"), TermName("breakOut"))
-    }
-  }
+  private object BreakoutInfo {
+    lazy val breakOutSym =
+      definitions.getMemberMethod(rootMirror.getPackageObject("scala.collection"), TermName("breakOut"))
 
-  private class BreakoutArgsTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
-    import BreakoutArgsTraverser._
-    val patches = collection.mutable.ArrayBuffer.empty[Patch]
+    lazy val GenIterableLikeSym = rootMirror.requiredClass[GenIterableLike[_, _]]
 
     def isInferredArg(tree: Tree): Boolean = tree match {
       case tt: TypeTree => tt.original eq null
@@ -262,6 +262,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           tpos == NoPosition || tpos.isOffset && tpos.point == pos.point
         })
     }
+  }
+
+  private class BreakoutArgsTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+    import BreakoutInfo._
+    val patches = collection.mutable.ArrayBuffer.empty[Patch]
 
     override def transform(tree: Tree): Tree = tree match {
       case Application(fun, targs, argss) if fun.symbol == breakOutSym =>
@@ -274,6 +279,28 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           patches += Patch(Position.offset(tree.pos.source, fun.pos.end), targsString)
         }
         super.transform(fun)
+        tree
+      case _ =>
+        super.transform(tree)
+    }
+  }
+
+  private class BreakoutToIteratorOp(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+    import BreakoutInfo._
+    val patches = collection.mutable.ArrayBuffer.empty[Patch]
+
+    val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipWithIndex", "zipAll")
+
+    private val typeRenderer = new TypeRenderer(this)
+
+    override def transform(tree: Tree): Tree = tree match {
+      case Application(fun @ Select(coll, funName), targs, _ :+ List(bo @ Application(boFun, boTargs, _))) if boFun.symbol == breakOutSym =>
+        if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
+          breakOutMethods.contains(funName.toString)) {
+          patches += Patch(Position.offset(tree.pos.source, coll.pos.end), ".iterator")
+          patches += Patch(bo.pos, "") // TODO: parens
+          patches += Patch(Position.offset(tree.pos.source, tree.pos.end), s".to[${typeRenderer(boTargs.last.tpe)}]")
+        }
         tree
       case _ =>
         super.transform(tree)
