@@ -68,31 +68,36 @@ class RewritesTest extends BytecodeTesting {
     println(rewrite(s))
   }
 
-  @Ignore @Test def mapValues(): Unit = {
+  @Test def mapValues(): Unit = {
     val i = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }""")
     val e = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }""")
     assertEquals(e, rewrite(i))
   }
 
-  @Ignore @Test def mapValuesAfterNewLine(): Unit = {
+  @Test def mapValuesAfterNewLine(): Unit = {
     val i = compat("class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode))\n r }}")
     val e = compat("class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode)).toMap\n r }}")
     assertEquals(e, rewrite(i))
   }
 
-  @Ignore @Test def mapValuesInfix(): Unit = {
+  @Test def mapValuesInfix(): Unit = {
     val i = compat("""class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x } }""")
     val e = compat("""class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x }).toMap }""")
     assertEquals(e, rewrite(i))
   }
 
-  @Ignore @Test def mapValuesInfix2(): Unit = {
-    val i = compat("""class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x \n} }""")
-    val e = compat("""class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x \n}).toMap }""")
+  @Test def mapValuesInfix2(): Unit = {
+    val i = compat("class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x \n} }")
+    val e = compat("class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x \n}).toMap }")
     assertEquals(e, rewrite(i))
   }
 
-  @Ignore("Need to improve position hack in RewriteComment or fix scalac parser")
+  @Test def mapValuesInfix3(): Unit = {
+    val i = compat("class C { def test[A, B](m: Map[A, B], f: B => B) = m mapValues f }")
+    val e = compat("class C { def test[A, B](m: Map[A, B], f: B => B) = (m mapValues f).toMap }")
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValuesInfixComment(): Unit = {
     val i = compat("""class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x /*COMMENT*/} }""")
     val e = compat("""class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x /*COMMENT*/}).toMap }""")

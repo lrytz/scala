@@ -24,14 +24,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class RewritePhase(prev: Phase) extends StdPhase(prev) {
     override def apply(unit: CompilationUnit): Unit = {
       val patches = ArrayBuffer[Patch]()
-
-      val reparseUnit = new CompilationUnit(unit.source)
-      reparseUnit.body = newUnitParser(reparseUnit).parse()
-      val treeByRangePos = mutable.HashMap[Position, Tree]()
-      reparseUnit.body.foreach { tree =>
-        if (tree.pos.isRange && !tree.pos.isTransparent)
-          treeByRangePos(tree.pos) = tree
-      }
+      val parseTree = ParseTree(unit.source)
 
       val settings = global.settings
       val rws = settings.Yrewrites
@@ -46,7 +39,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         patches ++= rewriter.patches
       }
       if (rws.contains(rws.domain.collectionSeq)) {
-        val rewriter = new CollectionSeqTransformer(treeByRangePos, unit)
+        val rewriter = new CollectionSeqTransformer(unit, parseTree)
         rewriter.transform(unit.body)
         patches ++= rewriter.patches
       }
@@ -57,6 +50,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       }
       if (rws.contains(rws.domain.importCollectionsCompat)) {
         val rewriter = new AddImports(unit)
+        rewriter.transform(unit.body)
+        patches ++= rewriter.patches
+      }
+      if (rws.contains(rws.domain.mapValues)) {
+        val rewriter = new MapValuesRewriter(unit)
         rewriter.transform(unit.body)
         patches ++= rewriter.patches
       }
@@ -115,6 +113,16 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
+  class ParseTree private (val tree: Tree, val index: collection.Map[Position, Tree])
+  object ParseTree {
+    def apply(source: SourceFile): ParseTree = {
+      val unit = new CompilationUnit(source)
+      unit.body = newUnitParser(unit).parse()
+      val index = mutable.HashMap[Position, Tree]()
+      unit.body.foreach(x => if (!x.pos.isTransparent && x.pos.isRange) index(x.pos) = x)
+      new ParseTree(unit.body, index)
+    }
+  }
 
   // Applied.unapply matches any tree, not just applications
   private object Application {
@@ -212,6 +220,24 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         f(typed)
       }.get
     }
+
+    // app: `coll.mapValues[T](fun)`, select: `coll.mapValues`, code: "toMap"
+    // app could be infix `coll mapValues fun` or block `coll.mapValues { fun }` in source
+    def patchSelect(select: Select, app: Apply, code: String): List[Patch] = {
+      val patches = mutable.ListBuffer[Patch]()
+      val qualEnd = select.qualifier.pos.end
+      val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
+      val dotted = c == '.'
+      def codeOf(pos: Position) = new String(unit.source.content.slice(pos.start, pos.end + 1))
+      // reporter.warning(select.pos, s"dotted = $dotted, app = ${codeOf(app.pos)} / ${app.pos}")
+      if (!dotted) {
+        patches += Patch(app.pos.focusStart, "(")
+        patches += Patch(app.pos.focusEnd, ")." + code)
+      } else {
+        patches += Patch(app.pos.focusEnd, "." + code)
+      }
+      patches.toList
+    }
   }
 
   private class TypeRenderer(rewriteTransformer: RewriteTypingTransformer) extends TypeMap {
@@ -276,7 +302,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           (TypeTree(definitions.AnyTpe) +: targs.tail).map(targ => renderer.apply(targ.tpe)).mkString("[", ", ", "]")
         }
         if (inferredBreakOut) {
-          patches += Patch(Position.offset(tree.pos.source, fun.pos.end), targsString)
+          patches += Patch(fun.pos.focusEnd, targsString)
         }
         super.transform(fun)
         tree
@@ -297,9 +323,9 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case Application(fun @ Select(coll, funName), targs, _ :+ List(bo @ Application(boFun, boTargs, _))) if boFun.symbol == breakOutSym =>
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
           breakOutMethods.contains(funName.toString)) {
-          patches += Patch(Position.offset(tree.pos.source, coll.pos.end), ".iterator")
+          patches += Patch(coll.pos.focusEnd, ".iterator")
           patches += Patch(bo.pos, "") // TODO: parens
-          patches += Patch(Position.offset(tree.pos.source, tree.pos.end), s".to[${typeRenderer(boTargs.last.tpe)}]")
+          patches += Patch(tree.pos.focusEnd, s".to[${typeRenderer(boTargs.last.tpe)}]")
         }
         tree
       case _ =>
@@ -322,7 +348,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   }
 
   /** Rewrites Idents that refer to scala.Seq/IndexedSeq as collection.Seq (or scala.collection.Seq if qualification is needed) */
-  private class CollectionSeqTransformer(treeByRangePos: collection.Map[Position, Tree], unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+  private class CollectionSeqTransformer(unit: CompilationUnit, parseTree: ParseTree) extends RewriteTypingTransformer(unit) {
     case class Rewrite(name: String, typeAlias: Symbol, termAlias: Symbol, cls: Symbol, module: Symbol)
     val ScalaCollectionPackage = rootMirror.getPackage("scala.collection")
     def rewrite(name: String) = Rewrite(name,
@@ -338,7 +364,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           for (rewrite <- rewrites) {
             val sym = ref.symbol
             if (sym == rewrite.cls || sym == rewrite.module || sym == rewrite.termAlias || sym == rewrite.typeAlias) {
-              treeByRangePos.get(ref.pos) match {
+              parseTree.index.get(ref.pos) match {
                 case Some(Ident(name)) if name.string_==(rewrite.name) =>
                   val qual: String = chooseQualifierExpr(List("collection", "scala.collection", "_root_.scala.collection")) { tree =>
                     tree.tpe.termSymbol == ScalaCollectionPackage
@@ -379,9 +405,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else Patch(topLevelImportPos, (if (topLevelImportPos.point == 0) "" else "\n") + "import scala.collection.compat._\n") :: Nil
     }
   }
-  /*
-  private class MapValuesRewriter(unit: CompilationUnit, parseTree: ParseTree, patches: mutable.LinkedHashSet[Patch])
+
+  private class MapValuesRewriter(unit: CompilationUnit)
     extends RewriteTypingTransformer(unit) {
+    val patches = mutable.ListBuffer.empty[Patch]
     val GenMapLike_mapValues =
       rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
     val GenTraversableOnce_toMap =
@@ -391,15 +418,14 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
     override def transform(tree: Tree): Tree = {
       tree match {
-        case Select(Apply(fun, args), _) if overrides(tree.symbol, GenTraversableOnce_toMap) =>
-          transform(fun)
-          // ...
-          // patches ++= patchSelect(s, ap, "toMap")
+        case ap @ Apply(TypeApply(s: Select, _), _)
+          if s.symbol.name == GenMapLike_mapValues.name && s.symbol.overrideChain.contains(GenMapLike_mapValues) =>
+          // reporter.warning(tree.pos, show(localTyper.context.enclMethod.tree, printPositions = true))
+          patches ++= patchSelect(s, ap, code = "toMap")
         case _ =>
           super.transform(tree)
       }
       tree
     }
   }
-  */
 }

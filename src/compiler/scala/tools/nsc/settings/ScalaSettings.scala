@@ -284,6 +284,7 @@ trait ScalaSettings extends StandardScalaSettings with Warnings { _: MutableSett
     val collectionSeq = Choice("collectionSeq", "(Indexed)Seq => collection.(Indexed)Seq")
     val varargsToSeq = Choice("varargsToSeq", "(xs: _*) => (xs.toSeq: _*) ")
     val importCollectionsCompat = Choice("importCollectionsCompat", "Add `import scala.collection.compat._` (unless it's already there)")
+    val mapValues = Choice("mapValues", "Add a `.toMap` call after `map.mapValues(fun)`")
   }
 
   object optChoices extends MultiChoiceEnumeration {
