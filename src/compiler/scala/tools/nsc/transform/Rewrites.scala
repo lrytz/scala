@@ -2,9 +2,8 @@ package scala.tools.nsc
 package transform
 
 import scala.annotation.tailrec
-import scala.collection.{GenIterableLike, GenTraversableOnce, mutable}
-import scala.collection.mutable.ArrayBuffer
-import scala.reflect.internal.util.{Position, SourceFile}
+import scala.collection.{GenIterableLike, mutable}
+import scala.reflect.internal.util.SourceFile
 import scala.tools.nsc.Reporting.WarningCategory
 
 abstract class Rewrites extends SubComponent with TypingTransformers {
@@ -23,43 +22,55 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private class RewritePhase(prev: Phase) extends StdPhase(prev) {
     override def apply(unit: CompilationUnit): Unit = {
-      val patches = ArrayBuffer[Patch]()
-      val parseTree = ParseTree(unit.source)
-
+      val state = new RewriteState(ParseTree(unit.source))
       val settings = global.settings
       val rws = settings.Yrewrites
-      if (rws.contains(rws.domain.breakOutArgs)) {
-        val rewriter = new BreakoutArgsTraverser(unit)
-        rewriter.transform(unit.body)
-        patches ++= rewriter.patches
-      }
+
       if (rws.contains(rws.domain.breakOutOps)) {
-        val rewriter = new BreakoutToIteratorOp(unit)
+        val rewriter = new BreakoutToIteratorOp(unit, state)
         rewriter.transform(unit.body)
-        patches ++= rewriter.patches
+      }
+      if (rws.contains(rws.domain.breakOutArgs)) {
+        val rewriter = new BreakoutArgsTraverser(unit, state)
+        rewriter.transform(unit.body)
       }
       if (rws.contains(rws.domain.collectionSeq)) {
-        val rewriter = new CollectionSeqTransformer(unit, parseTree)
+        val rewriter = new CollectionSeqTransformer(unit, state)
         rewriter.transform(unit.body)
-        patches ++= rewriter.patches
       }
       if (rws.contains(rws.domain.varargsToSeq)) {
-        val rewriter = new VarargsToSeq(unit)
+        val rewriter = new VarargsToSeq(unit, state)
         rewriter.transform(unit.body)
-        patches ++= rewriter.patches
-      }
-      if (rws.contains(rws.domain.importCollectionsCompat)) {
-        val rewriter = new AddImports(unit)
-        rewriter.transform(unit.body)
-        patches ++= rewriter.patches
       }
       if (rws.contains(rws.domain.mapValues)) {
-        val rewriter = new MapValuesRewriter(unit)
+        val rewriter = new MapValuesRewriter(unit, state)
         rewriter.transform(unit.body)
-        patches ++= rewriter.patches
       }
-      writePatches(unit.source, patches.toArray)
+      if (state.newImports.nonEmpty) {
+        val rewriter = new AddImports(unit, state)
+        rewriter.run(unit.body)
+      }
+      writePatches(unit.source, state.patches.toArray)
     }
+  }
+
+  private class RewriteState(val parseTree: ParseTree) {
+    val patches = mutable.ArrayBuffer.empty[Patch]
+    val eliminatedBreakOuts = mutable.Set.empty[Tree]
+    val newImports = mutable.Set.empty[NewImport]
+  }
+
+  sealed trait NewImport {
+    def matches(imp: Import): Boolean
+    def imp: String
+  }
+  object CollectionCompatImport extends NewImport {
+    lazy val ScalaCollectionCompatPackage = rootMirror.getPackageIfDefined("scala.collection.compat")
+    def matches(imp: global.Import): Boolean =
+      imp.expr.tpe.termSymbol == ScalaCollectionCompatPackage &&
+        imp.selectors.exists(_.name == nme.WILDCARD)
+
+    val imp = "import scala.collection.compat._"
   }
 
   private case class Patch(span: Position, replacement: String) {
@@ -213,23 +224,51 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           EmptyTree
       }
     }
-    def chooseQualifierExpr(options: List[String])(f: Tree => Boolean): String = {
-      options.find { qual =>
-        val ref = newUnitParser(newCompilationUnit(qual)).parseRule(_.expr())
+
+    def qualifiedSelectTerm(sym: Symbol): String = {
+      val parts = ("_root_." + sym.fullName).split("\\.")
+      val paths = List.tabulate(parts.length)(i => parts.takeRight(i+1).mkString("."))
+      paths.find { path =>
+        val ref = newUnitParser(newCompilationUnit(path)).parseRule(_.expr())
         val typed = silentTyped(ref, Mode.QUALmode)
-        f(typed)
+        typed.tpe.termSymbol == sym
       }.get
     }
 
-    // app: `coll.mapValues[T](fun)`, select: `coll.mapValues`, code: "toMap"
-    // app could be infix `coll mapValues fun` or block `coll.mapValues { fun }` in source
-    def patchSelect(select: Select, app: Apply, code: String): List[Patch] = {
+    // useful when working with range positions
+    // def codeOf(pos: Position) = new String(unit.source.content.slice(pos.start, pos.end))
+
+    def withEnclosingParens(pos: Position): Position = {
+      @tailrec def skip(offset: Int, inc: Int): Int =
+        if (unit.source.content(offset).isWhitespace) skip(offset + inc, inc) else offset
+
+      val closingPos = skip(pos.end, 1)
+      val closing = unit.source.content(closingPos)
+
+      def checkOpening(expected: Char) = {
+        val openingPos = skip(pos.start - 1, -1)
+        val opening = unit.source.content(openingPos)
+        if (opening == expected) withEnclosingParens(pos.withStart(openingPos).withEnd(closingPos + 1))
+        else pos
+      }
+      if (closing == ')') checkOpening('(')
+      else if (closing == '}') checkOpening('{')
+      else pos
+    }
+
+    /**
+     * Select `.code` from an apply, wrap in parens if it's infix. Example:
+     *  - app: `coll.mapValues[T](fun)`
+     *  - fun: `coll.mapValues`
+     *  - code: `toMap`
+     *
+     * `app` could be infix `coll mapValues fun` in source.
+     */
+    def selectFromInfixApply(app: Apply, fun: Select, code: String): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
-      val qualEnd = select.qualifier.pos.end
+      val qualEnd = fun.qualifier.pos.end
       val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
       val dotted = c == '.'
-      def codeOf(pos: Position) = new String(unit.source.content.slice(pos.start, pos.end + 1))
-      // reporter.warning(select.pos, s"dotted = $dotted, app = ${codeOf(app.pos)} / ${app.pos}")
       if (!dotted) {
         patches += Patch(app.pos.focusStart, "(")
         patches += Patch(app.pos.focusEnd, ")." + code)
@@ -290,42 +329,44 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
-  private class BreakoutArgsTraverser(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+  private class BreakoutArgsTraverser(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     import BreakoutInfo._
-    val patches = collection.mutable.ArrayBuffer.empty[Patch]
 
     override def transform(tree: Tree): Tree = tree match {
       case Application(fun, targs, argss) if fun.symbol == breakOutSym =>
-        val inferredBreakOut = targs.forall(isInferredArg) && mforall(argss)(isInferredArg)
-        val targsString = {
-          val renderer = new TypeRenderer(this)
-          (TypeTree(definitions.AnyTpe) +: targs.tail).map(targ => renderer.apply(targ.tpe)).mkString("[", ", ", "]")
+        if (!state.eliminatedBreakOuts(tree)) {
+          val inferredBreakOut = targs.forall(isInferredArg) && mforall(argss)(isInferredArg)
+          val targsString = {
+            val renderer = new TypeRenderer(this)
+            (TypeTree(definitions.AnyTpe) +: targs.tail).map(targ => renderer.apply(targ.tpe)).mkString("[", ", ", "]")
+          }
+          if (inferredBreakOut) {
+            state.patches += Patch(fun.pos.focusEnd, targsString)
+          }
+          super.transform(fun)
         }
-        if (inferredBreakOut) {
-          patches += Patch(fun.pos.focusEnd, targsString)
-        }
-        super.transform(fun)
         tree
       case _ =>
         super.transform(tree)
     }
   }
 
-  private class BreakoutToIteratorOp(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
+  private class BreakoutToIteratorOp(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     import BreakoutInfo._
-    val patches = collection.mutable.ArrayBuffer.empty[Patch]
-
     val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipWithIndex", "zipAll")
 
     private val typeRenderer = new TypeRenderer(this)
 
+    // coll.fun[targs](args)(breakOut) --> coll.iterator.fun[targs](args).to(Target)
     override def transform(tree: Tree): Tree = tree match {
-      case Application(fun @ Select(coll, funName), targs, _ :+ List(bo @ Application(boFun, boTargs, _))) if boFun.symbol == breakOutSym =>
+      case Application(fun @ Select(coll, funName), targs, _ :+ List(bo @ Application(boFun, boTargs, _)))
+        if boFun.symbol == breakOutSym =>
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
           breakOutMethods.contains(funName.toString)) {
-          patches += Patch(coll.pos.focusEnd, ".iterator")
-          patches += Patch(bo.pos, "") // TODO: parens
-          patches += Patch(tree.pos.focusEnd, s".to[${typeRenderer(boTargs.last.tpe)}]")
+          state.patches += Patch(coll.pos.focusEnd, ".iterator")
+          state.patches += Patch(withEnclosingParens(bo.pos), s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})")
+          state.eliminatedBreakOuts += bo
+          state.newImports += CollectionCompatImport
         }
         tree
       case _ =>
@@ -333,14 +374,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
-  private class VarargsToSeq(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
-    val patches = collection.mutable.ArrayBuffer.empty[Patch]
+  private class VarargsToSeq(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     val CollectionImmutableSeq = rootMirror.requiredClass[scala.collection.immutable.Seq[_]]
     val CollectionSeq = rootMirror.requiredClass[scala.collection.Seq[_]]
     override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, Ident(tpnme.WILDCARD_STAR))
         if !expr.tpe.typeSymbol.isNonBottomSubClass(CollectionImmutableSeq) && expr.tpe.typeSymbol.isNonBottomSubClass(CollectionSeq) =>
-        patches += Patch(expr.pos.focusEnd, ".toSeq")
+        state.patches += Patch(expr.pos.focusEnd, ".toSeq")
         super.transform(tree)
       case _ =>
         super.transform(tree)
@@ -348,7 +388,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   }
 
   /** Rewrites Idents that refer to scala.Seq/IndexedSeq as collection.Seq (or scala.collection.Seq if qualification is needed) */
-  private class CollectionSeqTransformer(unit: CompilationUnit, parseTree: ParseTree) extends RewriteTypingTransformer(unit) {
+  private class CollectionSeqTransformer(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     case class Rewrite(name: String, typeAlias: Symbol, termAlias: Symbol, cls: Symbol, module: Symbol)
     val ScalaCollectionPackage = rootMirror.getPackage("scala.collection")
     def rewrite(name: String) = Rewrite(name,
@@ -357,20 +397,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       rootMirror.getRequiredClass("scala.collection." + name),
       rootMirror.getRequiredModule("scala.collection." + name))
     val rewrites = List(rewrite("Seq"), rewrite("IndexedSeq"))
-    val patches = collection.mutable.ArrayBuffer.empty[Patch]
     override def transform(tree: Tree): Tree = {
       tree match {
         case ref: RefTree =>
           for (rewrite <- rewrites) {
             val sym = ref.symbol
             if (sym == rewrite.cls || sym == rewrite.module || sym == rewrite.termAlias || sym == rewrite.typeAlias) {
-              parseTree.index.get(ref.pos) match {
+              state.parseTree.index.get(ref.pos) match {
                 case Some(Ident(name)) if name.string_==(rewrite.name) =>
-                  val qual: String = chooseQualifierExpr(List("collection", "scala.collection", "_root_.scala.collection")) { tree =>
-                    tree.tpe.termSymbol == ScalaCollectionPackage
-                  }
+                  val qual: String = qualifiedSelectTerm(ScalaCollectionPackage)
                   val patchCode = qual + "." + rewrite.name
-                  patches += Patch(ref.pos, patchCode)
+                  state.patches += Patch(ref.pos, patchCode)
                 case _ =>
               }
             }
@@ -382,46 +419,40 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   }
 
   /** Add `import scala.collection.compat._` at the top-level */
-  private class AddImports(unit: CompilationUnit) extends RewriteTypingTransformer(unit) {
-    val ScalaCollectionCompatPackage = rootMirror.getPackageIfDefined("scala.collection.compat")
-    private def skip = ScalaCollectionCompatPackage == NoSymbol
-
-    override def transform(tree: Tree): Tree =
-      if (skip) tree else super.transform(tree)
-
-    def patches = {
-      def importAlreadyExists = lastTopLevelContext match {
-        case analyzer.NoContext =>
-          false
-        case ctx =>
-          ctx.enclosingContextChain.iterator.map(_.tree).exists {
-            case Import(expr, sels) =>
-              val sym = expr.tpe.termSymbol
-              sym == ScalaCollectionCompatPackage && sels.exists(_.name == nme.WILDCARD)
-            case _ => false
-          }
+  private class AddImports(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
+    def run(tree: Tree) = {
+      // RewriteTypingTransformer.transform sets up the required state (lastTopLevelContext, topLevelImportPos)
+      transform(tree)
+      val topLevelImports = collectTopLevel
+      val toAdd = state.newImports.filterNot(newImp => topLevelImports.exists(newImp.matches))
+      if (toAdd.nonEmpty) {
+        val top = topLevelImportPos.point == 0
+        val imps = toAdd.map(_.imp).toList.sorted.mkString(if (top) "" else "\n", "\n", if (top) "\n" else "")
+        state.patches += Patch(topLevelImportPos, imps)
       }
-      if (skip || importAlreadyExists) Nil
-      else Patch(topLevelImportPos, (if (topLevelImportPos.point == 0) "" else "\n") + "import scala.collection.compat._\n") :: Nil
+    }
+
+    private def collectTopLevel: List[Import] = lastTopLevelContext match {
+      case analyzer.NoContext =>
+        Nil
+      case ctx =>
+        ctx.enclosingContextChain.iterator.map(_.tree).collect {
+          case imp: Import => imp
+        }.toList
     }
   }
 
-  private class MapValuesRewriter(unit: CompilationUnit)
+  private class MapValuesRewriter(unit: CompilationUnit, state: RewriteState)
     extends RewriteTypingTransformer(unit) {
-    val patches = mutable.ListBuffer.empty[Patch]
     val GenMapLike_mapValues =
       rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
-    val GenTraversableOnce_toMap =
-      rootMirror.requiredClass[GenTraversableOnce[_]].info.decl(TermName("toMap"))
-    private def overrides(sym: Symbol, base: Symbol): Boolean =
-      sym.name == base.name && sym.overriddenSymbol(base.owner) == base
 
     override def transform(tree: Tree): Tree = {
       tree match {
-        case ap @ Apply(TypeApply(s: Select, _), _)
-          if s.symbol.name == GenMapLike_mapValues.name && s.symbol.overrideChain.contains(GenMapLike_mapValues) =>
+        case ap @ Apply(TypeApply(fun: Select, _), _)
+          if fun.symbol.name == GenMapLike_mapValues.name && fun.symbol.overrideChain.contains(GenMapLike_mapValues) =>
           // reporter.warning(tree.pos, show(localTyper.context.enclMethod.tree, printPositions = true))
-          patches ++= patchSelect(s, ap, code = "toMap")
+          state.patches ++= selectFromInfixApply(ap, fun, code = "toMap")
         case _ =>
           super.transform(tree)
       }

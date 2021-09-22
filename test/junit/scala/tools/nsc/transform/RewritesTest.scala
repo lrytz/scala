@@ -29,20 +29,20 @@ class RewritesTest extends BytecodeTesting {
         new loaders.PackageLoader("compat", classPath))
     run.compileSources(List(source))
     compiler.checkReport(_.severity != Reporter.ERROR)
+    // show warnings
+    compiler.storeReporter.infos.foreach(info => println(info.msg))
     new String(Files.readAllBytes(f),UTF_8).stripLineEnd
   }
 
-  def compat(s: String) = s"import scala.collection.compat._\n$s"
-
   @Test def collectionSeq1(): Unit = {
-    val i = compat("""class C { def foo[M[A] <: Seq[_]](f: Seq[Seq[String]]): Seq[Seq[Any]] = Seq(Seq("")) }""")
-    val e = compat("""class C { def foo[M[A] <: collection.Seq[_]](f: collection.Seq[collection.Seq[String]]): collection.Seq[collection.Seq[Any]] = collection.Seq(collection.Seq("")) }""")
+    val i = """class C { def foo[M[A] <: Seq[_]](f: Seq[Seq[String]]): Seq[Seq[Any]] = Seq(Seq("")) }"""
+    val e = """class C { def foo[M[A] <: collection.Seq[_]](f: collection.Seq[collection.Seq[String]]): collection.Seq[collection.Seq[Any]] = collection.Seq(collection.Seq("")) }"""
     assertEquals(e, rewrite(i))
   }
 
   @Test def collectionSeqQaulified(): Unit = {
-    val i = compat("""class C { def foo(collection: Any) = Seq(); def bar() = { val collection: Any = ""; Seq() }; Seq(0)}""")
-    val e = compat("""class C { def foo(collection: Any) = scala.collection.Seq(); def bar() = { val collection: Any = ""; scala.collection.Seq() }; collection.Seq(0)}""")
+    val i = """class C { def foo(collection: Any) = Seq(); def bar() = { val collection: Any = ""; Seq() }; Seq(0)}"""
+    val e = """class C { def foo(collection: Any) = scala.collection.Seq(); def bar() = { val collection: Any = ""; scala.collection.Seq() }; collection.Seq(0)}"""
     assertEquals(e, rewrite(i))
   }
 
@@ -53,54 +53,66 @@ class RewritesTest extends BytecodeTesting {
          |  List(${p(0)}Seq(1, 2)${p(1)}: _*)
          |  List(Array(1, 2): _*)
          |}""".stripMargin
-    assertEquals(compat(s("collection.", ".toSeq")), rewrite(s("", "")))
+    assertEquals(s("collection.", ".toSeq"), rewrite(s("", "")))
   }
 
   @Test def addImports(): Unit = {
-    def s(p: String*) = s"import scala.collection.{mutable => m, compat}${p(0)}\n class C"
-    assertEquals(s("\nimport scala.collection.compat._\n"), rewrite(s("")))
-    def t = s"import scala.collection.compat._\n class C"
-    assertEquals(t, rewrite(t))
+    val i = "import scala.collection.{mutable => m, compat}\n class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
+    val e = "import scala.collection.{mutable => m, compat}\nimport scala.collection.compat._\n class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    assertEquals(e, rewrite(i))
   }
 
-  @Test def breakOutOps(): Unit = {
-    def s = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
-    println(rewrite(s))
+  @Test def addImportsExisting(): Unit = {
+    val i = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps1(): Unit = {
+    val i = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { def f: Set[Int] = List(1,2,3).iterator.map(_.abs).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps2(): Unit = {
+    val i = "class C { def f: collection.mutable.BitSet = List(1,2,3).map(_.abs)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { def f: collection.mutable.BitSet = List(1,2,3).iterator.map(_.abs).to(collection.mutable.BitSet) }"
+    assertEquals(e, rewrite(i))
   }
 
   @Test def mapValues(): Unit = {
-    val i = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }""")
-    val e = compat("""class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }""")
+    val i = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }"""
+    val e = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }"""
     assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesAfterNewLine(): Unit = {
-    val i = compat("class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode))\n r }}")
-    val e = compat("class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode)).toMap\n r }}")
+    val i = "class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode))\n r }}"
+    val e = "class C { def test[A, B](m: Map[A, List[B]]) = {\n val r = m\n  .toMap\n  .mapValues(_.distinct.sortBy(_.hashCode)).toMap\n r }}"
     assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesInfix(): Unit = {
-    val i = compat("""class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x } }""")
-    val e = compat("""class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x }).toMap }""")
+    val i = """class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x } }"""
+    val e = """class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x }).toMap }"""
     assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesInfix2(): Unit = {
-    val i = compat("class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x \n} }")
-    val e = compat("class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x \n}).toMap }")
+    val i = "class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x \n} }"
+    val e = "class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x \n}).toMap }"
     assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesInfix3(): Unit = {
-    val i = compat("class C { def test[A, B](m: Map[A, B], f: B => B) = m mapValues f }")
-    val e = compat("class C { def test[A, B](m: Map[A, B], f: B => B) = (m mapValues f).toMap }")
+    val i = "class C { def test[A, B](m: Map[A, B], f: B => B) = m mapValues f }"
+    val e = "class C { def test[A, B](m: Map[A, B], f: B => B) = (m mapValues f).toMap }"
     assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesInfixComment(): Unit = {
-    val i = compat("""class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x /*COMMENT*/} }""")
-    val e = compat("""class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x /*COMMENT*/}).toMap }""")
+    val i = """class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x /*COMMENT*/} }"""
+    val e = """class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x /*COMMENT*/}).toMap }"""
     assertEquals(e, rewrite(i))
   }
 }
