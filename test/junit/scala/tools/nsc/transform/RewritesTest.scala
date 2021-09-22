@@ -80,6 +80,12 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def breakOutOps3(): Unit = {
+    val i = "class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut[List[Int], Int, Set[Int]]) }"
+    val e = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValues(): Unit = {
     val i = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }"""
     val e = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }"""
@@ -114,5 +120,41 @@ class RewritesTest extends BytecodeTesting {
     val i = """class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x /*COMMENT*/} }"""
     val e = """class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x /*COMMENT*/}).toMap }"""
     assertEquals(e, rewrite(i))
+  }
+
+  @Test def toSeqSynthetic(): Unit = {
+    // writes `case class .toSeqC(args: Int*)`
+    val i = "case class C(args: Int*)"
+    println(rewrite(i))
+  }
+
+  @Test def mapValuesToMapAlready(): Unit = {
+    // adds redundant `toMap` call
+    val i = "class C { def f(m: Map[Int, Int]) = m.mapValues(_.toString).toMap }"
+    println(rewrite(i))
+  }
+
+  @Test def mapValuesApply(): Unit = {
+    // rewrite: `.toMap(x)` --> not what we want... we want `.toMap.apply(x)
+    val i = "class C { def f(m: Map[Int, Int], x: Int) = m. mapValues(_.toString)(x) }"
+    println(rewrite(i))
+  }
+
+  @Test def varargsToSeqAlready(): Unit = {
+    // adds redundant `toSeq` calls
+    val i =
+      """class C {
+        |  def f(xs: Iterator[String]) = List(xs.toSeq: _*)
+        |  def g1(xs: String*) = List(xs: _*)
+        |  def g2(xs: String*) = List(xs.map(x => x): _*)
+        |  def h = List(Seq(1,2,3): _*) // collection.Seq(1,2,3).toSeq -- technically correct. maybe keep that way?
+        |}
+        |""".stripMargin
+    println(rewrite(i))
+  }
+
+  @Test def toSeqInfix(): Unit = {
+    val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
+    println(rewrite(i))
   }
 }
