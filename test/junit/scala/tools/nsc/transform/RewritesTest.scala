@@ -152,14 +152,15 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(i, rewrite(i))
   }
 
+  @Test def toSeqInfix(): Unit = {
+    val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
+    val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValuesApply(): Unit = {
     // rewrite: `.toMap(x)` --> not what we want... we want `.toMap.apply(x)
     val i = "class C { def f(m: Map[Int, Int], x: Int) = m.mapValues(_.toString)(x) }"
-    println(rewrite(i))
-  }
-
-  @Test def toSeqInfix(): Unit = {
-    val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     println(rewrite(i))
   }
 }

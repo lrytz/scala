@@ -259,6 +259,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else pos
     }
 
+    def selectFromInfixApply(tree: Tree, code: String, parseTree: ParseTree): List[Patch] = tree match {
+      case Application(fun: Select, _, _) => selectFromInfixApply(tree, fun, code, parseTree)
+      case _ => List(Patch(tree.pos.focusEnd, "." + code))
+    }
+
     /**
      * Select `.code` from an apply, wrap in parens if it's infix. Example:
      *  - app: `coll.mapValues[T](fun)`
@@ -267,12 +272,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
      *
      * `app` could be infix `coll mapValues fun` in source.
      */
-    def selectFromInfixApply(app: Apply, fun: Select, code: String): List[Patch] = {
+    def selectFromInfixApply(app: Tree, fun: Select, code: String, parseTree: ParseTree): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
-      val qualEnd = fun.qualifier.pos.end
-      val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
-      val dotted = c == '.'
-      if (!dotted) {
+      // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
+      // typer. We should not use the positions of the typer trees to go back to the source.
+      val sourceFun = parseTree.index.get(fun.pos) match {
+        case Some(fun: Select) => Some(fun)
+        case Some(_) => None
+        case None => Some(fun)
+      }
+      val isInfix = sourceFun.exists(fun => {
+        val qualEnd = fun.qualifier.pos.end
+        val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
+        c != '.'
+      })
+      if (isInfix) {
         patches += Patch(app.pos.focusStart, "(")
         patches += Patch(app.pos.focusEnd, ")." + code)
       } else {
@@ -390,7 +404,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         }
     override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, Ident(tpnme.WILDCARD_STAR)) if addToSeq(expr) =>
-        state.patches += Patch(expr.pos.focusEnd, ".toSeq")
+        state.patches ++= selectFromInfixApply(expr, "toSeq", state.parseTree)
         super.transform(tree)
       case _ =>
         super.transform(tree)
@@ -468,7 +482,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       tree match {
         case ap @ Apply(TypeApply(fun: Select, _), _) if addToMap(fun.symbol) =>
           // reporter.warning(tree.pos, show(localTyper.context.enclMethod.tree, printPositions = true))
-          state.patches ++= selectFromInfixApply(ap, fun, code = "toMap")
+          state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree)
         case _ =>
           super.transform(tree)
       }
