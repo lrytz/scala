@@ -195,13 +195,16 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           entered.foreach(localTyper.context.scope.unlink(_))
         }
       case dd: DefDef =>
-        localTyper.reenterTypeParams(dd.tparams)
-        localTyper.reenterValueParams(dd.vparamss)
-        try super.transform(dd)
-        finally {
-          val scope = localTyper.context.scope
-          dd.tparams.foreach(tree => scope.unlink(tree.symbol))
-          mforeach(dd.vparamss)(tree => scope.unlink(tree.symbol))
+        if (dd.symbol.isSynthetic) tree
+        else {
+          localTyper.reenterTypeParams(dd.tparams)
+          localTyper.reenterValueParams(dd.vparamss)
+          try super.transform(dd)
+          finally {
+            val scope = localTyper.context.scope
+            dd.tparams.foreach(tree => scope.unlink(tree.symbol))
+            mforeach(dd.vparamss)(tree => scope.unlink(tree.symbol))
+          }
         }
       case cd: ClassDef =>
         typer.reenterTypeParams(cd.tparams)
@@ -377,9 +380,16 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class VarargsToSeq(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     val CollectionImmutableSeq = rootMirror.requiredClass[scala.collection.immutable.Seq[_]]
     val CollectionSeq = rootMirror.requiredClass[scala.collection.Seq[_]]
+    val GenTraversableOnce_toSeq = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toSeq"))
+    def addToSeq(arg: Tree) =
+      !arg.tpe.typeSymbol.isNonBottomSubClass(CollectionImmutableSeq) &&
+        arg.tpe.typeSymbol.isNonBottomSubClass(CollectionSeq) &&
+        !PartialFunction.cond(arg) {
+          case Ident(_) => definitions.isScalaRepeatedParamType(arg.symbol.tpe)
+          case Select(_, n) if n == GenTraversableOnce_toSeq.name => arg.symbol.overrideChain.contains(GenTraversableOnce_toSeq)
+        }
     override def transform(tree: Tree): Tree = tree match {
-      case Typed(expr, Ident(tpnme.WILDCARD_STAR))
-        if !expr.tpe.typeSymbol.isNonBottomSubClass(CollectionImmutableSeq) && expr.tpe.typeSymbol.isNonBottomSubClass(CollectionSeq) =>
+      case Typed(expr, Ident(tpnme.WILDCARD_STAR)) if addToSeq(expr) =>
         state.patches += Patch(expr.pos.focusEnd, ".toSeq")
         super.transform(tree)
       case _ =>
@@ -446,11 +456,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     extends RewriteTypingTransformer(unit) {
     val GenMapLike_mapValues =
       rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
+    val GenTraversableOnce_toMap = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toMap"))
+    def addToMap(fun: Symbol) =
+      fun.name == GenMapLike_mapValues.name &&
+        fun.overrideChain.contains(GenMapLike_mapValues) &&
+        !PartialFunction.cond(curTree) { // curTree is the next outer tree (tracked by TypingTransformer)
+          case sel @ Select(_, n) if n == GenTraversableOnce_toMap.name => sel.symbol.overrideChain.contains(GenTraversableOnce_toMap)
+        }
 
     override def transform(tree: Tree): Tree = {
       tree match {
-        case ap @ Apply(TypeApply(fun: Select, _), _)
-          if fun.symbol.name == GenMapLike_mapValues.name && fun.symbol.overrideChain.contains(GenMapLike_mapValues) =>
+        case ap @ Apply(TypeApply(fun: Select, _), _) if addToMap(fun.symbol) =>
           // reporter.warning(tree.pos, show(localTyper.context.enclMethod.tree, printPositions = true))
           state.patches ++= selectFromInfixApply(ap, fun, code = "toMap")
         case _ =>

@@ -123,33 +123,38 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def toSeqSynthetic(): Unit = {
-    // writes `case class .toSeqC(args: Int*)`
     val i = "case class C(args: Int*)"
-    println(rewrite(i))
+    assertEquals(i, rewrite(i))
+  }
+
+  @Test def varargsSeqAlready(): Unit = {
+    val i =
+      """class C {
+        |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
+        |  def b(xs: String*) = List(xs: _*)
+        |  def c(xs: String*) = List(xs.map(x => x): _*)
+        |  def d = List(Seq(1,2,3): _*)
+        |}""".stripMargin
+    // c: `toSeq` is only omitted if a varargs param is forwarded untransformed
+    // d: clarifies semantics. manually rewrite to `immutable.Seq(1,2,3)` if desired.
+    val e =
+      """class C {
+        |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
+        |  def b(xs: String*) = List(xs: _*)
+        |  def c(xs: String*) = List(xs.map(x => x).toSeq: _*)
+        |  def d = List(collection.Seq(1,2,3).toSeq: _*)
+        |}""".stripMargin
+    assertEquals(e, rewrite(i))
   }
 
   @Test def mapValuesToMapAlready(): Unit = {
-    // adds redundant `toMap` call
     val i = "class C { def f(m: Map[Int, Int]) = m.mapValues(_.toString).toMap }"
-    println(rewrite(i))
+    assertEquals(i, rewrite(i))
   }
 
   @Test def mapValuesApply(): Unit = {
     // rewrite: `.toMap(x)` --> not what we want... we want `.toMap.apply(x)
-    val i = "class C { def f(m: Map[Int, Int], x: Int) = m. mapValues(_.toString)(x) }"
-    println(rewrite(i))
-  }
-
-  @Test def varargsToSeqAlready(): Unit = {
-    // adds redundant `toSeq` calls
-    val i =
-      """class C {
-        |  def f(xs: Iterator[String]) = List(xs.toSeq: _*)
-        |  def g1(xs: String*) = List(xs: _*)
-        |  def g2(xs: String*) = List(xs.map(x => x): _*)
-        |  def h = List(Seq(1,2,3): _*) // collection.Seq(1,2,3).toSeq -- technically correct. maybe keep that way?
-        |}
-        |""".stripMargin
+    val i = "class C { def f(m: Map[Int, Int], x: Int) = m.mapValues(_.toString)(x) }"
     println(rewrite(i))
   }
 
