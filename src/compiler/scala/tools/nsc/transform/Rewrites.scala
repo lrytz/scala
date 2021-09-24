@@ -471,11 +471,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     val GenMapLike_mapValues =
       rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
     val GenTraversableOnce_toMap = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toMap"))
+    val GenMapLike_apply = rootMirror.requiredClass[scala.collection.GenMapLike[_, _, _]].info.decl(nme.apply)
     def addToMap(fun: Symbol) =
       fun.name == GenMapLike_mapValues.name &&
         fun.overrideChain.contains(GenMapLike_mapValues) &&
         !PartialFunction.cond(curTree) { // curTree is the next outer tree (tracked by TypingTransformer)
           case sel @ Select(_, n) if n == GenTraversableOnce_toMap.name => sel.symbol.overrideChain.contains(GenTraversableOnce_toMap)
+          case sel @ Select(_, a) if a == GenMapLike_apply.name => sel.symbol.overrideChain.contains(GenMapLike_apply)
         }
 
     override def transform(tree: Tree): Tree = {

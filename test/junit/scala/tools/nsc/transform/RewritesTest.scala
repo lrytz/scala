@@ -159,8 +159,9 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def mapValuesApply(): Unit = {
-    // rewrite: `.toMap(x)` --> not what we want... we want `.toMap.apply(x)
+    // don't add `toMap` in `m.mapValues(f).apply(x)`, the map is discarded anyway.
+    // inserting `toMap` is incorrect if the `apply` was implicit: `m.mapValues(f).toMap(x)`
     val i = "class C { def f(m: Map[Int, Int], x: Int) = m.mapValues(_.toString)(x) }"
-    println(rewrite(i))
+    assertEquals(i, rewrite(i))
   }
 }
