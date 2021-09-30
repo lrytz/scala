@@ -104,9 +104,9 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
-  @Test def mapValuesInfix2(): Unit = {
-    val i = "class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x \n} }"
-    val e = "class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x \n}).toMap }"
+  @Test def filterKeysInfix2(): Unit = {
+    val i = "class C { def test[A, B](m: Map[A, B]) = m filterKeys { x => x == null \n} }"
+    val e = "class C { def test[A, B](m: Map[A, B]) = (m filterKeys { x => x == null \n}).toMap }"
     assertEquals(e, rewrite(i))
   }
 
@@ -116,9 +116,9 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
-  @Test def mapValuesInfixComment(): Unit = {
-    val i = """class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x /*COMMENT*/} }"""
-    val e = """class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x /*COMMENT*/}).toMap }"""
+  @Test def filterKeysInfixComment(): Unit = {
+    val i = """class C { def test[A, B](m: Map[A, B]) = m filterKeys { _ == 0 /*COMMENT*/} }"""
+    val e = """class C { def test[A, B](m: Map[A, B]) = (m filterKeys { _ == 0 /*COMMENT*/}).toMap }"""
     assertEquals(e, rewrite(i))
   }
 

@@ -280,10 +280,10 @@ trait ScalaSettings extends StandardScalaSettings with Warnings { _: MutableSett
 
   object rewriteChoices extends MultiChoiceEnumeration {
     val breakOutArgs = Choice("breakOutArgs", "Add explicit type arguments to calls of `collection.breakOut`")
-    val breakOutOps = Choice("breakOutOps", "Rewrite `coll.operation()(breakOut): Target` to `coll.iterator.operation().to(Target)`")
+    val breakOutOps = Choice("breakOutOps", "Rewrite `coll.operation(...)(breakOut): Target` to `coll.iterator.operation(...).to(Target)`")
     val collectionSeq = Choice("collectionSeq", "(Indexed)Seq => collection.(Indexed)Seq")
     val varargsToSeq = Choice("varargsToSeq", "(xs: _*) => (xs.toSeq: _*) ")
-    val mapValues = Choice("mapValues", "Add a `.toMap` call after `map.mapValues(fun)`")
+    val mapValues = Choice("mapValues", "Add a `.toMap` call after `map.mapValues(fun)` / `filterKeys`")
   }
 
   object optChoices extends MultiChoiceEnumeration {

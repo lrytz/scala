@@ -327,6 +327,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
+  private class MethodMatcher(symbols: Symbol*) {
+    private val byName = symbols.groupBy(_.name)
+    def apply(sym: Symbol): Boolean = byName.get(sym.name).flatMap(_.find(sameName => sym.overrideChain.contains(sameName))).nonEmpty
+  }
+
   // Rewrites
 
   private object BreakoutInfo {
@@ -353,11 +358,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case Application(fun, targs, argss) if fun.symbol == breakOutSym =>
         if (!state.eliminatedBreakOuts(tree)) {
           val inferredBreakOut = targs.forall(isInferredArg) && mforall(argss)(isInferredArg)
-          val targsString = {
-            val renderer = new TypeRenderer(this)
-            (TypeTree(definitions.AnyTpe) +: targs.tail).map(targ => renderer.apply(targ.tpe)).mkString("[", ", ", "]")
-          }
           if (inferredBreakOut) {
+            val targsString = {
+              val renderer = new TypeRenderer(this)
+              (TypeTree(definitions.AnyTpe) +: targs.tail).map(targ => renderer.apply(targ.tpe)).mkString("[", ", ", "]")
+            }
             state.patches += Patch(fun.pos.focusEnd, targsString)
           }
           super.transform(fun)
@@ -372,11 +377,9 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     import BreakoutInfo._
     val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipWithIndex", "zipAll")
 
-    private val typeRenderer = new TypeRenderer(this)
-
     // coll.fun[targs](args)(breakOut) --> coll.iterator.fun[targs](args).to(Target)
     override def transform(tree: Tree): Tree = tree match {
-      case Application(fun @ Select(coll, funName), targs, _ :+ List(bo @ Application(boFun, boTargs, _)))
+      case Application(Select(coll, funName), _, _ :+ List(bo @ Application(boFun, boTargs, _)))
         if boFun.symbol == breakOutSym =>
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
           breakOutMethods.contains(funName.toString)) {
@@ -394,13 +397,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class VarargsToSeq(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     val CollectionImmutableSeq = rootMirror.requiredClass[scala.collection.immutable.Seq[_]]
     val CollectionSeq = rootMirror.requiredClass[scala.collection.Seq[_]]
-    val GenTraversableOnce_toSeq = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toSeq"))
+    val isToSeq = new MethodMatcher(rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toSeq")))
     def addToSeq(arg: Tree) =
       !arg.tpe.typeSymbol.isNonBottomSubClass(CollectionImmutableSeq) &&
         arg.tpe.typeSymbol.isNonBottomSubClass(CollectionSeq) &&
         !PartialFunction.cond(arg) {
           case Ident(_) => definitions.isScalaRepeatedParamType(arg.symbol.tpe)
-          case Select(_, n) if n == GenTraversableOnce_toSeq.name => arg.symbol.overrideChain.contains(GenTraversableOnce_toSeq)
+          case Select(_, _) => isToSeq(arg.symbol)
         }
     override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, Ident(tpnme.WILDCARD_STAR)) if addToSeq(expr) =>
@@ -468,23 +471,25 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private class MapValuesRewriter(unit: CompilationUnit, state: RewriteState)
     extends RewriteTypingTransformer(unit) {
-    val GenMapLike_mapValues =
-      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues"))
-    val GenTraversableOnce_toMap = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toMap"))
-    val GenMapLike_apply = rootMirror.requiredClass[scala.collection.GenMapLike[_, _, _]].info.decl(nme.apply)
-    def addToMap(fun: Symbol) =
-      fun.name == GenMapLike_mapValues.name &&
-        fun.overrideChain.contains(GenMapLike_mapValues) &&
-        !PartialFunction.cond(curTree) { // curTree is the next outer tree (tracked by TypingTransformer)
-          case sel @ Select(_, n) if n == GenTraversableOnce_toMap.name => sel.symbol.overrideChain.contains(GenTraversableOnce_toMap)
-          case sel @ Select(_, a) if a == GenMapLike_apply.name => sel.symbol.overrideChain.contains(GenMapLike_apply)
-        }
+    val isRewritable = new MethodMatcher(
+      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues")),
+      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("filterKeys")))
+
+    val reducesMapView = new MethodMatcher(
+      rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toMap")),
+      rootMirror.requiredClass[scala.collection.GenMapLike[_, _, _]].info.decl(nme.apply))
+
+    // no need to add `toMap` if it's already there, or in `m.mapValues(f).apply(x)`
+    // curTree is the next outer tree (tracked by TypingTransformer)
+    def skipRewrite = PartialFunction.cond(curTree) {
+      case sel: Select => reducesMapView(sel.symbol)
+    }
 
     override def transform(tree: Tree): Tree = {
       tree match {
-        case ap @ Apply(TypeApply(fun: Select, _), _) if addToMap(fun.symbol) =>
-          // reporter.warning(tree.pos, show(localTyper.context.enclMethod.tree, printPositions = true))
-          state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree)
+        case ap @ Application(fun: Select, _, _) if isRewritable(fun.symbol) =>
+          if (!skipRewrite)
+            state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree)
         case _ =>
           super.transform(tree)
       }
