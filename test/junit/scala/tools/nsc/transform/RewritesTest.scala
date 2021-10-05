@@ -75,14 +75,40 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def breakOutOps2(): Unit = {
-    val i = "class C { def f: collection.mutable.BitSet = List(1,2,3).map(_.abs)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { def f: collection.mutable.BitSet = List(1,2,3).iterator.map(_.abs).to(collection.mutable.BitSet) }"
+    val i = "class C { def f: collection.mutable.BitSet = (List(1,2,3) map (_.abs)){collection.breakOut} }"
+    val e = "import scala.collection.compat._\nclass C { def f: collection.mutable.BitSet = (List(1,2,3).iterator map (_.abs)).to(collection.mutable.BitSet) }"
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps3(): Unit = {
     val i = "class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut[List[Int], Int, Set[Int]]) }"
     val e = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps4(): Unit = {
+    // for zip, add `.iterator` to argument
+    // for `to(collection.IndexedSeq)`, make sure `IndexedSeq` has the explicit qualifier
+    val i = "class C { def f(l: List[Int]): IndexedSeq[(Int, Int)] = l.zip{l map (_ + 1)}{(collection.breakOut)} }"
+    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): collection.IndexedSeq[(Int, Int)] = l.iterator.zip{(l map (_ + 1)).iterator}.to(collection.IndexedSeq) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps5(): Unit = {
+    val i = "class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)) ++ l)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator ++ l).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps5a(): Unit = {
+    val i = "class C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)} ++ l)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)}.iterator ++ l).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps6(): Unit = {
+    val i = "class C { def f(l: List[Int]): Set[Int] = (l map (_ + 1) map identity)(collection.breakOut) }"
+    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator map identity).to(Set) }"
     assertEquals(e, rewrite(i))
   }
 
@@ -99,8 +125,8 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def mapValuesInfix(): Unit = {
-    val i = """class C { def test[A, B](m: Map[A, B]) = m mapValues { x => x } }"""
-    val e = """class C { def test[A, B](m: Map[A, B]) = (m mapValues { x => x }).toMap }"""
+    val i = """class C { def test[A, B](m: Map[A, B]) = println(m mapValues { x => x }) }"""
+    val e = """class C { def test[A, B](m: Map[A, B]) = println((m mapValues { x => x }).toMap) }"""
     assertEquals(e, rewrite(i))
   }
 
@@ -155,6 +181,12 @@ class RewritesTest extends BytecodeTesting {
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def toSeqInfix2(): Unit = {
+    val i = "class C { def f(xs: collection.Seq[Int]) = List({xs map (x => x)}: _*) }"
+    val e = "class C { def f(xs: collection.Seq[Int]) = List({xs map (x => x)}.toSeq: _*) }"
     assertEquals(e, rewrite(i))
   }
 

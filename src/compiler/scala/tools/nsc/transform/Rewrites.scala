@@ -77,13 +77,23 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     def delta: Int = replacement.length - (span.end - span.start)
   }
 
-  private def checkNoOverlap(patches: Array[Patch]): Boolean = {
+  // useful when working with range positions
+  private def codeOf(pos: Position, source: SourceFile) =
+    if (pos.start < pos.end) new String(source.content.slice(pos.start, pos.end))
+    else {
+      val line = source.offsetToLine(pos.point)
+      val code = source.lines(line).next()
+      val caret = " " * (pos.point - source.lineToOffset(line)) + "^"
+      s"$code\n$caret"
+    }
+
+  private def checkNoOverlap(patches: Array[Patch], source: SourceFile): Boolean = {
     var ok = true
     if (patches.nonEmpty)
       patches.reduceLeft { (p1, p2) =>
         if (p1.span.end > p2.span.start) {
           ok = false
-          runReporting.warning(NoPosition, s"overlapping patches:\n - $p1\n - $p2", WarningCategory.Other, "")
+          runReporting.warning(NoPosition, s"overlapping patches;\n\nadd `${p1.replacement}` at\n${codeOf(p1.span, source)}\n\nadd `${p2.replacement}` at\n${codeOf(p2.span, source)}", WarningCategory.Other, "")
         }
         p2
       }
@@ -116,7 +126,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private def writePatches(source: SourceFile, patches: Array[Patch]): Unit = if (patches.nonEmpty) {
     java.util.Arrays.sort(patches, Ordering.by[Patch, Int](_.span.start))
-    if (checkNoOverlap(patches)) {
+    if (checkNoOverlap(patches, source)) {
       val bytes = applyPatches(source, patches).getBytes(settings.encoding.value)
       val out = source.file.output
       out.write(bytes)
@@ -148,6 +158,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class RewriteTypingTransformer(unit: CompilationUnit) extends TypingTransformer(unit) {
     var lastTopLevelContext: analyzer.Context = analyzer.NoContext
     var topLevelImportPos: Position = unit.source.position(0)
+
+    lazy val collectionSeqModule = rootMirror.getRequiredModule("scala.collection.Seq")
+    lazy val collectionIndexedSeqModule = rootMirror.getRequiredModule("scala.collection.IndexedSeq")
+
     override def transform(tree: Tree): Tree = tree match {
       case pd: PackageDef =>
         topLevelImportPos = pd.pid.pos.focusEnd
@@ -229,17 +243,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
 
     def qualifiedSelectTerm(sym: Symbol): String = {
-      val parts = ("_root_." + sym.fullName).split("\\.")
-      val paths = List.tabulate(parts.length)(i => parts.takeRight(i+1).mkString("."))
-      paths.find { path =>
-        val ref = newUnitParser(newCompilationUnit(path)).parseRule(_.expr())
-        val typed = silentTyped(ref, Mode.QUALmode)
-        typed.tpe.termSymbol == sym
-      }.get
+      // don't emit plain `Seq`
+      if (sym == collectionSeqModule || sym == collectionIndexedSeqModule)
+        s"${qualifiedSelectTerm(sym.enclosingPackage)}.${sym.name}"
+      else {
+        val parts = ("_root_." + sym.fullName).split("\\.")
+        val paths = List.tabulate(parts.length)(i => parts.takeRight(i + 1).mkString("."))
+        paths.find { path =>
+          val ref = newUnitParser(newCompilationUnit(path)).parseRule(_.expr())
+          val typed = silentTyped(ref, Mode.QUALmode)
+          typed.tpe.termSymbol == sym
+        }.get
+      }
     }
 
-    // useful when working with range positions
-    // def codeOf(pos: Position) = new String(unit.source.content.slice(pos.start, pos.end))
+     def codeOf(pos: Position) = Rewrites.this.codeOf(pos, unit.source)
 
     def withEnclosingParens(pos: Position): Position = {
       @tailrec def skip(offset: Int, inc: Int): Int =
@@ -259,8 +277,8 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else pos
     }
 
-    def selectFromInfixApply(tree: Tree, code: String, parseTree: ParseTree): List[Patch] = tree match {
-      case Application(fun: Select, _, _) => selectFromInfixApply(tree, fun, code, parseTree)
+    def selectFromInfix(tree: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = tree match {
+      case Application(fun: Select, _, _) => selectFromInfixApply(tree, fun, code, parseTree, reuseParens)
       case _ => List(Patch(tree.pos.focusEnd, "." + code))
     }
 
@@ -271,8 +289,12 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
      *  - code: `toMap`
      *
      * `app` could be infix `coll mapValues fun` in source.
+     *
+     * `reuseParens`: if `app` already has parens around it, whether to insert new parens or not. example:
+     *    - `foo(coll mapValues fun)`      => cannot reuse parens, need `foo((coll mapValues fun).toMap)`
+     *    - `(col map f).map(g)(breakOut)` => can reuse parens, `(col map f).iterator.map(g).to(T)`
      */
-    def selectFromInfixApply(app: Tree, fun: Select, code: String, parseTree: ParseTree): List[Patch] = {
+    def selectFromInfixApply(app: Tree, fun: Select, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
       // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
       // typer. We should not use the positions of the typer trees to go back to the source.
@@ -286,11 +308,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
         c != '.'
       })
-      if (isInfix) {
+      val posWithParens = if (reuseParens) withEnclosingParens(app.pos) else app.pos
+      val needParens = isInfix && posWithParens.end == app.pos.end
+      if (needParens) {
         patches += Patch(app.pos.focusStart, "(")
         patches += Patch(app.pos.focusEnd, ")." + code)
       } else {
-        patches += Patch(app.pos.focusEnd, "." + code)
+        patches += Patch(posWithParens.focusEnd, "." + code)
       }
       patches.toList
     }
@@ -375,16 +399,20 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private class BreakoutToIteratorOp(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     import BreakoutInfo._
-    val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipWithIndex", "zipAll")
+    // not `++:`, the method doesn't exist on Iterator
+    // could use `.view`, but `++:` is deprecated in Iterable on 2.13 (not in Seq), so probably not worth it
+    val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipAll")
 
     // coll.fun[targs](args)(breakOut) --> coll.iterator.fun[targs](args).to(Target)
     override def transform(tree: Tree): Tree = tree match {
-      case Application(Select(coll, funName), _, _ :+ List(bo @ Application(boFun, boTargs, _)))
+      case Application(Select(coll, funName), _, argss :+ List(bo @ Application(boFun, boTargs, _)))
         if boFun.symbol == breakOutSym =>
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
-          breakOutMethods.contains(funName.toString)) {
-          state.patches += Patch(coll.pos.focusEnd, ".iterator")
+          breakOutMethods.contains(funName.decode)) {
+          state.patches ++= selectFromInfix(coll, "iterator", state.parseTree, reuseParens = true)
           state.patches += Patch(withEnclosingParens(bo.pos), s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})")
+          if (funName.startsWith("zip"))
+            state.patches ++= selectFromInfix(argss.head.head, "iterator", state.parseTree, reuseParens = false)
           state.eliminatedBreakOuts += bo
           state.newImports += CollectionCompatImport
         }
@@ -407,7 +435,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         }
     override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, Ident(tpnme.WILDCARD_STAR)) if addToSeq(expr) =>
-        state.patches ++= selectFromInfixApply(expr, "toSeq", state.parseTree)
+        state.patches ++= selectFromInfix(expr, "toSeq", state.parseTree, reuseParens = true)
         super.transform(tree)
       case _ =>
         super.transform(tree)
@@ -489,7 +517,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       tree match {
         case ap @ Application(fun: Select, _, _) if isRewritable(fun.symbol) =>
           if (!skipRewrite)
-            state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree)
+            state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree, reuseParens = false)
         case _ =>
           super.transform(tree)
       }
