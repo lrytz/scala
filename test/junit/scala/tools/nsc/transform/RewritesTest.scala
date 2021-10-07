@@ -173,6 +173,22 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def varargsJava(): Unit = {
+    val i =
+      """class C {
+        |  def a(l: List[AnyRef]) = String.format("", l: _*)
+        |  def b(s: collection.Seq[Object]) = String.format("", s: _*)
+        |  def c(a: Array[String]) = String.format("", a: _*)
+        |}""".stripMargin
+    val e =
+      """class C {
+        |  def a(l: List[AnyRef]) = String.format("", l: _*)
+        |  def b(s: collection.Seq[Object]) = String.format("", s.toArray: _*)
+        |  def c(a: Array[String]) = String.format("", a: _*)
+        |}""".stripMargin
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValuesToMapAlready(): Unit = {
     val i = "class C { def f(m: Map[Int, Int]) = m.mapValues(_.toString).toMap }"
     assertEquals(i, rewrite(i))

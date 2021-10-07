@@ -425,6 +425,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class VarargsToSeq(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     val CollectionImmutableSeq = rootMirror.requiredClass[scala.collection.immutable.Seq[_]]
     val CollectionSeq = rootMirror.requiredClass[scala.collection.Seq[_]]
+
     val isToSeq = new MethodMatcher(rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toSeq")))
     def addToSeq(arg: Tree) =
       !arg.tpe.typeSymbol.isNonBottomSubClass(CollectionImmutableSeq) &&
@@ -433,10 +434,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           case Ident(_) => definitions.isScalaRepeatedParamType(arg.symbol.tpe)
           case Select(_, _) => isToSeq(arg.symbol)
         }
+
+    var currentFun: Symbol = null
+    def withCurrent[T](fun: Symbol)(op: => T): T = {
+      val old = currentFun
+      currentFun = fun
+      try op finally currentFun = old
+    }
+
     override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, Ident(tpnme.WILDCARD_STAR)) if addToSeq(expr) =>
-        state.patches ++= selectFromInfix(expr, "toSeq", state.parseTree, reuseParens = true)
+        val op = if (currentFun.isJavaDefined) "toArray" else "toSeq"
+        state.patches ++= selectFromInfix(expr, op, state.parseTree, reuseParens = true)
         super.transform(tree)
+      case Application(fun, _, _) =>
+        withCurrent(fun.symbol)(super.transform(tree))
       case _ =>
         super.transform(tree)
     }
