@@ -285,6 +285,7 @@ trait ScalaSettings extends StandardScalaSettings with Warnings { _: MutableSett
     val varargsToSeq = Choice("varargsToSeq", "(xs: _*) => (xs.toSeq: _*) ")
     val mapValues = Choice("mapValues", "Add a `.toMap` call after `map.mapValues(fun)` / `filterKeys`")
     val nilaryInfix = Choice("nilaryInfix", "Rewrite `qual fun ()` to `qual.fun()`")
+    val unitCompanion = Choice("unitCompanion", "Rewrite `Unit` term to `()`")
   }
 
   object optChoices extends MultiChoiceEnumeration {

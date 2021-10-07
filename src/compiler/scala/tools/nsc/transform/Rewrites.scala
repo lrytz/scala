@@ -44,6 +44,9 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       if (rws.contains(rws.domain.nilaryInfix))
         new NilaryInfixRewriter(unit, state).transform(unit.body)
 
+      if (rws.contains(rws.domain.unitCompanion))
+        new UnitCompanion(unit, state).transform(unit.body)
+
       if (state.newImports.nonEmpty)
         new AddImports(unit, state).run(unit.body)
 
@@ -548,6 +551,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         }
         state.patches += Patch(fun.pos.focusEnd.withEnd(unit.source.skipWhitespace(fun.pos.end)), "")
         super.transform(tree)
+      case _ =>
+        super.transform(tree)
+    }
+  }
+  private class UnitCompanion(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
+    val unitModule = rootMirror.requiredModule[Unit.type]
+    override def transform(tree: Tree): Tree = tree match {
+      case Application(sel: Select, targs, argss) if sel.qualifier.symbol == unitModule =>
+        transformTrees(targs)
+        argss.foreach(transformTrees)
+        state.patches += Patch(tree.pos.focusEnd, " /*TODO-2.13-migration Unit companion*/")
+        tree
+      case _ if tree.symbol == unitModule =>
+        state.patches += Patch(tree.pos, "()")
+        tree
       case _ =>
         super.transform(tree)
     }

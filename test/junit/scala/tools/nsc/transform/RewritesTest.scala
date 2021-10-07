@@ -228,4 +228,20 @@ class RewritesTest extends BytecodeTesting {
         |}""".stripMargin
     assertEquals(e, rewrite(i))
   }
+
+  @Test def unitCompanion(): Unit = {
+    val i =
+      """class C {
+        |  def a: Unit = Unit
+        |  def b = Unit.box(scala.Unit)
+        |  def c = Unit.unbox(b)
+        |}""".stripMargin
+    val e =
+      """class C {
+        |  def a: Unit = ()
+        |  def b = Unit.box(()) /*TODO-2.13-migration Unit companion*/
+        |  def c = Unit.unbox(b) /*TODO-2.13-migration Unit companion*/
+        |}""".stripMargin
+    assertEquals(e, rewrite(i))
+  }
 }
