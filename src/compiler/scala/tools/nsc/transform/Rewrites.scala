@@ -26,30 +26,27 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       val settings = global.settings
       val rws = settings.Yrewrites
 
-      if (rws.contains(rws.domain.breakOutOps)) {
-        val rewriter = new BreakoutToIteratorOp(unit, state)
-        rewriter.transform(unit.body)
-      }
-      if (rws.contains(rws.domain.breakOutArgs)) {
-        val rewriter = new BreakoutArgsTraverser(unit, state)
-        rewriter.transform(unit.body)
-      }
-      if (rws.contains(rws.domain.collectionSeq)) {
-        val rewriter = new CollectionSeqTransformer(unit, state)
-        rewriter.transform(unit.body)
-      }
-      if (rws.contains(rws.domain.varargsToSeq)) {
-        val rewriter = new VarargsToSeq(unit, state)
-        rewriter.transform(unit.body)
-      }
-      if (rws.contains(rws.domain.mapValues)) {
-        val rewriter = new MapValuesRewriter(unit, state)
-        rewriter.transform(unit.body)
-      }
-      if (state.newImports.nonEmpty) {
-        val rewriter = new AddImports(unit, state)
-        rewriter.run(unit.body)
-      }
+      if (rws.contains(rws.domain.breakOutOps))
+        new BreakoutToIteratorOp(unit, state).transform(unit.body)
+
+      if (rws.contains(rws.domain.breakOutArgs))
+        new BreakoutArgsTraverser(unit, state).transform(unit.body)
+
+      if (rws.contains(rws.domain.collectionSeq))
+        new CollectionSeqTransformer(unit, state).transform(unit.body)
+
+      if (rws.contains(rws.domain.varargsToSeq))
+        new VarargsToSeq(unit, state).transform(unit.body)
+
+      if (rws.contains(rws.domain.mapValues))
+        new MapValuesRewriter(unit, state).transform(unit.body)
+
+      if (rws.contains(rws.domain.nilaryInfix))
+        new NilaryInfixRewriter(unit, state).transform(unit.body)
+
+      if (state.newImports.nonEmpty)
+        new AddImports(unit, state).run(unit.body)
+
       writePatches(unit.source, state.patches.toArray)
     }
   }
@@ -277,6 +274,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else pos
     }
 
+    // yes, no, unknown
+    def isInfix(sel: Select, parseTree: ParseTree): Option[Boolean] = {
+      // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
+      // typer. We should not use the positions of the typer trees to go back to the source.
+      val sourceSel = parseTree.index.get(sel.pos) match {
+        case Some(fun: Select) => Some(fun)
+        case _ => None
+      }
+      sourceSel.map(sel => {
+        val qualEnd = sel.qualifier.pos.end
+        val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
+        c != '.'
+      })
+    }
+
     def selectFromInfix(tree: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = tree match {
       case Application(fun: Select, _, _) => selectFromInfixApply(tree, fun, code, parseTree, reuseParens)
       case _ => List(Patch(tree.pos.focusEnd, "." + code))
@@ -296,20 +308,8 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
      */
     def selectFromInfixApply(app: Tree, fun: Select, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
-      // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
-      // typer. We should not use the positions of the typer trees to go back to the source.
-      val sourceFun = parseTree.index.get(fun.pos) match {
-        case Some(fun: Select) => Some(fun)
-        case Some(_) => None
-        case None => Some(fun)
-      }
-      val isInfix = sourceFun.exists(fun => {
-        val qualEnd = fun.qualifier.pos.end
-        val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
-        c != '.'
-      })
       val posWithParens = if (reuseParens) withEnclosingParens(app.pos) else app.pos
-      val needParens = isInfix && posWithParens.end == app.pos.end
+      val needParens = isInfix(fun, parseTree).contains(true) && posWithParens.end == app.pos.end
       if (needParens) {
         patches += Patch(app.pos.focusStart, "(")
         patches += Patch(app.pos.focusEnd, ")." + code)
@@ -534,6 +534,22 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           super.transform(tree)
       }
       tree
+    }
+  }
+
+  private class NilaryInfixRewriter(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
+    override def transform(tree: Tree): Tree = tree match {
+      case Application(fun: Select, _, List(Nil)) if isInfix(fun, state.parseTree).contains(true) =>
+        state.patches ++= {
+          // skip the whitespace, so `qual foo ()` doesn't become `qual. foo ()`
+          selectFromInfix(fun.qualifier, "", state.parseTree, reuseParens = true) match {
+            case ps :+ p => ps :+ p.copy(span = p.span.withEnd(unit.source.skipWhitespace(p.span.end)))
+          }
+        }
+        state.patches += Patch(fun.pos.focusEnd.withEnd(unit.source.skipWhitespace(fun.pos.end)), "")
+        super.transform(tree)
+      case _ =>
+        super.transform(tree)
     }
   }
 }

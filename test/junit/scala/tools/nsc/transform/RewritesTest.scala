@@ -212,4 +212,20 @@ class RewritesTest extends BytecodeTesting {
     val i = "class C { def f(m: Map[Int, Int], x: Int) = m.mapValues(_.toString)(x) }"
     assertEquals(i, rewrite(i))
   }
+
+  @Test def nilaryInfix(): Unit = {
+    val i =
+      """class C {
+        |  def a(l: List[Int]) = l map (_+1) toString ()
+        |  def b(l: List[Int]) = {l map (_+1)} toString ()
+        |  def c(l: List[Int]) = l.map(_+1) toString()
+        |}""".stripMargin
+    val e =
+      """class C {
+        |  def a(l: List[Int]) = (l map (_+1)).toString()
+        |  def b(l: List[Int]) = {l map (_+1)}.toString()
+        |  def c(l: List[Int]) = l.map(_+1).toString()
+        |}""".stripMargin
+    assertEquals(e, rewrite(i))
+  }
 }
