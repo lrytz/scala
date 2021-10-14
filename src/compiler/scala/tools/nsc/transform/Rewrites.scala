@@ -507,29 +507,60 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private class MapValuesRewriter(unit: CompilationUnit, state: RewriteState)
     extends RewriteTypingTransformer(unit) {
-    val isRewritable = new MethodMatcher(
-      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("mapValues")),
-      rootMirror.getRequiredClass("scala.collection.GenMapLike").info.decl(TermName("filterKeys")))
 
-    val reducesMapView = new MethodMatcher(
-      rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]].info.decl(TermName("toMap")),
-      rootMirror.requiredClass[scala.collection.GenMapLike[_, _, _]].info.decl(nme.apply))
+    val GenTravLike = rootMirror.requiredClass[scala.collection.GenTraversableLike[_, _]]
+    val GenMapLike  = rootMirror.requiredClass[scala.collection.GenMapLike[_, _, _]]
+    val GenTravOnce = rootMirror.requiredClass[scala.collection.GenTraversableOnce[_]]
+
+    val GroupBy    = new MethodMatcher(GenTravLike.info.decl(TermName("groupBy")))
+    val FilterKeys = new MethodMatcher(GenMapLike.info.decl(TermName("filterKeys")))
+    val MapApply   = new MethodMatcher(GenMapLike.info.decl(nme.apply))
+    val MapMethod  = new MethodMatcher(GenTravLike.info.decl(nme.map))
+    val MapValues  = new MethodMatcher(GenMapLike.info.decl(TermName("mapValues")))
+    val ToMap      = new MethodMatcher(GenTravOnce.info.decl(TermName("toMap")))
+
+    private object IsGroupMap {
+      def unapply(tree: Tree): Option[(Select, Select, Function, Tree)] = tree match {
+        case SelectSym(tree, ToMap()) => unapply(tree)
+        case Application(mapValues @ SelectSym(
+              Application(groupBy @ SelectSym(rec, GroupBy()), _, _),
+            MapValues()), _,
+          List(List(map @ Function(List(_), Application(SelectSym(_, MapMethod()), _, List(fun) :: _))))
+        ) => Some((groupBy, mapValues, map, fun))
+        case _ => None
+      }
+    }
 
     // no need to add `toMap` if it's already there, or in `m.mapValues(f).apply(x)`
     // curTree is the next outer tree (tracked by TypingTransformer)
     def skipRewrite = PartialFunction.cond(curTree) {
-      case sel: Select => reducesMapView(sel.symbol)
+      case SelectSym(_, ToMap() | MapApply()) => true
     }
 
-    override def transform(tree: Tree): Tree = {
-      tree match {
-        case ap @ Application(fun: Select, _, _) if isRewritable(fun.symbol) =>
-          if (!skipRewrite)
-            state.patches ++= selectFromInfixApply(ap, fun, code = "toMap", state.parseTree, reuseParens = false)
-        case _ =>
-          super.transform(tree)
-      }
-      tree
+    override def transform(tree: Tree): Tree = tree match {
+      case IsGroupMap(groupBy, mapValues, map, fun)                     =>
+        // xs.groupBy(key).mapValues(_.map(fun)) ==>  xs.groupMap(key)(fun)
+        // Apply(Select(
+        //     Apply(
+        //       Select(xs, groupBy),           // xs.groupBy
+        //       key),                          // xs.groupBy(key)
+        //     mapValues),                      // xs.groupBy(key).mapValues
+        //   Apply(
+        //     Select(_, map),                  // _.map
+        //     fun)                             // _.map(fun)
+        // )                                    // xs.groupBy(key).mapValues(_.map(fun))
+        def selPos(sel: Select) = sel.pos.withStart(sel.qualifier.pos.end) // the position of ".bar" in "foo.bar"
+        state.patches += Patch(selPos(groupBy), ".groupMap")        // replace ".groupBy" with ".groupMap"
+        state.patches += Patch(selPos(mapValues), "")               // remove  ".mapValues"
+        state.patches += Patch(map.pos.withEnd(fun.pos.start), "")  // remove  "_.map("
+        state.patches += Patch(tree.pos.withStart(map.pos.end), "") // remove  ")" or ").toMap"
+        tree
+      case Application(SelectSym(_, MapValues() | FilterKeys()), _, _) =>
+        if (!skipRewrite)
+          state.patches ++= selectFromInfix(tree, code = "toMap", state.parseTree, reuseParens = false)
+        tree
+      case _ =>
+        super.transform(tree)
     }
   }
 

@@ -194,6 +194,18 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(i, rewrite(i))
   }
 
+  @Test def useGroupMap1(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues(xs => xs.map(x => f(x))) }"
+    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def useGroupMap2(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupBy(key).mapValues(xs => xs.map(f)).toMap }"
+    val e = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupMap(key)(f) }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
