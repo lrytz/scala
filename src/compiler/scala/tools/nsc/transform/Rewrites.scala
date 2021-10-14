@@ -142,11 +142,9 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   // Applied.unapply matches any tree, not just applications
   private object Application {
-    def unapply(t: Tree): Option[(Tree, List[Tree], List[List[Tree]])] = t match {
-      case _: Apply | _: TypeApply =>
-        val applied = treeInfo.dissectApplied(t)
-        Some((applied.core, applied.targs, applied.argss))
-      case _ => None
+    def unapply(t: GenericApply): Some[(Tree, List[Tree], List[List[Tree]])] = {
+      val applied = treeInfo.dissectApplied(t)
+      Some((applied.core, applied.targs, applied.argss))
     }
   }
 
