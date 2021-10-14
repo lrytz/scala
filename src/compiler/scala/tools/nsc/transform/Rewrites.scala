@@ -24,28 +24,19 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     override def apply(unit: CompilationUnit): Unit = {
       val state = new RewriteState(ParseTree(unit.source))
       val settings = global.settings
-      val rws = settings.Yrewrites
+      import settings.Yrewrites.domain._
 
-      if (rws.contains(rws.domain.breakOutOps))
-        new BreakoutToIteratorOp(unit, state).transform(unit.body)
+      def go(choice: Choice, trans: RewriteTypingTransformer) =
+        if (settings.Yrewrites.contains(choice))
+          trans.transform(unit.body)
 
-      if (rws.contains(rws.domain.breakOutArgs))
-        new BreakoutArgsTraverser(unit, state).transform(unit.body)
-
-      if (rws.contains(rws.domain.collectionSeq))
-        new CollectionSeqTransformer(unit, state).transform(unit.body)
-
-      if (rws.contains(rws.domain.varargsToSeq))
-        new VarargsToSeq(unit, state).transform(unit.body)
-
-      if (rws.contains(rws.domain.mapValues))
-        new MapValuesRewriter(unit, state).transform(unit.body)
-
-      if (rws.contains(rws.domain.nilaryInfix))
-        new NilaryInfixRewriter(unit, state).transform(unit.body)
-
-      if (rws.contains(rws.domain.unitCompanion))
-        new UnitCompanion(unit, state).transform(unit.body)
+      go(breakOutOps, new BreakoutToIteratorOp(unit, state))
+      go(breakOutArgs, new BreakoutArgsTraverser(unit, state))
+      go(collectionSeq, new CollectionSeqTransformer(unit, state))
+      go(varargsToSeq, new VarargsToSeq(unit, state))
+      go(mapValues, new MapValuesRewriter(unit, state))
+      go(nilaryInfix, new NilaryInfixRewriter(unit, state))
+      go(unitCompanion, new UnitCompanion(unit, state))
 
       if (state.newImports.nonEmpty)
         new AddImports(unit, state).run(unit.body)
