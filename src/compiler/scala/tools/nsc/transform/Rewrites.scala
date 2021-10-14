@@ -3,7 +3,7 @@ package transform
 
 import scala.annotation.tailrec
 import scala.collection.{GenIterableLike, mutable}
-import scala.reflect.internal.util.SourceFile
+import scala.reflect.internal.util.{ SourceFile, TriState }
 import scala.tools.nsc.Reporting.WarningCategory
 
 abstract class Rewrites extends SubComponent with TypingTransformers {
@@ -275,30 +275,24 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       else pos
     }
 
-    // yes, no, unknown
-    def isInfix(sel: Select, parseTree: ParseTree): Option[Boolean] = {
-      // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
-      // typer. We should not use the positions of the typer trees to go back to the source.
-      val sourceSel = parseTree.index.get(sel.pos) match {
-        case Some(fun: Select) => Some(fun)
-        case _ => None
-      }
-      sourceSel.map(sel => {
-        val qualEnd = sel.qualifier.pos.end
-        val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
-        c != '.'
-      })
-    }
-
-    def selectFromInfix(tree: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = tree match {
-      case Application(fun: Select, _, _) => selectFromInfixApply(tree, fun, code, parseTree, reuseParens)
-      case _ => List(Patch(tree.pos.focusEnd, "." + code))
+    def isInfix(tree: Tree, parseTree: ParseTree): TriState = tree match {
+      case sel: Select            =>
+        // look at parse tree; e.g. `Foo(arg)` in source would have AST `pack.Foo.apply(arg)`, so it's a Select after
+        // typer. We should not use the positions of the typer trees to go back to the source.
+        parseTree.index.get(sel.pos) match {
+          case Some(fun: Select) =>
+            val qualEnd = fun.qualifier.pos.end
+            val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
+            c != '.'
+          case _                 => TriState.Unknown
+        }
+      case Application(fun, _, _) => isInfix(fun, parseTree)
+      case _                      => TriState.Unknown
     }
 
     /**
-     * Select `.code` from an apply, wrap in parens if it's infix. Example:
+     * Select `.code`, wrap in parens if it's infix. Example:
      *  - app: `coll.mapValues[T](fun)`
-     *  - fun: `coll.mapValues`
      *  - code: `toMap`
      *
      * `app` could be infix `coll mapValues fun` in source.
@@ -307,10 +301,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
      *    - `foo(coll mapValues fun)`      => cannot reuse parens, need `foo((coll mapValues fun).toMap)`
      *    - `(col map f).map(g)(breakOut)` => can reuse parens, `(col map f).iterator.map(g).to(T)`
      */
-    def selectFromInfixApply(app: Tree, fun: Select, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
+    def selectFromInfix(app: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
       val posWithParens = if (reuseParens) withEnclosingParens(app.pos) else app.pos
-      val needParens = isInfix(fun, parseTree).contains(true) && posWithParens.end == app.pos.end
+      val needParens = isInfix(app, parseTree) == TriState.True && posWithParens.end == app.pos.end
       if (needParens) {
         patches += Patch(app.pos.focusStart, "(")
         patches += Patch(app.pos.focusEnd, ")." + code)
@@ -540,7 +534,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private class NilaryInfixRewriter(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     override def transform(tree: Tree): Tree = tree match {
-      case Application(fun: Select, _, List(Nil)) if isInfix(fun, state.parseTree).contains(true) =>
+      case Application(fun: Select, _, List(Nil)) if isInfix(fun, state.parseTree) == TriState.True =>
         state.patches ++= {
           // skip the whitespace, so `qual foo ()` doesn't become `qual. foo ()`
           selectFromInfix(fun.qualifier, "", state.parseTree, reuseParens = true) match {
