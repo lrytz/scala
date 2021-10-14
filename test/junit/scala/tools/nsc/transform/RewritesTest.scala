@@ -206,6 +206,42 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Ignore @Test def useGroupMap3_keyParam(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues(xs => xs.map(x => f(x))) }"
+    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
+    val j = rewrite(i)
+    println(s"origin: $i")
+    println(s"obtain: $j")
+    println(s"expect: $e")
+    assertEquals(e, j)
+  }
+
+  @Ignore @Test def useGroupMap3_valuesParam(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
+    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
+    val j = rewrite(i)
+    println(s"origin: $i")
+    println(s"obtain: $j")
+    println(s"expect: $e")
+    assertEquals(e, j)
+  }
+
+  @Ignore @Test def useGroupMap3_bothParams(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
+    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
+    val j = rewrite(i)
+    println(s"origin: $i")
+    println(s"obtain: $j")
+    println(s"expect: $e")
+    assertEquals(e, j)
+  }
+
+  @Test def useGroupMap4_infixCurlies(): Unit = {
+    val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs groupBy (x => key(x)) mapValues { xs => xs.map{x => f(x)} } }"
+    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap (x => key(x)) { x => f(x)} }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
