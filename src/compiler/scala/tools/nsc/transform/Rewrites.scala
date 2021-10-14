@@ -349,6 +349,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   private class MethodMatcher(symbols: Symbol*) {
     private val byName = symbols.groupBy(_.name)
     def apply(sym: Symbol): Boolean = byName.get(sym.name).flatMap(_.find(sameName => sym.overrideChain.contains(sameName))).nonEmpty
+    def unapply(sym: Symbol): Boolean = apply(sym)
   }
 
   // Rewrites
