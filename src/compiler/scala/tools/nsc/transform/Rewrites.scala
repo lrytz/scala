@@ -80,14 +80,18 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
   private def checkNoOverlap(patches: Array[Patch], source: SourceFile): Boolean = {
     var ok = true
-    if (patches.nonEmpty)
-      patches.reduceLeft { (p1, p2) =>
-        if (p1.span.end > p2.span.start) {
-          ok = false
-          runReporting.warning(NoPosition, s"overlapping patches;\n\nadd `${p1.replacement}` at\n${codeOf(p1.span, source)}\n\nadd `${p2.replacement}` at\n${codeOf(p2.span, source)}", WarningCategory.Other, "")
-        }
-        p2
-      }
+    for (Array(p1, p2) <- patches.sliding(2) if p1.span.end > p2.span.start) {
+      ok = false
+      val msg = s"""
+        |overlapping patches;
+        |
+        |add `${p1.replacement}` at
+        |${codeOf(p1.span, source)}
+        |
+        |add `${p2.replacement}` at
+        |${codeOf(p2.span, source)}""".stripMargin.trim
+      runReporting.warning(NoPosition, msg, WarningCategory.Other, "")
+    }
     ok
   }
 
