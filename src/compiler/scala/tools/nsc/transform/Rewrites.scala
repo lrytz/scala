@@ -148,6 +148,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
+  // Select.unapply returns names, not symbols
+  private object SelectSym {
+    def unapply(sel: Select): Some[(Tree, Symbol)] = Some((sel.qualifier, sel.symbol))
+  }
+
   private class RewriteTypingTransformer(unit: CompilationUnit) extends TypingTransformer(unit) {
     var lastTopLevelContext: analyzer.Context = analyzer.NoContext
     var topLevelImportPos: Position = unit.source.position(0)
