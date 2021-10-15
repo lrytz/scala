@@ -196,13 +196,15 @@ class RewritesTest extends BytecodeTesting {
 
   @Test def useGroupMap1(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues { xs => xs.map(f) } }"
-    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(f) }"
+    val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(f) }"
+    val e = s"import scala.collection.compat._\n$d"
     assertEquals(e, rewrite(i))
   }
 
   @Test def useGroupMap2(): Unit = {
     val i = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupBy(key).mapValues(xs => xs.map { x => f(x) }).toMap }"
-    val e = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupMap(key) { x => f(x) } }"
+    val d = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupMap(key) { x => f(x) } }"
+    val e = s"import scala.collection.compat._\n$d"
     assertEquals(e, rewrite(i))
   }
 
@@ -215,7 +217,8 @@ class RewritesTest extends BytecodeTesting {
         |    .toMap
         |}""".stripMargin
     val e =
-      """class C { def a[A](xs: List[A]): Map[(String, String), List[Double]] =
+      """import scala.collection.compat._
+        |class C { def a[A](xs: List[A]): Map[(String, String), List[Double]] =
         |  xs.map { _ => ("#", "#", 0.0) }
         |    .groupMap{case (a,b,c) => (a,b)} {case (a,b,c) => c}
         |}""".stripMargin
@@ -254,7 +257,8 @@ class RewritesTest extends BytecodeTesting {
 
   @Test def useGroupMap4_infixCurlies(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs groupBy (x => key(x)) mapValues { xs => xs.map{x => f(x)} } }"
-    val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs .groupMap (x => key(x)){x => f(x)} }"
+    val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs .groupMap (x => key(x)){x => f(x)} }"
+    val e = s"import scala.collection.compat._\n$d"
     assertEquals(e, rewrite(i))
   }
 

@@ -555,6 +555,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         state.patches += Patch(Pos(unit.source.skipWhitespace(groupBy.qualifier.pos.end), groupBy.pos.end), ".groupMap") // replace ".groupBy" with ".groupMap"
         state.patches += Patch(Pos(mapValues.qualifier.pos.end, mapMeth.pos.end), "") // remove  ".mapValues { xs => xs.map"  (eating leading whitespace)
         state.patches += Patch(Pos(map.pos.end, tree.pos.end), "") // remove  "}" or ").toMap"
+        state.newImports += CollectionCompatImport
         tree
       case Application(SelectSym(_, MapValues() | FilterKeys()), _, _) =>
         if (!skipRewrite)
