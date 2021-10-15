@@ -3,7 +3,7 @@ package transform
 
 import scala.annotation.tailrec
 import scala.collection.{GenIterableLike, mutable}
-import scala.reflect.internal.util.{ SourceFile, TriState }
+import scala.reflect.internal.util.{ Position, SourceFile, TriState }
 import scala.tools.nsc.Reporting.WarningCategory
 
 abstract class Rewrites extends SubComponent with TypingTransformers {
@@ -525,8 +525,8 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         case Application(mapValues @ SelectSym(
               Application(groupBy @ SelectSym(rec, GroupBy()), _, _),
             MapValues()), _,
-          List(List(map @ Function(List(_), Application(SelectSym(_, MapMethod()), _, List(fun) :: _))))
-        ) => Some((groupBy, mapValues, map, fun))
+          List(List(map @ Function(List(_), Application(mapMeth @ SelectSym(_, MapMethod()), _, _))))
+        ) => Some((groupBy, mapValues, map, mapMeth))
         case _ => None
       }
     }
@@ -538,8 +538,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
 
     override def transform(tree: Tree): Tree = tree match {
-      case IsGroupMap(groupBy, mapValues, map, fun)                     =>
-        // xs.groupBy(key).mapValues(_.map(fun)) ==>  xs.groupMap(key)(fun)
+      case IsGroupMap(groupBy, mapValues, map, mapMeth)                     =>
+        // xs.groupBy(key).mapValues(_.map(fun)).toMap            ==>  xs.groupMap(key)(fun)
+        // xs.groupBy(key).mapValues { xs => xs.map(f) }          ==>  xs.groupMap(key)(f)
+        // xs.groupBy(key).mapValues(xs => xs.map { x => f(x) })  ==>  xs.groupMap(key) { x => f(x) }
         // Apply(Select(
         //     Apply(
         //       Select(xs, groupBy),           // xs.groupBy
@@ -549,11 +551,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         //     Select(_, map),                  // _.map
         //     fun)                             // _.map(fun)
         // )                                    // xs.groupBy(key).mapValues(_.map(fun))
-        def selPos(sel: Select) = sel.pos.withStart(sel.qualifier.pos.end) // the position of ".bar" in "foo.bar"
-        state.patches += Patch(selPos(groupBy), ".groupMap")        // replace ".groupBy" with ".groupMap"
-        state.patches += Patch(selPos(mapValues), "")               // remove  ".mapValues"
-        state.patches += Patch(map.pos.withEnd(fun.pos.start), "")  // remove  "_.map("
-        state.patches += Patch(tree.pos.withStart(map.pos.end), "") // remove  ")" or ").toMap"
+        def Pos(start: Int, end: Int) = Position.range(unit.source, start, start, end)
+        state.patches += Patch(Pos(unit.source.skipWhitespace(groupBy.qualifier.pos.end), groupBy.pos.end), ".groupMap") // replace ".groupBy" with ".groupMap"
+        state.patches += Patch(Pos(mapValues.qualifier.pos.end, mapMeth.pos.end), "") // remove  ".mapValues { xs => xs.map"  (eating leading whitespace)
+        state.patches += Patch(Pos(map.pos.end, tree.pos.end), "") // remove  "}" or ").toMap"
         tree
       case Application(SelectSym(_, MapValues() | FilterKeys()), _, _) =>
         if (!skipRewrite)
