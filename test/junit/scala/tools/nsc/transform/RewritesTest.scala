@@ -222,7 +222,7 @@ class RewritesTest extends BytecodeTesting {
         |  xs.map { _ => ("#", "#", 0.0) }
         |    .groupMap{case (a,b,c) => (a,b)} {case (a,b,c) => c}
         |}""".stripMargin
-    assertEquals(e, rewrite(i))
+    assertRewrites(e, i)
   }
 
   @Ignore @Test def useGroupMap3_keyParam(): Unit = {
@@ -259,14 +259,14 @@ class RewritesTest extends BytecodeTesting {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs groupBy (x => key(x)) mapValues { xs => xs.map{x => f(x)} } }"
     val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs .groupMap (x => key(x)){x => f(x)} }"
     val e = s"import scala.collection.compat._\n$d"
-    assertEquals(e, rewrite(i))
+    assertRewrites(e, i)
   }
 
   @Ignore @Test def useGroupMap4_reallyInfixCurlies(): Unit = {
     val i = "class C { def a = List(1, 2) map (x => (x, x)) groupBy { case (a, _) => a } mapValues { _.map { case (_, b) => b } } }"
     val d = "class C { def a = (List(1, 2) map (x => (x, x))) .groupMap { case (a, _) => a } { case (_, b) => b } }"
     val e = s"import scala.collection.compat._\n$d"
-    assertEquals(e, rewrite(i))
+    assertRewrites(e, i)
   }
 
   @Test def toSeqInfix(): Unit = {
@@ -318,5 +318,15 @@ class RewritesTest extends BytecodeTesting {
         |  def c = Unit.unbox(b) /*TODO-2.13-migration Unit companion*/
         |}""".stripMargin
     assertEquals(e, rewrite(i))
+  }
+
+  def assertRewrites(expect: String, input: String) = {
+    val obtain = rewrite(input)
+    val msg = s"""=== Rewrite comparison failure ===
+      |  origin: ${input.toString.replace("\n", "\\n")}
+      |  obtain: ${obtain.toString.replace("\n", "\\n")}
+      |  expect: ${expect.toString.replace("\n", "\\n")}
+      |""".stripMargin
+    assertEquals(msg, expect, obtain)
   }
 }
