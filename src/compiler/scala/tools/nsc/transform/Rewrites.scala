@@ -292,22 +292,22 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
     /**
      * Select `.code`, wrap in parens if it's infix. Example:
-     *  - app: `coll.mapValues[T](fun)`
+     *  - tree: `coll.mapValues[T](fun)`
      *  - code: `toMap`
      *
-     * `app` could be infix `coll mapValues fun` in source.
+     * `tree` could be infix `coll mapValues fun` in source.
      *
-     * `reuseParens`: if `app` already has parens around it, whether to insert new parens or not. example:
+     * `reuseParens`: if `tree` already has parens around it, whether to insert new parens or not. example:
      *    - `foo(coll mapValues fun)`      => cannot reuse parens, need `foo((coll mapValues fun).toMap)`
      *    - `(col map f).map(g)(breakOut)` => can reuse parens, `(col map f).iterator.map(g).to(T)`
      */
-    def selectFromInfix(app: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
+    def selectFromInfix(tree: Tree, code: String, parseTree: ParseTree, reuseParens: Boolean): List[Patch] = {
       val patches = mutable.ListBuffer[Patch]()
-      val posWithParens = if (reuseParens) withEnclosingParens(app.pos) else app.pos
-      val needParens = isInfix(app, parseTree) == TriState.True && posWithParens.end == app.pos.end
+      val posWithParens = if (reuseParens) withEnclosingParens(tree.pos) else tree.pos
+      val needParens = isInfix(tree, parseTree) == TriState.True && posWithParens.end == tree.pos.end
       if (needParens) {
-        patches += Patch(app.pos.focusStart, "(")
-        patches += Patch(app.pos.focusEnd, ")." + code)
+        patches += Patch(tree.pos.focusStart, "(")
+        patches += Patch(tree.pos.focusEnd, ")." + code)
       } else {
         patches += Patch(posWithParens.focusEnd, "." + code)
       }
@@ -519,6 +519,12 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     val MapValues  = new MethodMatcher(GenMapLike.info.decl(TermName("mapValues")))
     val ToMap      = new MethodMatcher(GenTravOnce.info.decl(TermName("toMap")))
 
+    // no need to add `toMap` if it's already there, or in `m.mapValues(f).apply(x)`
+    // curTree is the next outer tree (tracked by TypingTransformer)
+    def skipRewrite = PartialFunction.cond(curTree) {
+      case SelectSym(_, ToMap() | MapApply()) => true
+    }
+
     private object IsGroupMap {
       def unapply(tree: Tree): Option[(Select, Select, Function, Tree)] = tree match {
         case SelectSym(tree, ToMap()) => unapply(tree)
@@ -529,12 +535,6 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         ) => Some((groupBy, mapValues, map, mapMeth))
         case _ => None
       }
-    }
-
-    // no need to add `toMap` if it's already there, or in `m.mapValues(f).apply(x)`
-    // curTree is the next outer tree (tracked by TypingTransformer)
-    def skipRewrite = PartialFunction.cond(curTree) {
-      case SelectSym(_, ToMap() | MapApply()) => true
     }
 
     override def transform(tree: Tree): Tree = tree match {
