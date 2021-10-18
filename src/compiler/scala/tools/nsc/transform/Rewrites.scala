@@ -552,7 +552,14 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         //     fun)                             // _.map(fun)
         // )                                    // xs.groupBy(key).mapValues(_.map(fun))
         def Pos(start: Int, end: Int) = Position.range(unit.source, start, start, end)
-        state.patches += Patch(Pos(unit.source.skipWhitespace(groupBy.qualifier.pos.end), groupBy.pos.end), ".groupMap") // replace ".groupBy" with ".groupMap"
+        state.patches ++= {
+          selectFromInfix(groupBy.qualifier, "groupMap", state.parseTree, reuseParens = true) match {
+            case ps :+ p => ps :+ p.copy(span = p.span.withEnd(groupBy.pos.end).withStart {
+              if (isInfix(groupBy, state.parseTree) == TriState.True) p.span.start
+              else unit.source.skipWhitespace(p.span.start)
+            })
+          }
+        } // replace ".groupBy" with ".groupMap"
         state.patches += Patch(Pos(mapValues.qualifier.pos.end, mapMeth.pos.end), "") // remove  ".mapValues { xs => xs.map"  (eating leading whitespace)
         state.patches += Patch(Pos(map.pos.end, tree.pos.end), "") // remove  "}" or ").toMap"
         state.newImports += CollectionCompatImport

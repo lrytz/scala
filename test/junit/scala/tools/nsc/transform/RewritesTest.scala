@@ -257,14 +257,14 @@ class RewritesTest extends BytecodeTesting {
 
   @Test def useGroupMap4_infixCurlies(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs groupBy (x => key(x)) mapValues { xs => xs.map{x => f(x)} } }"
-    val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs .groupMap (x => key(x)){x => f(x)} }"
+    val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap (x => key(x)){x => f(x)} }"
     val e = s"import scala.collection.compat._\n$d"
     assertRewrites(e, i)
   }
 
-  @Ignore @Test def useGroupMap4_reallyInfixCurlies(): Unit = {
+  @Test def useGroupMap4_reallyInfixCurlies(): Unit = {
     val i = "class C { def a = List(1, 2) map (x => (x, x)) groupBy { case (a, _) => a } mapValues { _.map { case (_, b) => b } } }"
-    val d = "class C { def a = (List(1, 2) map (x => (x, x))) .groupMap { case (a, _) => a } { case (_, b) => b } }"
+    val d = "class C { def a = (List(1, 2) map (x => (x, x))).groupMap { case (a, _) => a } { case (_, b) => b } }"
     val e = s"import scala.collection.compat._\n$d"
     assertRewrites(e, i)
   }
