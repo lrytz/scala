@@ -262,6 +262,13 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Ignore @Test def useGroupMap4_reallyInfixCurlies(): Unit = {
+    val i = "class C { def a = List(1, 2) map (x => (x, x)) groupBy { case (a, _) => a } mapValues { _.map { case (_, b) => b } } }"
+    val d = "class C { def a = (List(1, 2) map (x => (x, x))) .groupMap { case (a, _) => a } { case (_, b) => b } }"
+    val e = s"import scala.collection.compat._\n$d"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
