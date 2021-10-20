@@ -531,8 +531,9 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         case Application(mapValues @ SelectSym(
               Application(groupBy @ SelectSym(rec, GroupBy()), _, _),
             MapValues()), _,
-          List(List(map @ Function(List(_), Application(mapMeth @ SelectSym(_, MapMethod()), _, _))))
-        ) => Some((groupBy, mapValues, map, mapMeth))
+          List(List(map @ Function(List(mapValuesParam), Application(mapMeth @ SelectSym(mapQual, MapMethod()), _, List(List(_), _*)))))
+        ) if mapValuesParam.symbol == mapQual.symbol =>
+          Some((groupBy, mapValues, map, mapMeth))
         case _ => None
       }
     }
