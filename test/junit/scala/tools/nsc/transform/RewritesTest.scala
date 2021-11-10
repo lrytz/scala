@@ -294,12 +294,18 @@ class RewritesTest extends BytecodeTesting {
         |  def a(l: List[Int]) = l map (_+1) toString ()
         |  def b(l: List[Int]) = {l map (_+1)} toString ()
         |  def c(l: List[Int]) = l.map(_+1) toString()
+        |  def d(l: List[Int]) = (l map (_+1)).toString()
+        |  def e = new C().toString
+        |  def f = (new C).toString
         |}""".stripMargin
     val e =
       """class C {
         |  def a(l: List[Int]) = (l map (_+1)).toString()
         |  def b(l: List[Int]) = {l map (_+1)}.toString()
         |  def c(l: List[Int]) = l.map(_+1).toString()
+        |  def d(l: List[Int]) = (l map (_+1)).toString()
+        |  def e = new C().toString
+        |  def f = (new C).toString
         |}""".stripMargin
     assertEquals(e, rewrite(i))
   }

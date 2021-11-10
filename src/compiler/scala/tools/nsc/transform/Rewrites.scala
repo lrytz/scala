@@ -281,7 +281,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         // typer. We should not use the positions of the typer trees to go back to the source.
         parseTree.index.get(sel.pos) match {
           case Some(fun: Select) =>
-            val qualEnd = fun.qualifier.pos.end
+            val qualEnd = withEnclosingParens(fun.qualifier.pos).end
             val c = unit.source.content(unit.source.skipWhitespace(qualEnd))
             c != '.'
           case _                 => TriState.Unknown
