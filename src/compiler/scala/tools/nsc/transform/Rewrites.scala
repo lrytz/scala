@@ -613,11 +613,27 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       tree match {
         case Application(fun: Select, _, List(List(arg))) if fun.symbol == formattedMethod =>
           val value = codeOf(fun.qualifier.pos)
+          val valueIsIdent = state.parseTree.index.get(fun.qualifier.pos).exists(_.isInstanceOf[Ident])
+
           val format = {
             val f = codeOf(arg.pos)
             if (isInfix(arg, state.parseTree) == TriState.True) s"($f)" else f
           }
-          state.patches += Patch(tree.pos, s"$format.format($value)")
+          val formatLiteral = arg match {
+            case Literal(Constant(s: String)) => Some(s)
+            case _ => None
+          }
+          val formatIsString = formatLiteral.contains("%s")
+
+          val replacement =
+            if (formatIsString) value
+            else formatLiteral match {
+              case Some(f) =>
+                s"""f"$$${ if (valueIsIdent) value else s"{$value}" }$f""""
+              case _ =>
+                s"$format.format($value)"
+            }
+          state.patches += Patch(tree.pos, replacement)
           tree
         case _ =>
           super.transform(tree)

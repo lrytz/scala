@@ -344,16 +344,20 @@ class RewritesTest extends BytecodeTesting {
         |  def b = this.a.length formatted "%d"
         |  def c = (toString charAt 2) formatted (p + "c")
         |  def d = 1.formatted("%d")
-        |  // def e = (new C).toString formatted "%s" // TODO: scala/bug#12490
+        |  def e = a.formatted("%s")
+        |  def f = hashCode.formatted("%d")
+        |  // def g = (new C).toString formatted "%s" // TODO: scala/bug#12490
         |}""".stripMargin
     val e =
-      """class C {
+      s"""class C {
         |  val p = "%"
         |  def a = (p + ".3f").format(hashCode.toDouble)
-        |  def b = "%d".format(this.a.length)
+        |  def b = f"$${this.a.length}%d"
         |  def c = (p + "c").format(toString charAt 2)
-        |  def d = "%d".format(1)
-        |  // def e = (new C).toString formatted "%s" // TODO: scala/bug#12490
+        |  def d = f"$${1}%d"
+        |  def e = a
+        |  def f = f"$$hashCode%d"
+        |  // def g = (new C).toString formatted "%s" // TODO: scala/bug#12490
         |}""".stripMargin
     assertEquals(e, rewrite(i))
   }
