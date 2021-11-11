@@ -34,6 +34,16 @@ class RewritesTest extends BytecodeTesting {
     new String(Files.readAllBytes(f),UTF_8).stripLineEnd
   }
 
+  def assertRewrites(expect: String, input: String) = {
+    val obtain = rewrite(input)
+    val msg = s"""=== Rewrite comparison failure ===
+                 |  origin: ${input.toString.replace("\n", "\\n")}
+                 |  obtain: ${obtain.toString.replace("\n", "\\n")}
+                 |  expect: ${expect.toString.replace("\n", "\\n")}
+                 |""".stripMargin
+    assertEquals(msg, expect, obtain)
+  }
+
   @Test def collectionSeq1(): Unit = {
     val i = """class C { def foo[M[A] <: Seq[_]](f: Seq[Seq[String]]): Seq[Seq[Any]] = Seq(Seq("")) }"""
     val e = """class C { def foo[M[A] <: collection.Seq[_]](f: collection.Seq[collection.Seq[String]]): collection.Seq[collection.Seq[Any]] = collection.Seq(collection.Seq("")) }"""
@@ -326,13 +336,25 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
-  def assertRewrites(expect: String, input: String) = {
-    val obtain = rewrite(input)
-    val msg = s"""=== Rewrite comparison failure ===
-      |  origin: ${input.toString.replace("\n", "\\n")}
-      |  obtain: ${obtain.toString.replace("\n", "\\n")}
-      |  expect: ${expect.toString.replace("\n", "\\n")}
-      |""".stripMargin
-    assertEquals(msg, expect, obtain)
+  @Test def formatted(): Unit = {
+    val i =
+      """class C {
+        |  val p = "%"
+        |  def a = hashCode.toDouble.formatted(p + ".3f")
+        |  def b = this.a.length formatted "%d"
+        |  def c = (toString charAt 2) formatted (p + "c")
+        |  def d = 1.formatted("%d")
+        |  // def e = (new C).toString formatted "%s" // TODO: scala/bug#12490
+        |}""".stripMargin
+    val e =
+      """class C {
+        |  val p = "%"
+        |  def a = (p + ".3f").format(hashCode.toDouble)
+        |  def b = "%d".format(this.a.length)
+        |  def c = (p + "c").format(toString charAt 2)
+        |  def d = "%d".format(1)
+        |  // def e = (new C).toString formatted "%s" // TODO: scala/bug#12490
+        |}""".stripMargin
+    assertEquals(e, rewrite(i))
   }
 }

@@ -37,6 +37,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       go(mapValues, new MapValuesRewriter(unit, state))
       go(nilaryInfix, new NilaryInfixRewriter(unit, state))
       go(unitCompanion, new UnitCompanion(unit, state))
+      go(anyFormatted, new AnyFormatted(unit, state))
 
       if (state.newImports.nonEmpty)
         new AddImports(unit, state).run(unit.body)
@@ -602,6 +603,26 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         tree
       case _ =>
         super.transform(tree)
+    }
+  }
+
+  private class AnyFormatted(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
+    val formattedMethod = definitions.PredefModule.info.member(TypeName("StringFormat")).info.decl(TermName("formatted"))
+
+    override def transform(tree: global.Tree): global.Tree = {
+      tree match {
+        case Application(fun: Select, _, List(List(arg))) if fun.symbol == formattedMethod =>
+          val value = codeOf(fun.qualifier.pos)
+          val format = {
+            val f = codeOf(arg.pos)
+            if (isInfix(arg, state.parseTree) == TriState.True) s"($f)" else f
+          }
+          state.patches += Patch(tree.pos, s"$format.format($value)")
+          tree
+        case _ =>
+          super.transform(tree)
+      }
+
     }
   }
 }
