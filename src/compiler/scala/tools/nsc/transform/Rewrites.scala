@@ -613,7 +613,15 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       tree match {
         case Application(fun: Select, _, List(List(arg))) if fun.symbol == formattedMethod =>
           val value = codeOf(fun.qualifier.pos)
-          val valueIsIdent = state.parseTree.index.get(fun.qualifier.pos).exists(_.isInstanceOf[Ident])
+          val valueParseTree = state.parseTree.index.get(fun.qualifier.pos)
+          val valueIsIdent = valueParseTree.exists(_.isInstanceOf[Ident])
+          val valueIsPlaceholderFunction = valueParseTree.toList.flatMap(_.collect {
+            case id: Ident if id.name.startsWith(nme.FRESH_TERM_NAME_PREFIX) => id
+          }) match {
+            case List(id) => codeOf(id.pos) == "_"
+            case _ => false
+          }
+          val argValue = if (valueIsPlaceholderFunction) "fmtValue" + value.substring(1) else value
 
           val format = {
             val f = codeOf(arg.pos)
@@ -626,14 +634,14 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           val formatIsString = formatLiteral.contains("%s")
 
           val replacement =
-            if (formatIsString) value
+            if (formatIsString) argValue
             else formatLiteral match {
               case Some(f) =>
-                s"""f"$$${ if (valueIsIdent) value else s"{$value}" }$f""""
+                s"""f"$$${ if (valueIsIdent) argValue else s"{$argValue}" }$f""""
               case _ =>
-                s"$format.format($value)"
+                s"$format.format($argValue)"
             }
-          state.patches += Patch(tree.pos, replacement)
+          state.patches += Patch(tree.pos, if (valueIsPlaceholderFunction) "fmtValue => " + replacement else replacement)
           tree
         case _ =>
           super.transform(tree)
