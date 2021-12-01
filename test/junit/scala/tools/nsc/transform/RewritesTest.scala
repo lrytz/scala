@@ -34,7 +34,7 @@ class RewritesTest extends BytecodeTesting {
     new String(Files.readAllBytes(f),UTF_8).stripLineEnd
   }
 
-  def assertRewrites(expect: String, input: String) = {
+  def assertRewrites(expect: String, input: String): Unit = {
     val obtain = rewrite(input)
     val msg = s"""=== Rewrite comparison failure ===
                  |  origin: ${input.toString.replace("\n", "\\n")}
@@ -235,34 +235,42 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
+  @Test def useGroupMap3_bug(): Unit = {
+    val i =
+      """class C { def a[A, K, B](xs: List[A]): Map[(String, String), Double] =
+        |  xs.map { _ => ("#", "#", 0.0) }
+        |    .groupBy{case (a,b,c) => (a,b)}
+        |    .mapValues{_.map {case (a,b,c) => c}}
+        |    .mapValues{_.foldLeft(0.0)(_ + _)}
+        |    .toMap
+        |}""".stripMargin
+    val e =
+      """class C { def a[A, K, B](xs: List[A]): Map[(String, String), Double] =
+        |  xs.map { _ => ("#", "#", 0.0) }
+        |    .groupBy{case (a,b,c) => (a,b)}
+        |    .mapValues{_.map {case (a,b,c) => c}}
+        |    .mapValues{_.foldLeft(0.0)(_ + _)}
+        |    .toMap
+        |}""".stripMargin
+    assertRewrites(e, i)
+  }
+
   @Ignore @Test def useGroupMap3_keyParam(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues(xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
-    val j = rewrite(i)
-    println(s"origin: $i")
-    println(s"obtain: $j")
-    println(s"expect: $e")
-    assertEquals(e, j)
+    assertRewrites(e, i)
   }
 
   @Ignore @Test def useGroupMap3_valuesParam(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
-    val j = rewrite(i)
-    println(s"origin: $i")
-    println(s"obtain: $j")
-    println(s"expect: $e")
-    assertEquals(e, j)
+    assertRewrites(e, i)
   }
 
   @Ignore @Test def useGroupMap3_bothParams(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
-    val j = rewrite(i)
-    println(s"origin: $i")
-    println(s"obtain: $j")
-    println(s"expect: $e")
-    assertEquals(e, j)
+    assertRewrites(e, i)
   }
 
   @Test def useGroupMap4_infixCurlies(): Unit = {
