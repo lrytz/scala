@@ -161,6 +161,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     lazy val collectionSeqModule = rootMirror.getRequiredModule("scala.collection.Seq")
     lazy val collectionIndexedSeqModule = rootMirror.getRequiredModule("scala.collection.IndexedSeq")
 
+    private val visitedTypedExpr = mutable.Set.empty[Position]
+
+    // `foo: @bar` is represented as `Typed(foo, TypeTree(T @bar))` where the TypeTree's `original`
+    // contains the `foo` tree. We don't want to traverse the `foo` tree twice (and apply rewrites twice).
+    private def visitTypeTreeOriginal(t: Tree): Boolean = t match {
+      case null => false
+      case Annotated(_, expr) => visitTypeTreeOriginal(expr)
+      case Typed(expr, _) => visitTypeTreeOriginal(expr)
+      case _ => !visitedTypedExpr(t.pos)
+    }
+
     override def transform(tree: Tree): Tree = tree match {
       case pd: PackageDef =>
         topLevelImportPos = pd.pid.pos.focusEnd
@@ -176,7 +187,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           topLevelImportPos = tree.pos.focusEnd
         }
         super.transform(imp)
-      case tt: TypeTree if tt.original != null =>
+      case Typed(expr, _) =>
+        visitedTypedExpr += expr.pos
+        try super.transform(tree)
+        finally visitedTypedExpr -= expr.pos
+      case tt: TypeTree if visitTypeTreeOriginal(tt.original) =>
         val saved = tt.original.tpe
         tt.original.tpe = tt.tpe
         try transform(tt.original)
@@ -228,6 +243,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           cd.tparams.foreach(tree => scope.unlink(tree.symbol))
         }
       case _ => super.transform(tree)
+    }
+
+    protected def traverseApplicationRest(tree: Tree): Unit = tree match {
+      case Application(fun, targs, argss) =>
+        fun match {
+          case Select(qual, _) => transform(qual)
+          case _ =>
+        }
+        transformTrees(targs)
+        argss.foreach(transformTrees)
+      case _ =>
     }
 
     def silentTyped(tree: Tree, mode: Mode): Tree = {
@@ -569,6 +595,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case Application(SelectSym(_, MapValues() | FilterKeys()), _, _) =>
         if (!skipRewrite)
           state.patches ++= selectFromInfix(tree, code = "toMap", state.parseTree, reuseParens = false)
+        traverseApplicationRest(tree)
         tree
       case _ =>
         super.transform(tree)

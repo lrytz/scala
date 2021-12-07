@@ -44,6 +44,8 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(msg, expect, obtain)
   }
 
+  def ccimp(s: String) = s"import scala.collection.compat._\n$s"
+
   @Test def collectionSeq1(): Unit = {
     val i = """class C { def foo[M[A] <: Seq[_]](f: Seq[Seq[String]]): Seq[Seq[Any]] = Seq(Seq("")) }"""
     val e = """class C { def foo[M[A] <: collection.Seq[_]](f: collection.Seq[collection.Seq[String]]): collection.Seq[collection.Seq[Any]] = collection.Seq(collection.Seq("")) }"""
@@ -73,26 +75,26 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def addImportsExisting(): Unit = {
-    val i = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    val i = ccimp("class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }")
+    val e = ccimp("class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps1(): Unit = {
     val i = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { def f: Set[Int] = List(1,2,3).iterator.map(_.abs).to(Set) }"
+    val e = ccimp("class C { def f: Set[Int] = List(1,2,3).iterator.map(_.abs).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps2(): Unit = {
     val i = "class C { def f: collection.mutable.BitSet = (List(1,2,3) map (_.abs)){collection.breakOut} }"
-    val e = "import scala.collection.compat._\nclass C { def f: collection.mutable.BitSet = (List(1,2,3).iterator map (_.abs)).to(collection.mutable.BitSet) }"
+    val e = ccimp("class C { def f: collection.mutable.BitSet = (List(1,2,3).iterator map (_.abs)).to(collection.mutable.BitSet) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps3(): Unit = {
     val i = "class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut[List[Int], Int, Set[Int]]) }"
-    val e = "import scala.collection.compat._\nclass C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    val e = ccimp("class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
@@ -100,25 +102,25 @@ class RewritesTest extends BytecodeTesting {
     // for zip, add `.iterator` to argument
     // for `to(collection.IndexedSeq)`, make sure `IndexedSeq` has the explicit qualifier
     val i = "class C { def f(l: List[Int]): IndexedSeq[(Int, Int)] = l.zip{l map (_ + 1)}{(collection.breakOut)} }"
-    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): collection.IndexedSeq[(Int, Int)] = l.iterator.zip{(l map (_ + 1)).iterator}.to(collection.IndexedSeq) }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.IndexedSeq[(Int, Int)] = l.iterator.zip{(l map (_ + 1)).iterator}.to(collection.IndexedSeq) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps5(): Unit = {
     val i = "class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)) ++ l)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator ++ l).to(Set) }"
+    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator ++ l).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps5a(): Unit = {
     val i = "class C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)} ++ l)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)}.iterator ++ l).to(Set) }"
+    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)}.iterator ++ l).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps6(): Unit = {
     val i = "class C { def f(l: List[Int]): Set[Int] = (l map (_ + 1) map identity)(collection.breakOut) }"
-    val e = "import scala.collection.compat._\nclass C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator map identity).to(Set) }"
+    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator map identity).to(Set) }")
     assertEquals(e, rewrite(i))
   }
 
@@ -152,6 +154,24 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def mapValuesInfix4(): Unit = {
+    val i = "class VC(val x: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x } }"
+    val e = "class VC(val x: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x }.toMap }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def mapValuesNested(): Unit = {
+    val i = "class C { def t(m: Map[Int, Int]) = m.mapValues(x => m.mapValues(x => x).size + x) }"
+    val e = "class C { def t(m: Map[Int, Int]) = m.mapValues(x => m.mapValues(x => x).toMap.size + x).toMap }"
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def mapValuesTyped(): Unit = {
+    val i = "class C { def t(m: Map[Int, Int]) = m.mapValues(x => x): @unchecked }"
+    val e = "class C { def t(m: Map[Int, Int]) = m.mapValues(x => x).toMap: @unchecked }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def filterKeysInfixComment(): Unit = {
     val i = """class C { def test[A, B](m: Map[A, B]) = m filterKeys { _ == 0 /*COMMENT*/} }"""
     val e = """class C { def test[A, B](m: Map[A, B]) = (m filterKeys { _ == 0 /*COMMENT*/}).toMap }"""
@@ -159,7 +179,7 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def toSeqSynthetic(): Unit = {
-    val i = "case class C(args: Int*)"
+    val i = "case class K(args: Int*)"
     assertEquals(i, rewrite(i))
   }
 
@@ -207,14 +227,14 @@ class RewritesTest extends BytecodeTesting {
   @Test def useGroupMap1(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues { xs => xs.map(f) } }"
     val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(f) }"
-    val e = s"import scala.collection.compat._\n$d"
+    val e = ccimp(d)
     assertEquals(e, rewrite(i))
   }
 
   @Test def useGroupMap2(): Unit = {
     val i = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupBy(key).mapValues(xs => xs.map { x => f(x) }).toMap }"
     val d = "class C { def a[A, K, B](xs: Vector[A])(key: A => K)(f: A => B): Map[K, Vector[B]] = xs.groupMap(key) { x => f(x) } }"
-    val e = s"import scala.collection.compat._\n$d"
+    val e = ccimp(d)
     assertEquals(e, rewrite(i))
   }
 
@@ -244,14 +264,13 @@ class RewritesTest extends BytecodeTesting {
         |    .mapValues{_.foldLeft(0.0)(_ + _)}
         |    .toMap
         |}""".stripMargin
-    val e =
+    val e = ccimp(
       """class C { def a[A, K, B](xs: List[A]): Map[(String, String), Double] =
         |  xs.map { _ => ("#", "#", 0.0) }
-        |    .groupBy{case (a,b,c) => (a,b)}
-        |    .mapValues{_.map {case (a,b,c) => c}}
+        |    .groupMap{case (a,b,c) => (a,b)} {case (a,b,c) => c}
         |    .mapValues{_.foldLeft(0.0)(_ + _)}
         |    .toMap
-        |}""".stripMargin
+        |}""".stripMargin)
     assertRewrites(e, i)
   }
 
@@ -276,14 +295,14 @@ class RewritesTest extends BytecodeTesting {
   @Test def useGroupMap4_infixCurlies(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs groupBy (x => key(x)) mapValues { xs => xs.map{x => f(x)} } }"
     val d = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap (x => key(x)){x => f(x)} }"
-    val e = s"import scala.collection.compat._\n$d"
+    val e = ccimp(d)
     assertRewrites(e, i)
   }
 
   @Test def useGroupMap4_reallyInfixCurlies(): Unit = {
     val i = "class C { def a = List(1, 2) map (x => (x, x)) groupBy { case (a, _) => a } mapValues { _.map { case (_, b) => b } } }"
     val d = "class C { def a = (List(1, 2) map (x => (x, x))).groupMap { case (a, _) => a } { case (_, b) => b } }"
-    val e = s"import scala.collection.compat._\n$d"
+    val e = ccimp(d)
     assertRewrites(e, i)
   }
 
