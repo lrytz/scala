@@ -312,6 +312,21 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
+  @Test def groupMapNested(): Unit = {
+    val i =
+      """class C { def a(xs: List[(Int, String)]): Map[Int, List[String]] =
+        |  {println(xs.toMap.mapValues(_+1)); xs}
+        |    .groupBy{case (a,b) => a}
+        |    .mapValues{_.map {case (a,b) => b}}
+        |}""".stripMargin
+    val e = ccimp(
+      """class C { def a(xs: List[(Int, String)]): Map[Int, List[String]] =
+        |  {println(xs.toMap.mapValues(_+1).toMap); xs}
+        |    .groupMap{case (a,b) => a} {case (a,b) => b}
+        |}""".stripMargin)
+    assertRewrites(e, i)
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"

@@ -250,6 +250,11 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case _ => super.transform(tree)
     }
 
+    /**
+     * traverse qualifier, type args and argss of an application.
+     * calling `super.traverse(tree)` can lead to the same case triggering again, e.g., in
+     * `Apply(TypeApply(f, targs), args)`, the `Apply` and `TypeApply` trees might both match.
+     */
     protected def traverseApplicationRest(tree: Tree): Unit = tree match {
       case Application(fun, targs, argss) =>
         fun match {
@@ -596,6 +601,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         state.patches += Patch(Pos(mapValues.qualifier.pos.end, mapMeth.pos.end), "") // remove  ".mapValues { xs => xs.map"  (eating leading whitespace)
         state.patches += Patch(Pos(map.pos.end, tree.pos.end), "") // remove  "}" or ").toMap"
         state.newImports += CollectionCompatImport
+        traverseApplicationRest(tree)
         tree
       case Application(SelectSym(_, MapValues() | FilterKeys()), _, _) =>
         if (!skipRewrite)
