@@ -172,8 +172,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case _ => !visitedTypedExpr(t.pos)
     }
 
+    private def isPackageObjectDef(pd: PackageDef) = pd.stats match {
+      case List(m: ModuleDef) => m.symbol.isPackageObject
+      case _ => false
+    }
+
     override def transform(tree: Tree): Tree = tree match {
-      case pd: PackageDef =>
+      case pd: PackageDef if !isPackageObjectDef(pd) =>
         topLevelImportPos = pd.pid.pos.focusEnd
         atOwner(tree.symbol) {
           lastTopLevelContext = localTyper.context

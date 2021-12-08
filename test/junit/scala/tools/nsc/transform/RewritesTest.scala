@@ -80,6 +80,12 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def addImportsPackageObject(): Unit = {
+    val i = "package p\nimport scala.collection.mutable\npackage object o { def t: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
+    val e = "package p\nimport scala.collection.mutable\nimport scala.collection.compat._\npackage object o { def t: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def breakOutOps1(): Unit = {
     val i = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
     val e = ccimp("class C { def f: Set[Int] = List(1,2,3).iterator.map(_.abs).to(Set) }")
