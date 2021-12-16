@@ -354,6 +354,21 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
+  @Ignore @Test def groupMapOnMap(): Unit = {
+    val i =
+      """class C {
+        |  def t(m: Map[Int, Int]) = m.groupBy(_._1).mapValues(_.map(_._2))
+        |}
+        |""".stripMargin
+    val e = ccimp(
+      """class C {
+        |  def t(m: Map[Int, Int]) = m.toIterable.groupMap(_._1)(_._2)
+        |}
+        |""".stripMargin)
+    // TODO: need to add `toIterable` if the static type is a Map. not needed in 2.13, but for the 2.12 extension method.
+    assertRewrites(e, i)
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
