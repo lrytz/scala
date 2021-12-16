@@ -155,8 +155,10 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   }
 
   private class RewriteTypingTransformer(unit: CompilationUnit) extends TypingTransformer(unit) {
+    // position for new imports: after last import at the top of the file (after the package clause)
     var lastTopLevelContext: analyzer.Context = analyzer.NoContext
     var topLevelImportPos: Position = unit.source.position(0)
+    setLastImport(List(unit.body))
 
     lazy val collectionSeqModule = rootMirror.getRequiredModule("scala.collection.Seq")
     lazy val collectionIndexedSeqModule = rootMirror.getRequiredModule("scala.collection.IndexedSeq")
@@ -177,21 +179,25 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case _ => false
     }
 
-    override def transform(tree: Tree): Tree = tree match {
-      case pd: PackageDef if !isPackageObjectDef(pd) =>
+    def setLastImport(trees: List[Tree]): Unit = trees match {
+      case (pd: PackageDef) :: xs if !isPackageObjectDef(pd) =>
         topLevelImportPos = pd.pid.pos.focusEnd
-        atOwner(tree.symbol) {
-          lastTopLevelContext = localTyper.context
-        }
-        super.transform(tree)
-      case imp: Import =>
+        lastTopLevelContext = localTyper.context
+        setLastImport(pd.stats ::: xs)
+
+      case (imp: Import) :: xs =>
         localTyper.context = localTyper.context.make(imp)
         val context = localTyper.context
         if (context.enclClass.owner.hasPackageFlag) {
           lastTopLevelContext = context
-          topLevelImportPos = tree.pos.focusEnd
+          topLevelImportPos = imp.pos.focusEnd
         }
-        super.transform(imp)
+        setLastImport(imp.expr :: xs)
+
+      case _ =>
+    }
+
+    override def transform(tree: Tree): Tree = tree match {
       case Typed(expr, _) =>
         visitedTypedExpr += expr.pos
         try super.transform(tree)
@@ -521,7 +527,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
   /** Add `import scala.collection.compat._` at the top-level */
   private class AddImports(unit: CompilationUnit, state: RewriteState) extends RewriteTypingTransformer(unit) {
     def run(tree: Tree) = {
-      // RewriteTypingTransformer.transform sets up the required state (lastTopLevelContext, topLevelImportPos)
+      // RewriteTypingTransformer.setLastImport sets up the required state (lastTopLevelContext, topLevelImportPos)
       transform(tree)
       val topLevelImports = collectTopLevel
       val toAdd = state.newImports.filterNot(newImp => topLevelImports.exists(newImp.matches))
