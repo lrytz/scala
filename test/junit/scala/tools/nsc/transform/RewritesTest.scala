@@ -327,6 +327,20 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
+  // TODO: fix bug
+  @Ignore @Test def groupMapParensBug(): Unit = {
+    val i =
+      """class C {
+        |  def t(l: List[(Int, Int)]) = l.groupBy(_._1).mapValues(v => (v.map(_._2)))
+        |}""".stripMargin
+    val e = ccimp(
+      """class C {
+        |  def t(l: List[(Int, Int)]) = l.groupMap(_._1)(_._2)
+        |}""".stripMargin)
+    // rewrite keeps an extra `)` here                        ^
+    assertRewrites(e, i)
+  }
+
   @Test def toSeqInfix(): Unit = {
     val i = "class C { def f(xs: collection.Seq[Int]) = List(xs map (x => x): _*) }"
     val e = "class C { def f(xs: collection.Seq[Int]) = List((xs map (x => x)).toSeq: _*) }"
