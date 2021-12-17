@@ -197,7 +197,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       case _ =>
     }
 
+    private object MacroExpansion {
+      def unapply(t: Tree): Option[Tree] = t.attachments.get[analyzer.MacroExpansionAttachment].map(_.expandee)
+    }
+
     override def transform(tree: Tree): Tree = tree match {
+      case MacroExpansion(expandee) =>
+        super.transform(expandee)
       case Typed(expr, _) =>
         visitedTypedExpr += expr.pos
         try super.transform(tree)

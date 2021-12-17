@@ -191,10 +191,9 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
-  @Ignore @Test def mapValuesMacroArg(): Unit = {
+  @Test def mapValuesMacroArg(): Unit = {
     val i = """class C { def t = StringContext("","").f { Map(1 -> 1).mapValues(x => x) } }"""
     val e = """class C { def t = StringContext("","").f { Map(1 -> 1).mapValues(x => x).toMap } }"""
-    // TODO: toMap is inserted in the wrong spot
     // TODO: also observed cases where rewrites run twice on macro args. see if that's the case here, or
     // if it can be reproduced with another macro. maybe if the macro calls `c.typecheck`?
     assertEquals(e, rewrite(i))
