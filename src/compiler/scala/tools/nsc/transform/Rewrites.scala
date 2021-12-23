@@ -163,17 +163,6 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     lazy val collectionSeqModule = rootMirror.getRequiredModule("scala.collection.Seq")
     lazy val collectionIndexedSeqModule = rootMirror.getRequiredModule("scala.collection.IndexedSeq")
 
-    private val visitedTypedExpr = mutable.Set.empty[Position]
-
-    // `foo: @bar` is represented as `Typed(foo, TypeTree(T @bar))` where the TypeTree's `original`
-    // contains the `foo` tree. We don't want to traverse the `foo` tree twice (and apply rewrites twice).
-    private def visitTypeTreeOriginal(t: Tree): Boolean = t match {
-      case null => false
-      case Annotated(_, expr) => visitTypeTreeOriginal(expr)
-      case Typed(expr, _) => visitTypeTreeOriginal(expr)
-      case _ => !visitedTypedExpr(t.pos)
-    }
-
     private def isPackageObjectDef(pd: PackageDef) = pd.stats match {
       case List(m: ModuleDef) => m.symbol.isPackageObject
       case _ => false
@@ -204,11 +193,18 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     override def transform(tree: Tree): Tree = tree match {
       case MacroExpansion(expandee) =>
         super.transform(expandee)
-      case Typed(expr, _) =>
-        visitedTypedExpr += expr.pos
-        try super.transform(tree)
-        finally visitedTypedExpr -= expr.pos
-      case tt: TypeTree if visitTypeTreeOriginal(tt.original) =>
+      case Typed(expr, tt @ TypeTree()) =>
+        val origToVisit = tt.original match {
+          case null => None
+          case Annotated(ann, _) =>
+            // for `expr: @ann`, the typer creates a `Typed(expr, tp)` tree. don't traverse `expr` twice
+            Some(ann)
+          case o if (expr.pos.end < o.pos.start) => Some(o)
+          case _ => None
+        }
+        origToVisit.foreach(transform)
+        transform(expr)
+      case tt: TypeTree if tt.original != null =>
         val saved = tt.original.tpe
         tt.original.tpe = tt.tpe
         try transform(tt.original)

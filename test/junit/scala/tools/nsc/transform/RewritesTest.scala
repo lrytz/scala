@@ -58,6 +58,12 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def collectionSeqAscription(): Unit = {
+    val i = "class C { def f = List(1): Seq[Int] }"
+    val e = "class C { def f = List(1): collection.Seq[Int] }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def varargsToSeq(): Unit = {
     def s(p: String*) =
       s"""class C {
@@ -191,11 +197,16 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def mapValuesTypedNoPos(): Unit = {
+    // was adding `toMap` twice
+    val i = "class C { def t = { val (a, b) = scala.tools.nsc.transform.RewritesTest.t(Map(1 -> 1).mapValues(_+1)); a } }"
+    val e = "class C { def t = { val (a, b) = scala.tools.nsc.transform.RewritesTest.t(Map(1 -> 1).mapValues(_+1).toMap); a } }"
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValuesMacroArg(): Unit = {
     val i = """class C { def t = StringContext("","").f { Map(1 -> 1).mapValues(x => x) } }"""
     val e = """class C { def t = StringContext("","").f { Map(1 -> 1).mapValues(x => x).toMap } }"""
-    // TODO: also observed cases where rewrites run twice on macro args. see if that's the case here, or
-    // if it can be reproduced with another macro. maybe if the macro calls `c.typecheck`?
     assertEquals(e, rewrite(i))
   }
 
@@ -464,5 +475,15 @@ class RewritesTest extends BytecodeTesting {
         |  def j = f"$${(this.a + "hi").hashCode}%d"
         |}""".stripMargin
     assertEquals(e, rewrite(i))
+  }
+}
+
+object RewritesTest {
+  import scala.language.experimental.macros
+  import scala.reflect.macros.blackbox.Context
+  def t[T](x: T): (Int, T) = macro tImpl
+  def tImpl(c: Context)(x: c.Tree): c.Tree = {
+    import c.universe._
+    q"""(1, $x)"""
   }
 }
