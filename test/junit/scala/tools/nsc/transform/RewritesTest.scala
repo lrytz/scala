@@ -95,10 +95,12 @@ class RewritesTest extends BytecodeTesting {
   @Test def laterImports(): Unit = {
     val i =
       """import scala.collection
+        |import scala.io.Source
         |class C { def t: Set[Int] = List(1).map(x => x)(collection.breakOut) }
         |import collection.immutable""".stripMargin
     val e =
       """import scala.collection
+        |import scala.io.Source
         |import scala.collection.compat._
         |class C { def t: Set[Int] = List(1).iterator.map(x => x).to(Set) }
         |import collection.immutable""".stripMargin

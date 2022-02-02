@@ -181,7 +181,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           lastTopLevelContext = context
           topLevelImportPos = imp.pos.focusEnd
         }
-        setLastImport(imp.expr :: xs)
+        setLastImport(xs)
 
       case _ =>
     }
