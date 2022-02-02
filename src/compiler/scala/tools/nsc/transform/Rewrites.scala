@@ -457,6 +457,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           state.eliminatedBreakOuts += bo
           state.newImports += CollectionCompatImport
         }
+        traverseApplicationRest(tree)
         tree
       case _ =>
         super.transform(tree)

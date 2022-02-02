@@ -151,6 +151,12 @@ class RewritesTest extends BytecodeTesting {
     assertEquals(e, rewrite(i))
   }
 
+  @Test def breakOutOps8(): Unit = {
+    val i = "class C { def f(l: List[Int]): Set[Int] = l.map(x => (l.map(x => x)(collection.breakOut): Vector[Int]).size)(collection.breakOut) }"
+    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = l.iterator.map(x => (l.iterator.map(x => x).to(Vector): Vector[Int]).size).to(Set) }")
+    assertEquals(e, rewrite(i))
+  }
+
   @Test def mapValues(): Unit = {
     val i = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x) }"""
     val e = """class C { def test[A, B](m: Map[A, B]) = m.mapValues(x => x).toMap }"""
