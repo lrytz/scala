@@ -15,6 +15,7 @@ import scala.tools.testing.BytecodeTesting
 @RunWith(classOf[JUnit4])
 class RewritesTest extends BytecodeTesting {
   override def compilerArgs: String = "-Yrewrites:_"
+
   import compiler.global._
 
   def rewrite(code: String): String = {
@@ -31,16 +32,17 @@ class RewritesTest extends BytecodeTesting {
     compiler.checkReport(_.severity != Reporter.ERROR)
     // show warnings
     compiler.storeReporter.infos.foreach(info => println(info.msg))
-    new String(Files.readAllBytes(f),UTF_8).stripLineEnd
+    new String(Files.readAllBytes(f), UTF_8).stripLineEnd
   }
 
   def assertRewrites(expect: String, input: String): Unit = {
     val obtain = rewrite(input)
-    val msg = s"""=== Rewrite comparison failure ===
-                 |  origin: ${input.toString.replace("\n", "\\n")}
-                 |  obtain: ${obtain.toString.replace("\n", "\\n")}
-                 |  expect: ${expect.toString.replace("\n", "\\n")}
-                 |""".stripMargin
+    val msg =
+      s"""=== Rewrite comparison failure ===
+         |  origin: ${input.toString.replace("\n", "\\n")}
+         |  obtain: ${obtain.toString.replace("\n", "\\n")}
+         |  expect: ${expect.toString.replace("\n", "\\n")}
+         |""".stripMargin
     assertEquals(msg, expect, obtain)
   }
 
@@ -71,45 +73,49 @@ class RewritesTest extends BytecodeTesting {
          |  List(${p(0)}Seq(1, 2)${p(1)}: _*)
          |  List(Array(1, 2): _*)
          |}""".stripMargin
+
     assertEquals(s("collection.", ".toSeq"), rewrite(s("", "")))
   }
 
+  val breakOutFrom = "val s: collection.mutable.Set[Int] = List(1).map(x => x)(collection.breakOut)"
+  val breakOutTo = "val s: collection.mutable.Set[Int] = List(1).iterator.map(x => x).to(collection.mutable.Set)"
+
   @Test def addImports(): Unit = {
-    val i = "import scala.collection.{mutable => m, compat}\n class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
-    val e = "import scala.collection.{mutable => m, compat}\nimport scala.collection.compat._\n class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    val i = s"import scala.collection.{mutable => m, compat}\n class C { $breakOutFrom }"
+    val e = s"import scala.collection.{mutable => m, compat}\nimport scala.collection.compat._\n class C { $breakOutTo }"
     assertEquals(e, rewrite(i))
   }
 
   @Test def addImportsExisting(): Unit = {
-    val i = ccimp("class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut) }")
-    val e = ccimp("class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }")
-    assertEquals(e, rewrite(i))
-  }
-
-  @Test def addImportsPackageObject(): Unit = {
-    val i = "package p\nimport scala.collection.mutable\npackage object o { def t: Set[Int] = List(1).map(x => x)(collection.breakOut) }"
-    val e = "package p\nimport scala.collection.mutable\nimport scala.collection.compat._\npackage object o { def t: Set[Int] = List(1).iterator.map(x => x).to(Set) }"
+    val i = ccimp(s"class C { $breakOutFrom }")
+    val e = ccimp(s"class C { $breakOutTo }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def laterImports(): Unit = {
     val i =
-      """import scala.collection
-        |import scala.io.Source
-        |class C { def t: Set[Int] = List(1).map(x => x)(collection.breakOut) }
-        |import collection.immutable""".stripMargin
+      s"""import scala.collection
+         |import scala.io.Source
+         |class C { $breakOutFrom }
+         |import collection.immutable""".stripMargin
     val e =
-      """import scala.collection
-        |import scala.io.Source
-        |import scala.collection.compat._
-        |class C { def t: Set[Int] = List(1).iterator.map(x => x).to(Set) }
-        |import collection.immutable""".stripMargin
-     assertEquals(e, rewrite(i))
+      s"""import scala.collection
+         |import scala.io.Source
+         |import scala.collection.compat._
+         |class C { $breakOutTo }
+         |import collection.immutable""".stripMargin
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def addImportsPackageObject(): Unit = {
+    val i = s"package p\nimport scala.collection.immutable\npackage object o { $breakOutFrom }"
+    val e = s"package p\nimport scala.collection.immutable\nimport scala.collection.compat._\npackage object o { $breakOutTo }"
+    assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps1(): Unit = {
-    val i = "class C { def f: Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
-    val e = ccimp("class C { def f: Set[Int] = List(1,2,3).iterator.map(_.abs).to(Set) }")
+    val i = "class C { def f: collection.mutable.Set[Int] = List(1,2,3).map(_.abs)(collection.breakOut) }"
+    val e = ccimp("class C { def f: collection.mutable.Set[Int] = List(1,2,3).iterator.map(_.abs).to(collection.mutable.Set) }")
     assertEquals(e, rewrite(i))
   }
 
@@ -120,41 +126,69 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def breakOutOps3(): Unit = {
-    val i = "class C { val s: Set[Int] = List(1).map(x => x)(collection.breakOut[List[Int], Int, Set[Int]]) }"
-    val e = ccimp("class C { val s: Set[Int] = List(1).iterator.map(x => x).to(Set) }")
+    val i = "class C { val s: collection.mutable.Set[Int] = List(1).map(x => x)(collection.breakOut[List[Int], Int, collection.mutable.Set[Int]]) }"
+    val e = ccimp("class C { val s: collection.mutable.Set[Int] = List(1).iterator.map(x => x).to(collection.mutable.Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps4(): Unit = {
     // for zip, add `.iterator` to argument
     // for `to(collection.IndexedSeq)`, make sure `IndexedSeq` has the explicit qualifier
-    val i = "class C { def f(l: List[Int]): IndexedSeq[(Int, Int)] = l.zip{l map (_ + 1)}{(collection.breakOut)} }"
-    val e = ccimp("class C { def f(l: List[Int]): collection.IndexedSeq[(Int, Int)] = l.iterator.zip{(l map (_ + 1)).iterator}.to(collection.IndexedSeq) }")
+    val i = "class C { def f(l: List[Int]): collection.mutable.IndexedSeq[(Int, Int)] = l.zip{l map (_ + 1)}{(collection.breakOut)} }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.IndexedSeq[(Int, Int)] = l.iterator.zip{(l map (_ + 1)).iterator}.to(collection.mutable.IndexedSeq) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps5(): Unit = {
-    val i = "class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)) ++ l)(collection.breakOut) }"
-    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator ++ l).to(Set) }")
+    val i = "class C { def f(l: List[Int]): collection.mutable.Set[Int] = ((l map (_ + 1)) ++ l)(collection.breakOut) }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.Set[Int] = ((l map (_ + 1)).iterator ++ l).to(collection.mutable.Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps5a(): Unit = {
-    val i = "class C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)} ++ l)(collection.breakOut) }"
-    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ({l map (_ + 1)}.iterator ++ l).to(Set) }")
+    val i = "class C { def f(l: List[Int]): collection.mutable.Set[Int] = ({l map (_ + 1)} ++ l)(collection.breakOut) }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.Set[Int] = ({l map (_ + 1)}.iterator ++ l).to(collection.mutable.Set) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps6(): Unit = {
-    val i = "class C { def f(l: List[Int]): Set[Int] = (l map (_ + 1) map identity)(collection.breakOut) }"
-    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = ((l map (_ + 1)).iterator map identity).to(Set) }")
+    val i = "class C { def f(l: List[Int]): collection.mutable.Set[Int] = (l map (_ + 1) map identity)(collection.breakOut) }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.Set[Int] = ((l map (_ + 1)).iterator map identity).to(collection.mutable.Set) }")
+    assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOps7(): Unit = {
+    val i = "class C { def f(l: List[Int]): collection.mutable.Map[Int, Int] = l.map(x => (x, x))(collection.breakOut) }"
+    // TODO: the output `e` doesn't compile for two reasons
+    //   1 there's no CBF due to a typo in collection-compat
+    //     https://github.com/scala/scala-collection-compat/blob/e211ba15d9b58ec39cbebee0791643941f453952/compat/src/main/scala-2.11_2.12/scala/collection/compat/PackageShared.scala#L124-L127
+    //   2 to(Map) has static type Iterable[(Int, Int)]
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.Map[Int, Int] = l.iterator.map(x => (x, x)).to(collection.mutable.Map) }")
     assertEquals(e, rewrite(i))
   }
 
   @Test def breakOutOps8(): Unit = {
-    val i = "class C { def f(l: List[Int]): Set[Int] = l.map(x => (l.map(x => x)(collection.breakOut): Vector[Int]).size)(collection.breakOut) }"
-    val e = ccimp("class C { def f(l: List[Int]): Set[Int] = l.iterator.map(x => (l.iterator.map(x => x).to(Vector): Vector[Int]).size).to(Set) }")
+    val i = "class C { def f(l: List[Int]): collection.mutable.Set[Int] = l.map(x => (l.map(x => x)(collection.breakOut): Vector[Int]).size)(collection.breakOut) }"
+    val e = ccimp("class C { def f(l: List[Int]): collection.mutable.Set[Int] = l.iterator.map(x => (l.iterator.map(x => x).toVector: Vector[Int]).size).to(collection.mutable.Set) }")
     assertEquals(e, rewrite(i))
+  }
+
+  @Test def breakOutOpsDirect(): Unit = {
+    for (t <- List ("Map", "collection.Map", "collection.immutable.Map")) {
+      val i = s"class C { def f(l: List[Int]): $t[Int, Int] = l.map(x => (x, x))(collection.breakOut) }"
+      val e = s"class C { def f(l: List[Int]): $t[Int, Int] = l.iterator.map(x => (x, x)).toMap }"
+      assertEquals(e, rewrite(i))
+    }
+    val targets =
+      List("Set", "Seq", "IndexedSeq").flatMap(x => List(x, s"collection.$x", s"collection.immutable.$x")) ++
+        List("List", "collection. immutable.List", "Vector", "collection.immutable.Vector", "Array", "scala.Array")
+    def sq(t: String) = if (t == "Seq" || t == "IndexedSeq") s"collection.$t" else t
+    def dst(t: String) = t.split('.').last match { case "Seq" => "List"; case s => s }
+    for (t <- targets) {
+      val i = s"class C { def f(l: List[Int]): ${sq(t)}[Int] = l.map(_ + 1)(collection.breakOut) }"
+      val e = s"class C { def f(l: List[Int]): ${sq(t)}[Int] = l.iterator.map(_ + 1).to${dst(t)} }"
+      assertEquals(e, rewrite(i))
+    }
   }
 
   @Test def mapValues(): Unit = {
@@ -240,12 +274,12 @@ class RewritesTest extends BytecodeTesting {
     // c: `toSeq` is only omitted if a varargs param is forwarded untransformed
     // d: clarifies semantics. manually rewrite to `immutable.Seq(1,2,3)` if desired.
     val e =
-      """class C {
-        |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
-        |  def b(xs: String*) = List(xs: _*)
-        |  def c(xs: String*) = List(xs.map(x => x).toSeq: _*)
-        |  def d = List(collection.Seq(1,2,3).toSeq: _*)
-        |}""".stripMargin
+    """class C {
+      |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
+      |  def b(xs: String*) = List(xs: _*)
+      |  def c(xs: String*) = List(xs.map(x => x).toSeq: _*)
+      |  def d = List(collection.Seq(1,2,3).toSeq: _*)
+      |}""".stripMargin
     assertEquals(e, rewrite(i))
   }
 
@@ -320,19 +354,22 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
-  @Ignore @Test def useGroupMap3_keyParam(): Unit = {
+  @Ignore
+  @Test def useGroupMap3_keyParam(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues(xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
     assertRewrites(e, i)
   }
 
-  @Ignore @Test def useGroupMap3_valuesParam(): Unit = {
+  @Ignore
+  @Test def useGroupMap3_valuesParam(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy(x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
     assertRewrites(e, i)
   }
 
-  @Ignore @Test def useGroupMap3_bothParams(): Unit = {
+  @Ignore
+  @Test def useGroupMap3_bothParams(): Unit = {
     val i = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupBy[K](x => key(x)).mapValues[Iterable[B]](xs => xs.map(x => f(x))) }"
     val e = "class C { def a[A, K, B](xs: Iterable[A])(key: A => K)(f: A => B): Map[K, Iterable[B]] = xs.groupMap(x => key(x))(x => f(x)) }"
     assertRewrites(e, i)
@@ -368,7 +405,8 @@ class RewritesTest extends BytecodeTesting {
   }
 
   // TODO: fix bug
-  @Ignore @Test def groupMapParensBug(): Unit = {
+  @Ignore
+  @Test def groupMapParensBug(): Unit = {
     val i =
       """class C {
         |  def t(l: List[(Int, Int)]) = l.groupBy(_._1).mapValues(v => (v.map(_._2)))
@@ -381,7 +419,8 @@ class RewritesTest extends BytecodeTesting {
     assertRewrites(e, i)
   }
 
-  @Ignore @Test def groupMapOnMap(): Unit = {
+  @Ignore
+  @Test def groupMapOnMap(): Unit = {
     val i =
       """class C {
         |  def t(m: Map[Int, Int]) = m.groupBy(_._1).mapValues(_.map(_._2))
@@ -470,26 +509,29 @@ class RewritesTest extends BytecodeTesting {
         |}""".stripMargin
     val e =
       s"""class C {
-        |  val p = "%"
-        |  def a = (p + ".3f").format(hashCode.toDouble)
-        |  def b = f"$${this.a.length}%d"
-        |  def c = (p + "c").format(toString charAt 2)
-        |  def d = f"$${1}%d"
-        |  def e = a
-        |  def f = f"$$hashCode%d"
-        |  def g = List(1).map(fmtValue => f"$$fmtValue%d")
-        |  def h = List(1).map(fmtValue => f"$${fmtValue.toDouble}%.3f")
-        |  def i = f"$${(new C).hashCode}%d"
-        |  def j = f"$${(this.a + "hi").hashCode}%d"
-        |}""".stripMargin
+         |  val p = "%"
+         |  def a = (p + ".3f").format(hashCode.toDouble)
+         |  def b = f"$${this.a.length}%d"
+         |  def c = (p + "c").format(toString charAt 2)
+         |  def d = f"$${1}%d"
+         |  def e = a
+         |  def f = f"$$hashCode%d"
+         |  def g = List(1).map(fmtValue => f"$$fmtValue%d")
+         |  def h = List(1).map(fmtValue => f"$${fmtValue.toDouble}%.3f")
+         |  def i = f"$${(new C).hashCode}%d"
+         |  def j = f"$${(this.a + "hi").hashCode}%d"
+         |}""".stripMargin
     assertEquals(e, rewrite(i))
   }
 }
 
 object RewritesTest {
+
   import scala.language.experimental.macros
   import scala.reflect.macros.blackbox.Context
+
   def t[T](x: T): (Int, T) = macro tImpl
+
   def tImpl(c: Context)(x: c.Tree): c.Tree = {
     import c.universe._
     q"""(1, $x)"""

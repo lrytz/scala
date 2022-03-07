@@ -404,6 +404,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       definitions.getMemberMethod(rootMirror.getPackageObject("scala.collection"), TermName("breakOut"))
 
     lazy val GenIterableLikeSym = rootMirror.requiredClass[GenIterableLike[_, _]]
+    lazy val CollectionMapSym = rootMirror.requiredClass[collection.Map[_, _]]
+    lazy val ImmutableMapSym = rootMirror.requiredClass[collection.immutable.Map[_,_]]
+    lazy val CollectionSetSym = rootMirror.requiredClass[collection.Set[_]]
+    lazy val ImmutableSetSym = rootMirror.requiredClass[collection.immutable.Set[_]]
+    lazy val CollectionSeqSym = rootMirror.requiredClass[collection.Seq[_]]
+    lazy val ImmutableSeqSym = rootMirror.requiredClass[collection.immutable.Seq[_]]
+    lazy val CollectionIndexedSeqSym = rootMirror.requiredClass[collection.IndexedSeq[_]]
+    lazy val ImmutableIndexedSeqSym = rootMirror.requiredClass[collection.immutable.IndexedSeq[_]]
+    lazy val ImmutableListSym = rootMirror.requiredClass[collection.immutable.List[_]]
+    lazy val ImmutableVectorSym = rootMirror.requiredClass[collection.immutable.Vector[_]]
+    lazy val ArraySym = definitions.ArrayClass
 
     def isInferredArg(tree: Tree): Boolean = tree match {
       case tt: TypeTree => tt.original eq null
@@ -444,6 +455,21 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     // could use `.view`, but `++:` is deprecated in Iterable on 2.13 (not in Seq), so probably not worth it
     val breakOutMethods = Set("map", "collect", "flatMap", "++", "scanLeft", "zip", "zipAll")
 
+    lazy val directConversions: Map[Symbol, String] = Map(
+      CollectionMapSym -> "toMap",
+      ImmutableMapSym -> "toMap",
+      CollectionSetSym -> "toSet",
+      ImmutableSetSym-> "toSet",
+      // don't use toSeq, in 2.12 it calls toStream
+      CollectionSeqSym -> "toList",
+      ImmutableSeqSym -> "toList",
+      CollectionIndexedSeqSym -> "toIndexedSeq",
+      ImmutableIndexedSeqSym -> "toIndexedSeq",
+      ImmutableListSym -> "toList",
+      ImmutableVectorSym -> "toVector",
+      ArraySym -> "toArray"
+    )
+
     // coll.fun[targs](args)(breakOut) --> coll.iterator.fun[targs](args).to(Target)
     override def transform(tree: Tree): Tree = tree match {
       case Application(Select(coll, funName), _, argss :+ List(bo @ Application(boFun, boTargs, _)))
@@ -451,11 +477,17 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
           breakOutMethods.contains(funName.decode)) {
           state.patches ++= selectFromInfix(coll, "iterator", state.parseTree, reuseParens = true)
-          state.patches += Patch(withEnclosingParens(bo.pos), s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})")
+          val targetClass = boTargs.last.tpe.typeSymbol
+          val conversion = directConversions.get(targetClass) match {
+            case Some(conv) => s".$conv"
+            case _ =>
+              state.newImports += CollectionCompatImport
+              s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})"
+          }
+          state.patches += Patch(withEnclosingParens(bo.pos), conversion)
           if (funName.startsWith("zip"))
             state.patches ++= selectFromInfix(argss.head.head, "iterator", state.parseTree, reuseParens = false)
           state.eliminatedBreakOuts += bo
-          state.newImports += CollectionCompatImport
         }
         traverseApplicationRest(tree)
         tree
