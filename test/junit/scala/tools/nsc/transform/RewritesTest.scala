@@ -39,9 +39,9 @@ class RewritesTest extends BytecodeTesting {
     val obtain = rewrite(input)
     val msg =
       s"""=== Rewrite comparison failure ===
-         |  origin: ${input.toString.replace("\n", "\\n")}
-         |  obtain: ${obtain.toString.replace("\n", "\\n")}
-         |  expect: ${expect.toString.replace("\n", "\\n")}
+         |  origin: ${input.replace("\n", "\\n")}
+         |  obtain: ${obtain.replace("\n", "\\n")}
+         |  expect: ${expect.replace("\n", "\\n")}
          |""".stripMargin
     assertEquals(msg, expect, obtain)
   }
@@ -174,14 +174,14 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def breakOutOpsDirect(): Unit = {
-    for (t <- List ("Map", "collection.Map", "collection.immutable.Map")) {
+    for (t <- List("Map", "collection.Map", "collection.immutable.Map")) {
       val i = s"class C { def f(l: List[Int]): $t[Int, Int] = l.map(x => (x, x))(collection.breakOut) }"
       val e = s"class C { def f(l: List[Int]): $t[Int, Int] = l.iterator.map(x => (x, x)).toMap }"
       assertEquals(e, rewrite(i))
     }
     val targets =
       List("Set", "Seq", "IndexedSeq").flatMap(x => List(x, s"collection.$x", s"collection.immutable.$x")) ++
-        List("List", "collection. immutable.List", "Vector", "collection.immutable.Vector", "Array", "scala.Array")
+        List("List", "collection.immutable.List", "Vector", "collection.immutable.Vector", "Array", "scala.Array")
     def sq(t: String) = if (t == "Seq" || t == "IndexedSeq") s"collection.$t" else t
     def dst(t: String) = t.split('.').last match { case "Seq" => "List"; case s => s }
     for (t <- targets) {
@@ -222,8 +222,8 @@ class RewritesTest extends BytecodeTesting {
   }
 
   @Test def mapValuesInfix4(): Unit = {
-    val i = "class VC(val x: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x } }"
-    val e = "class VC(val x: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x }.toMap }"
+    val i = "class VC(val i: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x } }"
+    val e = "class VC(val i: Int) extends AnyVal { def t(m: Map[Int, Int]) = m.mapValues { case x => x }.toMap }"
     assertEquals(e, rewrite(i))
   }
 
@@ -274,12 +274,12 @@ class RewritesTest extends BytecodeTesting {
     // c: `toSeq` is only omitted if a varargs param is forwarded untransformed
     // d: clarifies semantics. manually rewrite to `immutable.Seq(1,2,3)` if desired.
     val e =
-    """class C {
-      |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
-      |  def b(xs: String*) = List(xs: _*)
-      |  def c(xs: String*) = List(xs.map(x => x).toSeq: _*)
-      |  def d = List(collection.Seq(1,2,3).toSeq: _*)
-      |}""".stripMargin
+      """class C {
+        |  def a(xs: Iterator[String]) = List(xs.toSeq: _*)
+        |  def b(xs: String*) = List(xs: _*)
+        |  def c(xs: String*) = List(xs.map(x => x).toSeq: _*)
+        |  def d = List(collection.Seq(1,2,3).toSeq: _*)
+        |}""".stripMargin
     assertEquals(e, rewrite(i))
   }
 
@@ -320,18 +320,18 @@ class RewritesTest extends BytecodeTesting {
 
   @Test def useGroupMap1_bug(): Unit = {
     val i =
-      """class C { def a[A](xs: List[A]): Map[(String, String), List[Double]] =
+      """class C { def a[A, K, B](xs: List[A]): Map[(String, String), List[Double]] =
         |  xs.map { _ => ("#", "#", 0.0) }
         |    .groupBy{case (a,b,c) => (a,b)}
         |    .mapValues{_.map {case (a,b,c) => c}}
         |    .toMap
         |}""".stripMargin
     val e =
-      """import scala.collection.compat._
-        |class C { def a[A](xs: List[A]): Map[(String, String), List[Double]] =
-        |  xs.map { _ => ("#", "#", 0.0) }
-        |    .groupMap{case (a,b,c) => (a,b)} {case (a,b,c) => c}
-        |}""".stripMargin
+      ccimp(
+        """class C { def a[A, K, B](xs: List[A]): Map[(String, String), List[Double]] =
+          |  xs.map { _ => ("#", "#", 0.0) }
+          |    .groupMap{case (a,b,c) => (a,b)} {case (a,b,c) => c}
+          |}""".stripMargin)
     assertRewrites(e, i)
   }
 

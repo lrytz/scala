@@ -190,7 +190,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       def unapply(t: Tree): Option[Tree] = t.attachments.get[analyzer.MacroExpansionAttachment].map(_.expandee)
     }
 
-    override def transform(tree: Tree): Tree = tree match {
+    override def transform(t: Tree): Tree = t match {
       case MacroExpansion(expandee) =>
         super.transform(expandee)
       case Typed(expr, tt @ TypeTree()) =>
@@ -206,12 +206,12 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
         transform(expr)
       case tt: TypeTree if tt.original != null =>
         val saved = tt.original.tpe
-        tt.original.tpe = tt.tpe
+        tt.original.setType(tt.tpe)
         try transform(tt.original)
         finally tt.original.setType(saved)
       case Block(stats, expr) =>
         val entered = mutable.ListBuffer[Symbol]()
-        val saved = localTyper
+        val saved = localTyper.context
         def enter(sym: Symbol): Unit = {
           entered += sym
           localTyper.context.scope.enter(sym)
@@ -230,13 +230,13 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
             transform(stat)
           }
           val expr1  = transform(expr)
-          treeCopy.Block(tree, stats1, expr1)
+          treeCopy.Block(t, stats1, expr1)
         } finally {
-          localTyper = saved
-          entered.foreach(localTyper.context.scope.unlink(_))
+          entered.foreach(saved.scope.unlink)
+          localTyper.context = saved
         }
       case dd: DefDef =>
-        if (dd.symbol.isSynthetic) tree
+        if (dd.symbol.isSynthetic) t
         else {
           localTyper.reenterTypeParams(dd.tparams)
           localTyper.reenterValueParams(dd.vparamss)
@@ -248,14 +248,15 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
           }
         }
       case cd: ClassDef =>
-        typer.reenterTypeParams(cd.tparams)
+        localTyper.reenterTypeParams(cd.tparams)
         // TODO: what about constructor params?
-        try super.transform(cd)
+        try super.transform(t)
         finally {
           val scope = localTyper.context.scope
-          cd.tparams.foreach(tree => scope.unlink(tree.symbol))
+          cd.tparams.foreach(t => scope.unlink(t.symbol))
         }
-      case _ => super.transform(tree)
+      case _ =>
+        super.transform(t)
     }
 
     /**
@@ -360,7 +361,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
     }
   }
 
-  private class TypeRenderer(rewriteTransformer: RewriteTypingTransformer) extends TypeMap {
+  private class TypeRenderer(rewriteTypingTransformer: RewriteTypingTransformer) extends TypeMap {
     override def apply(tp: Type): Type = tp match {
       case SingleType(pre, sym) if tp.prefix.typeSymbol.isOmittablePrefix =>
         adjust(tp, pre, sym, Mode.QUALmode)((pre1, sym1) => SingleType(pre1, sym1))
@@ -373,7 +374,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
     def adjust(tp: Type, pre: Type, sym: Symbol, mode: Mode)(f: (Type, Symbol) => Type): Type = {
       if (pre.typeSymbol.isOmittablePrefix || global.shorthands.contains(sym.fullName)) {
-        val typedTree = rewriteTransformer.silentTyped(Ident(sym.name), mode)
+        val typedTree = rewriteTypingTransformer.silentTyped(Ident(sym.name), mode)
         if (typedTree.symbol == sym || sym.tpeHK =:= typedTree.tpe)
           f(NoPrefix, sym)
         else {
@@ -405,7 +406,7 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
 
     lazy val GenIterableLikeSym = rootMirror.requiredClass[GenIterableLike[_, _]]
     lazy val CollectionMapSym = rootMirror.requiredClass[collection.Map[_, _]]
-    lazy val ImmutableMapSym = rootMirror.requiredClass[collection.immutable.Map[_,_]]
+    lazy val ImmutableMapSym = rootMirror.requiredClass[collection.immutable.Map[_, _]]
     lazy val CollectionSetSym = rootMirror.requiredClass[collection.Set[_]]
     lazy val ImmutableSetSym = rootMirror.requiredClass[collection.immutable.Set[_]]
     lazy val CollectionSeqSym = rootMirror.requiredClass[collection.Seq[_]]
