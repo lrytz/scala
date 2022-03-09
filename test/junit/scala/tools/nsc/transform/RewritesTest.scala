@@ -183,12 +183,17 @@ class RewritesTest extends BytecodeTesting {
       List("Set", "Seq", "IndexedSeq").flatMap(x => List(x, s"collection.$x", s"collection.immutable.$x")) ++
         List("List", "collection.immutable.List", "Vector", "collection.immutable.Vector", "Array", "scala.Array")
     def sq(t: String) = if (t == "Seq" || t == "IndexedSeq") s"collection.$t" else t
-    def dst(t: String) = t.split('.').last match { case "Seq" => "List"; case s => s }
+    def dst(t: String) = t.split('.').last match { case "Seq" => "IndexedSeq"; case s => s }
     for (t <- targets) {
       val i = s"class C { def f(l: List[Int]): ${sq(t)}[Int] = l.map(_ + 1)(collection.breakOut) }"
       val e = s"class C { def f(l: List[Int]): ${sq(t)}[Int] = l.iterator.map(_ + 1).to${dst(t)} }"
       assertEquals(e, rewrite(i))
     }
+  }
+  @Test def breakOutOpsFallbackString(): Unit = {
+    val i = "class C { def f: collection.Seq[Int] = Set(1,2,3).map(_.abs)(collection.breakOut) }"
+    val e = "class C { def f: collection.Seq[Int] = Set(1,2,3).iterator.map(_.abs).toIndexedSeq }"
+    assertEquals(e, rewrite(i))
   }
 
   @Test def mapValues(): Unit = {

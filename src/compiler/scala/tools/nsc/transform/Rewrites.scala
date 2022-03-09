@@ -470,25 +470,34 @@ abstract class Rewrites extends SubComponent with TypingTransformers {
       ImmutableVectorSym -> "toVector",
       ArraySym -> "toArray"
     )
+    val Predef_fallbackStringCanBuildFrom = definitions.PredefModule.info.member(TermName("fallbackStringCanBuildFrom"))
 
     // coll.fun[targs](args)(breakOut) --> coll.iterator.fun[targs](args).to(Target)
     override def transform(tree: Tree): Tree = tree match {
-      case Application(Select(coll, funName), _, argss :+ List(bo @ Application(boFun, boTargs, _)))
+      case Application(Select(coll, funName), _, argss :+ List(bo @ Application(boFun, boTargs, List(List(boArg)))))
         if boFun.symbol == breakOutSym =>
         if (coll.tpe.typeSymbol.isNonBottomSubClass(GenIterableLikeSym) &&
           breakOutMethods.contains(funName.decode)) {
-          state.patches ++= selectFromInfix(coll, "iterator", state.parseTree, reuseParens = true)
-          val targetClass = boTargs.last.tpe.typeSymbol
-          val conversion = directConversions.get(targetClass) match {
-            case Some(conv) => s".$conv"
-            case _ =>
-              state.newImports += CollectionCompatImport
-              s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})"
+          def patch(conversion: String): Unit = {
+            state.patches ++= selectFromInfix(coll, "iterator", state.parseTree, reuseParens = true)
+            state.patches += Patch(withEnclosingParens(bo.pos), conversion)
+            if (funName.startsWith("zip"))
+              state.patches ++= selectFromInfix(argss.head.head, "iterator", state.parseTree, reuseParens = false)
+            state.eliminatedBreakOuts += bo
           }
-          state.patches += Patch(withEnclosingParens(bo.pos), conversion)
-          if (funName.startsWith("zip"))
-            state.patches ++= selectFromInfix(argss.head.head, "iterator", state.parseTree, reuseParens = false)
-          state.eliminatedBreakOuts += bo
+          val targetClass = boTargs.last.tpe.typeSymbol
+          boArg match {
+            case Application(fun, _, _) if fun.symbol == Predef_fallbackStringCanBuildFrom =>
+              patch(".toIndexedSeq")
+            case _ =>
+              val conversion = directConversions.get(targetClass) match {
+                case Some(conv) => s".$conv"
+                case _ =>
+                  state.newImports += CollectionCompatImport
+                  s".to(${qualifiedSelectTerm(boTargs.last.tpe.typeSymbol.companionModule)})"
+              }
+              patch(conversion)
+          }
         }
         traverseApplicationRest(tree)
         tree
