@@ -211,6 +211,27 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
       else accept(GT)
     }
 
+    object SoftModifier {
+      private val non = TermName("non")
+      def unapply(token: Int): Option[Name] = {
+        if (token == IDENTIFIER) in.name match {
+          case nme.javaKeywords.SEALEDkw => Some(in.name)
+          case `non` =>
+            val saved = new JavaTokenData {}.copyFrom(in)
+            val nonPos = in.pos
+            if ({in.nextToken(); in.token == MINUS} &&
+              {in.nextToken(); in.token == IDENTIFIER && in.name == nme.javaKeywords.SEALEDkw} &&
+              in.pos - nonPos == 4)
+              Some(nme.javaKeywords.NONSEALEDkw)
+            else {
+              in.copyFrom(saved)
+              None
+            }
+          case _ => None
+        } else None
+      }
+    }
+
     def identForType(): TypeName = ident().toTypeName
     def ident(): Name =
       if (in.token == IDENTIFIER) {
@@ -471,6 +492,16 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
             in.nextToken()
           case ABSTRACT =>
             flags |= Flags.ABSTRACT
+            in.nextToken()
+          case SoftModifier(mod) =>
+            mod match {
+              case nme.javaKeywords.SEALEDkw =>
+                flags |= Flags.SEALED
+              case nme.javaKeywords.NONSEALEDkw =>
+                // subtypes of sealed require either sealed, non-sealed or final. nothing to do for non-selaed.
+              case _ =>
+                syntaxError(in.pos, s"unexpected soft modifier $mod")
+            }
             in.nextToken()
           case FINAL =>
             flags |= Flags.FINAL
@@ -802,6 +833,13 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
         List()
       }
 
+    def permitsOpt() =
+      if (in.token == IDENTIFIER && in.name == nme.javaKeywords.PERMITSkw) {
+        in.nextToken()
+        repsep(() => typ(), COMMA)
+      } else
+        List()
+
     def classDecl(mods: Modifiers): List[Tree] = {
       accept(CLASS)
       val pos = in.currentPos
@@ -815,6 +853,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
           javaLangObject()
         }
       val interfaces = interfacesOpt()
+      permitsOpt() // dropped, namer adds children
       val (statics, body) = typeBody(CLASS)
       addCompanionObject(statics, atPos(pos) {
         ClassDef(mods, name, tparams, makeTemplate(superclass :: interfaces, body))
@@ -878,9 +917,10 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
         } else {
           List(javaLangObject())
         }
+      permitsOpt() // dropped, namer adds children
       val (statics, body) = typeBody(INTERFACE)
       addCompanionObject(statics, atPos(pos) {
-        ClassDef(mods | Flags.TRAIT | Flags.INTERFACE | Flags.ABSTRACT,
+        ClassDef(mods | Flags.TRAIT | Flags.INTERFACE | Flags.ABSTRACT | Flags.SEALED,
                  name, tparams,
                  makeTemplate(parents, body))
       })
@@ -944,6 +984,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
     }
 
     def enumDecl(mods: Modifiers): List[Tree] = {
+      // TODO: enums selaed?
       accept(ENUM)
       val pos = in.currentPos
       val name = identForType()

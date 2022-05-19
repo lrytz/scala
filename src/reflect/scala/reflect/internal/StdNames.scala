@@ -1252,11 +1252,14 @@ trait StdNames {
     final val LONGkw: TermName         = kw("long")
     final val NATIVEkw: TermName       = kw("native")
     final val NEWkw: TermName          = kw("new")
+    final val NONSEALEDkw: TermName    = kw("non-sealed") // soft modifier
     final val PACKAGEkw: TermName      = kw("package")
+    final val PERMITSkw: TermName      = kw("permits") // soft keyword
     final val PRIVATEkw: TermName      = kw("private")
     final val PROTECTEDkw: TermName    = kw("protected")
     final val PUBLICkw: TermName       = kw("public")
     final val RETURNkw: TermName       = kw("return")
+    final val SEALEDkw: TermName       = kw("sealed") // soft modifier
     final val SHORTkw: TermName        = kw("short")
     final val STATICkw: TermName       = kw("static")
     final val STRICTFPkw: TermName     = kw("strictfp")
