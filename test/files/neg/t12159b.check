@@ -1,0 +1,4 @@
+s_2.scala:5: error: illegal inheritance from sealed trait I_1
+class S extends I_1
+                ^
+1 error
