@@ -1,4 +1,4 @@
-// scalac: -Xasync
+// scalac: -Xasync -Xprint:cleanup
 
 object Test extends scala.tools.partest.JUnitTest(classOf[scala.async.run.match0.MatchSpec])
 
@@ -143,6 +143,19 @@ package scala.async.run.match0 {
         if (true) p2.toString else p2.toString
       })
       assertEquals("5", foo)
+    }
+
+    @Test def stringSwitch(): Unit = {
+      def t(m: String) = block(async {
+        val l = await(2)
+        m match {
+          case "peppa" => 1
+          case "george" => await(l)
+          case _ => 0
+        }
+      })
+
+      assertEquals(2, t("george"))
     }
   }
 

@@ -400,6 +400,7 @@ abstract class CleanUp extends Statics with Transform with ast.TreeDSL {
     private def transformStringSwitch(sw: Match): Tree = { import CODE._
       // these assumptions about the shape of the tree are justified by the codegen in MatchOptimization
       val Match(Typed(selTree, _), cases) = sw: @unchecked
+      println(selTree)
       def selArg = selTree match {
         case x: Ident   => REF(x.symbol)
         case x: Literal => x
