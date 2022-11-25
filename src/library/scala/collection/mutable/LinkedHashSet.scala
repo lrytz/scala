@@ -29,6 +29,7 @@ import scala.collection.generic.DefaultSerializable
  *  @define orderDependent
  *  @define orderDependentFold
  */
+@deprecatedInheritance("LinkedHashSet will be made final", "2.13.11")
 class LinkedHashSet[A]
   extends AbstractSet[A]
     with SetOps[A, LinkedHashSet, LinkedHashSet[A]]
@@ -47,11 +48,14 @@ class LinkedHashSet[A]
 
   @transient protected var lastEntry: Entry = null
 
+  /* Uses the same implementation as mutable.HashSet. The hashtable holds the following invariant:
+   * - For each i between 0 and table.length, the bucket at table(i) only contains keys whose hash-index is i.
+   * - Every bucket is sorted in ascendant hash order
+   * - The sum of the lengths of all buckets is equal to contentSize.
+   */
   @transient private[this] var table = new Array[Entry](tableSizeFor(LinkedHashSet.defaultinitialSize))
 
   private[this] var threshold: Int = newThreshold(table.length)
-
-  private[this] def newThreshold(size: Int) = (size.toDouble * LinkedHashSet.defaultLoadFactor).toInt
 
   private[this] var contentSize = 0
 
@@ -120,6 +124,8 @@ class LinkedHashSet[A]
   private[this] def tableSizeFor(capacity: Int) =
     (Integer.highestOneBit((capacity-1).max(4))*2).min(1 << 30)
 
+  private[this] def newThreshold(size: Int) = (size.toDouble * LinkedHashSet.defaultLoadFactor).toInt
+
   @`inline` private[this] def improveHash(originalHash: Int): Int = {
     originalHash ^ (originalHash >>> 16)
   }
@@ -141,27 +147,26 @@ class LinkedHashSet[A]
   * new entry will be the firstEntry. If not, just set the new entry to
   * be the lastEntry.
   * */
-  private[this] def createNewEntry(key: A, hash: Int): Entry =
-    {
-          val e = new Entry(key, hash)
-        if (firstEntry eq null) firstEntry = e
-        else { lastEntry.later = e; e.earlier = lastEntry }
-        lastEntry = e
-        e
+  private[this] def createNewEntry(key: A, hash: Int): Entry = {
+    val e = new Entry(key, hash)
+    if (firstEntry eq null) firstEntry = e
+    else {
+      lastEntry.later = e
+      e.earlier = lastEntry
     }
+    lastEntry = e
+    e
+  }
 
-  /*delete the entry from the linkedhashset. set its earlier entry's later entry
-  * and later entry's earlier entry correctly.and then set its earlier and later
-  * to be null.*/
-  private[this] def deleteEntry(e: Entry): Unit =
-    {
-      if (e.earlier eq null) firstEntry = e.later
-      else e.earlier.later = e.later
-      if (e.later eq null) lastEntry = e.earlier
-      else e.later.earlier = e.earlier
-      e.earlier = null // Null references to prevent nepotism
-      e.later = null
-    }
+  /** Delete the entry from the LinkedHashSet, set the `earlier` and `later` pointers correctly */
+  private[this] def deleteEntry(e: Entry): Unit = {
+    if (e.earlier eq null) firstEntry = e.later
+    else e.earlier.later = e.later
+    if (e.later eq null) lastEntry = e.earlier
+    else e.later.earlier = e.earlier
+    e.earlier = null // Null references to prevent nepotism
+    e.later = null
+  }
 
   /** Adds an element to this set
     * @param elem element to add
@@ -339,21 +344,10 @@ object LinkedHashSet extends IterableFactory[LinkedHashSet] {
       if (h == hash && k == key) this
       else if ((next eq null) || (hash > h)) null
       else next.findEntry(k, h)
-
-    @tailrec
-    final def foreach[U](f: A => U): Unit = {
-      f(key)
-      if (next ne null) next.foreach(f)
-    }
-
-    @tailrec
-    final def foreachEntry[U](f: A => U): Unit = {
-      f(key)
-      if (next ne null) next.foreachEntry(f)
-    }
   }
 
- private[collection] final def defaultLoadFactor: Double = 0.75 // corresponds to 75%
+  /** The default load factor for the hash table */
+ private[collection] final def defaultLoadFactor: Double = 0.75
 
   /** The default initial capacity for the hash table */
   private[collection] final def defaultinitialSize: Int = 16
