@@ -1148,8 +1148,12 @@ trait Contexts { self: Analyzer =>
           case NoSymbol if inaccessible ne null => inaccessible
           case NoSymbol                         => LookupNotFound
           case _                                =>
-            if (qual.symbol != null && qual.symbol.isPackage && qual.symbol.moduleClass != sym.owner)
-              qual.setSymbol(sym.owner.sourceModule)
+            val owner = sym.owner
+            // for symbols in package object, the qualifier symbol is the package (not the package object).
+            // `makeAccessible` will add the package object selection.
+            val ownerToCompare = if (owner.isPackageObjectClass) owner.owner else owner
+            if (qual.symbol != null && qual.symbol.isPackage && qual.symbol.moduleClass != ownerToCompare)
+              qual.setSymbol(ownerToCompare.sourceModule)
             LookupSucceeded(qual, sym)
         }
       )
