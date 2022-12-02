@@ -59,24 +59,18 @@ trait Namers extends MethodSynthesis {
       val declsList = packageClassSym.info.decls.toList
       val (packDecls, nonPackDecls) = declsList.partition(_.hasPackageFlag)
       val packDeclNames = packDecls.map(_.name).toSet
-      def enter(sym: Symbol): Unit = {
+      def enter(sym: Symbol, orig: Pack): Unit = {
         val scope = packageClassSym.info.decls
         if (scope.lookupSymbolEntry(sym) == null) {
+          sym.updateAttachment(SmooshOriginAttachment(orig.sym))
           scope.enter(sym)
         }
       }
     }
     def smoosh(p1: Pack, p2: Pack): Unit = {
-      p2.nonPackDecls.foreach(p1.enter(_))
+      p2.nonPackDecls.foreach(p1.enter(_, p2))
 
       val sharedNames = p1.packDeclNames.intersect(p2.packDeclNames)
-      p1.packDecls.foreach { p1Decl =>
-        p2.packDecls.find(_.name == p1Decl.name) match {
-          case None =>
-          case Some(p2Decl) =>
-            smoosh(new Pack(p1Decl), new Pack(p2Decl))
-        }
-      }
       p2.packDecls.foreach { p2Decl =>
         if (sharedNames.contains(p2Decl.name)) {
           val p1Decl = p1.packDecls.find(_.name == p2Decl.name).get
@@ -84,7 +78,7 @@ trait Namers extends MethodSynthesis {
         } else {
           val dummySelect        = Select(gen.mkAttributedRef(p1.packageClassSym.sourceModule), p2Decl.name)
           val p2DeclClone = newNamer(NoContext.make(EmptyTree, RootClass)).createPackageSymbol(NoPosition, dummySelect)
-          p1.enter(p2DeclClone)
+          p1.enter(p2DeclClone, p2)
           smoosh(new Pack(p2DeclClone), new Pack(p2Decl))
         }
       }

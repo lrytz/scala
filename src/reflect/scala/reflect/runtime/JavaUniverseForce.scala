@@ -68,6 +68,7 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     this.TypeParamVarargsAttachment
     this.KnownDirectSubclassesCalled
     this.ChangeOwnerAttachment
+    this.SmooshOriginAttachment
     this.noPrint
     this.typeDebug
     // inaccessible: this.posAssigner

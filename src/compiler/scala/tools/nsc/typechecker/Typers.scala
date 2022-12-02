@@ -5132,6 +5132,12 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
             handleMissing
           }
           else {
+            if (qual.symbol != null && qual.symbol.hasPackageFlag) sym.attachments.all.find {
+              case SmooshOriginAttachment(op) =>
+                if (op != qual.symbol) qual.setSymbol(op)
+                true
+              case _ => false
+            }
             val tree1 = tree match {
               case Select(_, _) => treeCopy.Select(tree, qual, name)
               case SelectFromTypeTree(_, _) => treeCopy.SelectFromTypeTree(tree, qual, name)

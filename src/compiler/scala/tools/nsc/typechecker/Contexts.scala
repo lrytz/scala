@@ -1148,12 +1148,12 @@ trait Contexts { self: Analyzer =>
           case NoSymbol if inaccessible ne null => inaccessible
           case NoSymbol                         => LookupNotFound
           case _                                =>
-            val owner = sym.owner
-            // for symbols in package object, the qualifier symbol is the package (not the package object).
-            // `makeAccessible` will add the package object selection.
-            val ownerToCompare = if (owner.isPackageObjectClass) owner.owner else owner
-            if (qual.symbol != null && qual.symbol.isPackage && qual.symbol.moduleClass != ownerToCompare)
-              qual.setSymbol(ownerToCompare.sourceModule)
+            if (qual.symbol != null && qual.symbol.hasPackageFlag) sym.attachments.all.find {
+              case SmooshOriginAttachment(op) =>
+                if (op != qual.symbol) qual.setSymbol(op)
+                true
+              case _ => false
+            }
             LookupSucceeded(qual, sym)
         }
       )
