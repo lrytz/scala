@@ -795,6 +795,15 @@ trait Namers extends MethodSynthesis {
       tree.symbol = enterClassSymbol(tree)
       tree.symbol setInfo completerOf(tree)
 
+      // ensure completion before patmat (unit is not run for java, so add check directly to phase)
+      if (tree.symbol.isJava) {
+        val sym = tree.symbol
+        currentRun.typerPhase match {
+          case ph: typerFactory.TyperPhase => ph.addCheckAfterTyper(() => sym.initialize)
+          case _ =>
+        }
+      }
+
       if (mods.isCase) {
         val m = ensureCompanionObject(tree, caseModuleDef)
         m.moduleClass.updateAttachment(new ClassForCaseCompanionAttachment(tree))
