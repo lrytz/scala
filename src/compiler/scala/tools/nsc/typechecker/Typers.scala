@@ -2639,6 +2639,14 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       val selector1  = checkDead(context, typedByValueExpr(selector))
       val selectorTp = packCaptured(selector1.tpe.widen).skolemizeExistential(context.owner, selector)
       val casesTyped = typedCases(cases, selectorTp, pt)
+      def initChildren(sym: Symbol): Unit = if (sym.isJava && sym.isSealed) {
+        sym.attachments.get[PermittedSubclassSymbols].foreach(_.permits.foreach(child => {
+          child.initialize
+          initChildren(child)
+        }))
+      }
+
+      initChildren(selectorTp.typeSymbol)
 
       def finish(cases: List[CaseDef], matchType: Type) =
         treeCopy.Match(tree, selector1, cases) setType matchType
