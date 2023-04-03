@@ -2644,6 +2644,12 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           child.initialize
           initChildren(child)
         }))
+        patmat.javaClassesByUnit.get(sym.pos.source).foreach(_.foreach(c => {
+          if (c.parentSymbols.contains(sym)) {
+            c.initialize
+            initChildren(c)
+          }
+        }))
       }
 
       initChildren(selectorTp.typeSymbol)
