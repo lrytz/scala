@@ -31,9 +31,17 @@ class StoreReporter(val settings: Settings) extends FilteringReporter {
 
   val infos = new mutable.LinkedHashSet[StoreReporter.Info]
 
+  private lazy val semanticdbReporterUnderlying: Option[FilteringReporter] =
+    Option.when(getClass.getSimpleName == "SemanticdbReporter") {
+      val f = getClass.getDeclaredField("underlying")
+      f.setAccessible(true)
+      f.get(this).asInstanceOf[FilteringReporter]
+    }
+
   override def doReport(pos: Position, msg: String, severity: Severity, actions: List[CodeAction]): Unit = {
     val info = StoreReporter.Info(pos, msg, severity, actions)
     infos += info
+    semanticdbReporterUnderlying.foreach(_.doReport(pos, msg, severity, actions))
   }
 
   override def reset(): Unit = {
