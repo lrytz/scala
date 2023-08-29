@@ -162,7 +162,8 @@ trait Contexts { self: Analyzer =>
             // force package objects in prefixes
             def force(pkg: String, next: String): String = {
               val full = if (pkg.isEmpty) next else s"$pkg.$next"
-              getPackageIfDefined(full).tap(sym => if (sym != NoSymbol) openPackageModule(sym, force = true))
+              val sym = getPackageIfDefined(full)
+              if (sym != NoSymbol) openPackageModule(sym, force = true)
               full
             }
             name.split('.').toList.init.foldLeft("")(force)
@@ -420,9 +421,9 @@ trait Contexts { self: Analyzer =>
           val dictClass = {
             class DictionarySubstituter extends TreeSymSubstituter(preSyms, postSyms) {
               override def transform(tree: Tree): Tree = {
-                if(tree.hasExistingSymbol) {
+                if (tree.hasExistingSymbol) {
                   val sym = tree.symbol
-                  symMap.get(sym.owner).map(sym.owner = _)
+                  symMap.get(sym.owner).foreach(sym.owner = _)
                 }
                 super.transform(tree)
               }
@@ -1636,7 +1637,11 @@ trait Contexts { self: Analyzer =>
           done = (cx eq NoContext) || foundCompetingSymbol()
           if (!done && (cx ne NoContext)) cx = cx.outer
         }
-        if (defSym.exists && (defSym ne defSym0)) {
+        val nonOverlapping = defSym.exists && {
+          if (defSym.isOverloaded || defSym0.isOverloaded) !defSym.alternatives.exists(defSym0.alternatives.contains)
+          else defSym ne defSym0
+        }
+        if (nonOverlapping) {
           val ambiguity =
             if (preferDef) ambiguousDefinitions(defSym, defSym0, wasFoundInSuper, cx0.enclClass.owner, thisContext.enclClass.owner)
             else Some(ambiguousDefnAndImport(owner = defSym.owner, imp1))
@@ -1851,7 +1856,7 @@ trait Contexts { self: Analyzer =>
 
   private[typechecker] class ImmediateReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[ContextWarning] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {
     override def makeBuffering: ContextReporter = new BufferingReporter(errorBuffer, warningBuffer)
-    def error(pos: Position, msg: String, actions: List[CodeAction]): Unit = reporter.error(pos, msg, actions)
+    def error(pos: Position, msg: String, actions: List[CodeAction]): Unit = runReporting.error(pos, msg, actions)
  }
 
   private[typechecker] class BufferingReporter(_errorBuffer: mutable.LinkedHashSet[AbsTypeError] = null, _warningBuffer: mutable.LinkedHashSet[ContextWarning] = null) extends ContextReporter(_errorBuffer, _warningBuffer) {

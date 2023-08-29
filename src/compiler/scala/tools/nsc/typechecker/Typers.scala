@@ -15,16 +15,10 @@ package tools.nsc
 package typechecker
 
 import scala.annotation.{tailrec, unused}
-import scala.collection.mutable, mutable.ListBuffer
+import scala.collection.mutable
+import mutable.ListBuffer
 import scala.reflect.internal.{Chars, TypesStats}
-import scala.reflect.internal.util.{
-  CodeAction,
-  FreshNameCreator,
-  ListOfNil,
-  Statistics,
-  StringContextStripMarginOps,
-  TextEdit,
-}
+import scala.reflect.internal.util.{CodeAction, FreshNameCreator, ListOfNil, Statistics, StringContextStripMarginOps}
 import scala.tools.nsc.Reporting.{MessageFilter, Suppression, WConf, WarningCategory}
 import scala.util.chaining._
 import symtab.Flags._
@@ -971,15 +965,12 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         // This means an accessor that overrides a Java-defined method gets a MethodType instead of a NullaryMethodType, which breaks lots of assumptions about accessors)
         def checkCanAutoApply(): Boolean = {
           if (!isPastTyper && !matchNullaryLoosely) {
-            val description =
+            val msg =
               s"""Auto-application to `()` is deprecated. Supply the empty argument list `()` explicitly to invoke method ${meth.decodedName},
                  |or remove the empty argument list from its definition (Java-defined methods are exempt).
                  |In Scala 3, an unapplied method like this will be eta-expanded into a function.""".stripMargin
-            val actions = if (tree.pos.isRange)
-                List(CodeAction("auto-application of empty-paren methods", Some(description),
-                  List(TextEdit(tree.pos.focusEnd, "()"))))
-              else Nil
-            context.deprecationWarning(tree.pos, NoSymbol, description, "2.13.3", actions)
+            val action = runReporting.codeAction("add `()`", tree.pos.focusEnd, "()", msg)
+            context.deprecationWarning(tree.pos, NoSymbol, msg, "2.13.3", action)
           }
           true
         }
@@ -1142,15 +1133,20 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               def longWidened = tpSym == LongClass && targetIsWide
               intWidened || longWidened
             }
-            if (isInharmonic)
+            if (isInharmonic) {
               // not `context.deprecationWarning` because they are not buffered in silent mode
-              context.warning(tree.pos, s"Widening conversion from ${tpSym.name} to ${ptSym.name} is deprecated because it loses precision. Write `.to${ptSym.name}` instead.", WarningCategory.Deprecation)
-            else {
+              val msg = s"Widening conversion from ${tpSym.name} to ${ptSym.name} is deprecated because it loses precision. Write `.to${ptSym.name}` instead."
+              val orig = currentUnit.sourceAt(tree.pos)
+              context.warning(tree.pos, msg, WarningCategory.Deprecation,
+                runReporting.codeAction("add conversion", tree.pos, s"${CodeAction.maybeWrapInParens(orig)}.to${ptSym.name}", msg))
+            } else {
               object warnIntDiv extends Traverser {
                 def isInt(t: Tree) = ScalaIntegralValueClasses(t.tpe.typeSymbol)
                 override def traverse(tree: Tree): Unit = tree match {
                   case Apply(Select(q, nme.DIV), _) if isInt(q) =>
-                    context.warning(tree.pos, s"integral division is implicitly converted (widened) to floating point. Add an explicit `.to${ptSym.name}`.", WarningCategory.LintIntDivToFloat)
+                    val msg = s"integral division is implicitly converted (widened) to floating point. Add an explicit `.to${ptSym.name}`."
+                    context.warning(tree.pos, msg, WarningCategory.LintIntDivToFloat,
+                      runReporting.codeAction("add conversion", tree.pos, s"(${currentUnit.sourceAt(tree.pos)}).to${ptSym.name}", msg))
                   case Apply(Select(a1, _), List(a2)) if isInt(tree) && isInt(a1) && isInt(a2) => traverse(a1); traverse(a2)
                   case Select(q, _) if isInt(tree) && isInt(q) => traverse(q)
                   case _ =>
@@ -1611,9 +1607,11 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       // we'll have to check the probe for isTypeMacro anyways.
       // therefore I think it's reasonable to trade a more specific "inherits itself" error
       // for a generic, yet understandable "cyclic reference" error
-      var probe = typedTypeConstructor(core.duplicate).tpe.typeSymbol
-      if (probe == null) probe = NoSymbol
-      probe.initialize
+      val probe = {
+        val p = typedTypeConstructor(core.duplicate).tpe.typeSymbol
+        if (p == null) NoSymbol
+        else p.initialize
+      }
 
       def cookIfNeeded(tpt: Tree) = if (context.unit.isJava) tpt modifyType rawToExistential else tpt
       cookIfNeeded(if (probe.isTrait || inMixinPosition) {
@@ -2311,10 +2309,6 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         case Nil => ""
         case xs  => xs.map(_.nameString).mkString(" (of ", " with ", ")")
       }
-      def fail(pos: Position, msg: String): Boolean = {
-        context.error(pos, msg)
-        false
-      }
       /* Have to examine all parameters in all lists.
        */
       def paramssTypes(tp: Type): List[List[Type]] = tp match {
@@ -2326,8 +2320,16 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
       def nthParamPos(n1: Int, n2: Int) =
         try ddef.vparamss(n1)(n2).pos catch { case _: IndexOutOfBoundsException => meth.pos }
 
-      def failStruct(pos: Position, what: String, where: String = "Parameter type") =
-        fail(pos, s"$where in structural refinement may not refer to $what")
+      def failStruct(pos: Position, member: String, referTo: String): Unit =
+        context.error(pos, s"$member in structural refinement may not refer to $referTo")
+      def failStructAbstractType(pos: Position, member: String): false = {
+        failStruct(pos, member, referTo="an abstract type defined outside that refinement")
+        false
+      }
+      def failStructTypeMember(pos: Position, member: String): false = {
+        failStruct(pos, member, referTo="a type member of that refinement")
+        false
+      }
 
       foreachWithIndex(paramssTypes(meth.tpe)) { (paramList, listIdx) =>
         foreachWithIndex(paramList) { (paramType, paramIdx) =>
@@ -2342,8 +2344,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           def checkAbstract(tp0: Type, what: String): Boolean = {
             def check(sym: Symbol): Boolean = !sym.isAbstractType || {
               log(s"""checking $tp0 in refinement$parentString at ${meth.owner.owner.fullLocationString}""")
-              (    (!sym.hasTransOwner(meth.owner) && failStruct(paramPos, "an abstract type defined outside that refinement", what))
-                || (!sym.hasTransOwner(meth) && failStruct(paramPos, "a type member of that refinement", what))
+              (    (!sym.hasTransOwner(meth.owner) && failStructAbstractType(paramPos, what))
+                || (!sym.hasTransOwner(meth) && failStructTypeMember(paramPos, what))
                 || checkAbstract(sym.info.upperBound, "Type bound")
               )
             }
@@ -2352,13 +2354,13 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           checkAbstract(paramType, "Parameter type")
 
           if (sym.isDerivedValueClass)
-            failStruct(paramPos, "a user-defined value class")
+            failStruct(paramPos, member="Parameter type", referTo="a user-defined value class")
           if (paramType.isInstanceOf[ThisType] && sym == meth.owner)
-            failStruct(paramPos, "the type of that refinement (self type)")
+            failStruct(paramPos, member="Parameter type", referTo="the type of that refinement (self type)")
         }
       }
       if (resultType.typeSymbol.isDerivedValueClass)
-        failStruct(ddef.tpt.pos, "a user-defined value class", where = "Result type")
+        failStruct(ddef.tpt.pos, member="Result type", referTo="a user-defined value class")
     }
 
     def typedDefDef(ddef: DefDef): DefDef = {
@@ -3837,7 +3839,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
                     lit.attachments.get[OriginalTreeAttachment] match {
                       case Some(OriginalTreeAttachment(id: Ident)) if rightAssocValDefs.contains(id.symbol) =>
                         inlinedRightAssocValDefs += id.symbol
-                        rightAssocValDefs.remove(id.symbol)
+                        rightAssocValDefs.subtractOne(id.symbol)
                       case _ =>
                     }
 
@@ -4013,6 +4015,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         reportAnnotationError(DoesNotExtendAnnotation(typedFun, annTypeSym))
         return finish(ErroneousAnnotation)
       }
+      if (currentRun.isScala3 && (/*annTypeSym.eq(SpecializedClass) ||*/ annTypeSym.eq(ElidableMethodClass)))
+        context.warning(ann.pos, s"@${annTypeSym.fullNameString} is ignored in Scala 3", WarningCategory.Scala3Migration)
 
       /* Calling constfold right here is necessary because some trees (negated
        * floats and literals in particular) are not yet folded.
@@ -4968,12 +4972,22 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
 
           val result = typed(Function(Nil, methodValue) setSymbol funSym setPos pos, mode, pt)
 
-          if (currentRun.isScala3) {
-            UnderscoreNullaryEtaError(methodValue)
-          } else {
-            context.deprecationWarning(pos, NoSymbol, UnderscoreNullaryEtaWarnMsg, "2.13.2")
-            result
+          val msg = "Methods without a parameter list and by-name params can no longer be converted to functions as `m _`, " +
+            "write a function literal `() => m` instead"
+
+          val action = {
+            val etaPos = pos.withEnd(pos.end + 2)
+            if (currentUnit.sourceAt(etaPos).endsWith(" _"))
+              runReporting.codeAction("replace by function literal", etaPos, s"() => ${currentUnit.sourceAt(pos)}", msg)
+            else Nil
           }
+
+          if (currentRun.isScala3)
+            context.warning(pos, msg, WarningCategory.Scala3Migration, action)
+          else
+            context.deprecationWarning(pos, NoSymbol, msg, "2.13.2", action)
+
+          result
 
         case ErrorType =>
           methodValue
@@ -5460,7 +5474,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               case SelectFromTypeTree(qual@TypeTree(), name) if qual.tpe.typeArgs.nonEmpty => // TODO: somehow the new qual is not checked in refchecks
                 treeCopy.SelectFromTypeTree(
                   result,
-                  TypeTreeWithDeferredRefCheck() { () => val tp = qual.tpe; val sym = tp.typeSymbolDirect
+                  TypeTreeWithDeferredRefCheck(qual) { () => val tp = qual.tpe; val sym = tp.typeSymbolDirect
                     // will execute during refchecks -- TODO: make private checkTypeRef in refchecks public and call that one?
                     checkBounds(qual, tp.prefix, sym.owner, sym.typeParams, tp.typeArgs, "")
                     qual // you only get to see the wrapped tree after running this check :-p
@@ -5570,7 +5584,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           case LookupSucceeded(qual, sym)   =>
             sym.getAndRemoveAttachment[LookupAmbiguityWarning].foreach(w => {
               val cat = if (currentRun.isScala3) WarningCategory.Scala3Migration else WarningCategory.Other
-              val fix = List(CodeAction("ambiguous reference", Some(w.msg), List(TextEdit(tree.pos.focusStart, w.fix))))
+              val fix = runReporting.codeAction("make reference explicit", tree.pos.focusStart, w.fix, w.msg)
               runReporting.warning(tree.pos, w.msg, cat, context.owner, fix)
             })
             (// this -> Foo.this
@@ -5698,7 +5712,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
             val result = TypeTree(appliedType(tpt1.tpe, argtypes)) setOriginal original
             val isPoly = tpt1.tpe.isInstanceOf[PolyType]
             if (isPoly) // did the type application (performed by appliedType) involve an unchecked beta-reduction?
-              TypeTreeWithDeferredRefCheck() { () =>
+              TypeTreeWithDeferredRefCheck(result) { () =>
                 // wrap the tree and include the bounds check -- refchecks will perform this check (that the beta reduction was indeed allowed) and unwrap
                 // we can't simply use original in refchecks because it does not contains types
                 // (and the only typed trees we have been mangled so they're not quite the original tree anymore)
@@ -6036,7 +6050,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         case tree: SelectFromTypeTree           => typedSelect(tree, typedType(tree.qualifier, mode), tree.name)
         case tree: CompoundTypeTree             => typedCompoundTypeTree(tree)
         case tree: ExistentialTypeTree          => typedExistentialTypeTree(tree)
-        case tree: TypeTreeWithDeferredRefCheck => tree // TODO: retype the wrapped tree? TTWDRC would have to change to hold the wrapped tree (not a closure)
+        case tree: TypeTreeWithDeferredRefCheck => tree // TODO: retype the wrapped tree?
         case _                                  => abort(s"unexpected type-representing tree: ${tree.getClass}\n$tree")
       }
 

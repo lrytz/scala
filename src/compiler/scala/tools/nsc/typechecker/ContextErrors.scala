@@ -59,7 +59,7 @@ trait ContextErrors extends splain.SplainErrors {
     def errPos = underlyingTree.pos
   }
 
-  case class NormalTypeError(underlyingTree: Tree, errMsg: String)
+  case class NormalTypeError(underlyingTree: Tree, errMsg: String, override val actions: List[CodeAction] = Nil)
     extends TreeTypeError
 
   case class AccessTypeError(underlyingTree: Tree, errMsg: String)
@@ -104,8 +104,8 @@ trait ContextErrors extends splain.SplainErrors {
     extends AbsTypeError
 
   object ErrorUtils {
-    def issueNormalTypeError(tree: Tree, msg: String)(implicit context: Context): Unit = {
-      issueTypeError(NormalTypeError(tree, msg))
+    def issueNormalTypeError(tree: Tree, msg: String, actions: List[CodeAction] = Nil)(implicit context: Context): Unit = {
+      issueTypeError(NormalTypeError(tree, msg, actions))
     }
 
     def issueSymbolTypeError(sym: Symbol, msg: String)(implicit context: Context): Unit = {
@@ -196,8 +196,14 @@ trait ContextErrors extends splain.SplainErrors {
         s"Implicit definition ${if (currentRun.isScala3) "must" else "should"} have explicit type${
           if (!inferred.isErroneous) s" (inferred $inferred)" else ""
         }"
-      if (currentRun.isScala3) cx.warning(tree.pos, msg, WarningCategory.Scala3Migration)
-      else cx.warning(tree.pos, msg, WarningCategory.OtherImplicitType)
+      // Assumption: tree.pos.focus points to the beginning of the name.
+      // DefTree doesn't give the name position; also it can be a synthetic accessor DefDef with only offset pos.
+      val namePos = tree.pos.focus.withEnd(tree.pos.point + tree.symbol.decodedName.length)
+      val action =
+        if (currentUnit.sourceAt(namePos) == tree.symbol.decodedName) runReporting.codeAction("insert explicit type", namePos.focusEnd, s": $inferred", msg)
+        else Nil
+      if (currentRun.isScala3) cx.warning(tree.pos, msg, WarningCategory.Scala3Migration, action)
+      else cx.warning(tree.pos, msg, WarningCategory.OtherImplicitType, action)
     }
     val sym = tree.symbol
     // Defer warning field of class until typing getter (which is marked implicit)
@@ -216,7 +222,7 @@ trait ContextErrors extends splain.SplainErrors {
     object TyperErrorGen {
       implicit val contextTyperErrorGen: Context = infer.getContext
 
-      def UnstableTreeError(tree: Tree) = {
+      def UnstableTreeError(tree: Tree): tree.type = {
         def addendum = {
           "\n Note that "+tree.symbol+" is not stable because its type, "+tree.tpe+", is volatile."
         }
@@ -502,7 +508,7 @@ trait ContextErrors extends splain.SplainErrors {
         //setError(sel)
       }
 
-      def SelectWithUnderlyingError(sel: Tree, err: AbsTypeError) = {
+      def SelectWithUnderlyingError(sel: Tree, err: AbsTypeError): sel.type = {
         // if there's no position, this is likely the result of a MissingRequirementError
         // use the position of the selection we failed to type check to report the original message
         if (err.errPos == NoPosition) issueNormalTypeError(sel, err.errMsg)
@@ -522,19 +528,6 @@ trait ContextErrors extends splain.SplainErrors {
 
       def DoesNotConformToSelfTypeError(tree: Tree, sym: Symbol, tpe0: Type) = {
         issueNormalTypeError(tree, s"$sym cannot be instantiated because it does not conform to its self-type $tpe0")
-        setError(tree)
-      }
-
-      //typedEta
-      private def mkUnderscoreNullaryEtaMessage(what: String) =
-        s"Methods without a parameter list and by-name params can $what be converted to functions as `m _`, " +
-          "write a function literal `() => m` instead"
-
-      final val UnderscoreNullaryEtaWarnMsg  = mkUnderscoreNullaryEtaMessage("no longer")
-      final val UnderscoreNullaryEtaErrorMsg = mkUnderscoreNullaryEtaMessage("not")
-
-      def UnderscoreNullaryEtaError(tree: Tree) = {
-        issueNormalTypeError(tree, UnderscoreNullaryEtaErrorMsg)
         setError(tree)
       }
 
@@ -754,12 +747,12 @@ trait ContextErrors extends splain.SplainErrors {
       }
 
       //checkClassType
-      def TypeNotAStablePrefixError(tpt: Tree, pre: Type) = {
+      def TypeNotAStablePrefixError(tpt: Tree, pre: Type): tpt.type = {
         issueNormalTypeError(tpt, "type "+pre+" is not a stable prefix")
         setError(tpt)
       }
 
-      def ClassTypeRequiredError(tree: Tree, found: AnyRef) = {
+      def ClassTypeRequiredError(tree: Tree, found: AnyRef): tree.type = {
         issueNormalTypeError(tree, "class type required but "+found+" found")
         setError(tree)
       }
@@ -1168,7 +1161,7 @@ trait ContextErrors extends splain.SplainErrors {
           "\n --- because ---\n" + msg)
 
       // TODO: no test case
-      def NoConstructorInstanceError(tree: Tree, restpe: Type, pt: Type, msg: String) = {
+      def NoConstructorInstanceError(tree: Tree, restpe: Type, pt: Type, msg: String): Unit = {
         issueNormalTypeError(tree,
           "constructor of type " + restpe +
           " cannot be uniquely instantiated to expected type " + pt +

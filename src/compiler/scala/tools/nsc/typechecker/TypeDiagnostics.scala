@@ -369,7 +369,7 @@ trait TypeDiagnostics extends splain.SplainDiagnostics {
     private val savedName = sym.name
     private var postQualifiedWith: List[Symbol] = Nil
     def restoreName()     = sym.name = savedName
-    def modifyName(f: String => String) = sym setName newTypeName(f(sym.name.toString))
+    def modifyName(f: String => String): Unit = sym setName newTypeName(f(sym.name.toString))
 
     // functions to manipulate the name
     def preQualify()   = modifyName(trueOwner.fullName + "." + _)
@@ -550,21 +550,30 @@ trait TypeDiagnostics extends splain.SplainDiagnostics {
               else if (!sym.isConstructor && !sym.isVar && !isTrivial(rhs))
                 for (vs <- vparamss) params ++= vs.map(_.symbol)
               defnTrees += m
+            case TypeDef(mods@_, name@_, tparams@_, rhs@_) =>
+              if (!sym.isAbstract && !sym.isDeprecated)
+                defnTrees += m
             case _ =>
               defnTrees += m
-        }
+          }
         case CaseDef(pat, guard@_, rhs@_) if settings.warnUnusedPatVars && !t.isErrorTyped =>
           pat.foreach {
             case b @ Bind(n, _) if !atBounded(b) && n != nme.DEFAULT_CASE => patvars += b.symbol
             case _ =>
-        }
+          }
         case _: RefTree if isExisting(sym)            => targets += sym
         case Assign(lhs, _) if isExisting(lhs.symbol) => setVars += lhs.symbol
         case Function(ps, _) if settings.warnUnusedParams && !t.isErrorTyped => params ++=
           ps.filterNot(p => atBounded(p) || p.symbol.isSynthetic).map(_.symbol)
         case Literal(_) =>
           t.attachments.get[OriginalTreeAttachment].foreach(ota => traverse(ota.original))
-        case _                                        =>
+        case tt: TypeTree =>
+          tt.original match {
+            case null =>
+            case xo if xo ne tt => traverse(xo)
+            case _ =>
+          }
+        case _ =>
       }
 
       if (t.tpe ne null) {
@@ -764,7 +773,7 @@ trait TypeDiagnostics extends splain.SplainDiagnostics {
             if (s.name.startsWith(nme.EVIDENCE_PARAM_PREFIX)) s"evidence parameter ${s.nameString} of type ${s.tpe}"
             else s"parameter ${s.nameString}"
           val where =
-            if (s.owner.isAnonymousFunction) "anonymous function" else s.owner
+            if (s.owner.isAnonymousFunction) "anonymous function" else s.owner.toString
           emitUnusedWarning(s.pos, s"$what in $where is never used", WarningCategory.UnusedParams, s)
         }
       }
