@@ -1,3 +1,5 @@
+> set scalacOptions += "-Werror"
+
 > compile
 
 # have new class E extend A

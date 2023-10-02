@@ -1,3 +1,5 @@
+> set scalacOptions += "-Werror"
+
 > compile
 
 # Introduce a new class C that also extends A
