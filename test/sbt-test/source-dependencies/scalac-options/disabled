@@ -1,3 +1,5 @@
+> setup; reload
+
 > set incOptions := incOptions.value.withIgnoredScalacOptions(Array("-Werror"))
 > set scalacOptions ++= Seq("-Werror", "-deprecation")
 

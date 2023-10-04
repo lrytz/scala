@@ -1,3 +1,5 @@
+> setup; reload
+
 > macro-client/compile
 
 # replace macro with one that throws an error

@@ -1,3 +1,5 @@
+> setup; reload
+
 > compile
 
 > checkDependencies A: B

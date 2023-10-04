@@ -967,8 +967,8 @@ lazy val sbtTest = project.in(file("test") / "sbt-test")
 
     scriptedLaunchOpts ++= Seq(
       "-Dplugin.scalaVersion=" + version.value,
-      "-Dsbt.boot.directory=" + (target.value / ".sbt-scripted").getAbsolutePath // Workaround sbt/sbt#3469
-
+      "-Dsbt.boot.directory=" + (target.value / ".sbt-scripted").getAbsolutePath, // Workaround sbt/sbt#3469
+      "-Dscripted.common=" + (baseDirectory.value / "common.sbt.template").getAbsolutePath,
     ),
 
     // Pass along ivy home and repositories settings to sbt instances run from the tests

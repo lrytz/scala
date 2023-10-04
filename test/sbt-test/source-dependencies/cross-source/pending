@@ -1,3 +1,5 @@
+> setup; reload
+
 # A.scala needs B.scala, it won't be in source list
 > ++2.11.4
 -> compile

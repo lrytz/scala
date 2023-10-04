@@ -1,3 +1,5 @@
+> setup; reload
+
 > compile
 > checkProducts A.java: ${BASE}/target/classes/A.class ${BASE}/target/classes/A$B.class
 > checkProducts C.java: ${BASE}/target/classes/C.class
