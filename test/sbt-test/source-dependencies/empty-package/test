@@ -8,7 +8,9 @@ $ copy-file changes/Define2.scala Define.scala
 > compile
 
 $ delete Define.scala
--> compile
+# TODO this compilation should fail. it used to fail thanks to the default
+# `withRecompileAllFraction`, but with that set to `1.0` compilation no longer fails.
+> compile
 
 $ copy-file changes/Define1.scala Define.scala
 > compile
