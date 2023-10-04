@@ -1200,6 +1200,7 @@ lazy val partests = List(
 lazy val remainingTests = List(
   (osgiTestFelix   / Test / Keys.test).result.map(_ -> "osgiTestFelix/test"),
   (osgiTestEclipse / Test / Keys.test).result.map(_ -> "osgiTestEclipse/test"),
+  (sbtTest / scripted         ).toTask("").result.map(_ -> "sbtTest/scripted"),
   (library / mimaReportBinaryIssues      ).result.map(_ -> "library/mimaReportBinaryIssues"), // doesn't aggregate..
   (reflect / mimaReportBinaryIssues      ).result.map(_ -> "reflect/mimaReportBinaryIssues"), // ..so specify both
   (testJDeps                             ).result.map(_ -> "testJDeps"),
