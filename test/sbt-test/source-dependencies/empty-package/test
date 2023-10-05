@@ -1,5 +1,8 @@
 > setup; reload
 
+> set logLevel := Level.Debug
+> set incOptions := incOptions.value.withRecompileAllFraction(1.0).withApiDebug(true).withRelationsDebug(true)
+
 $ copy-file changes/Define1.scala Define.scala
 $ copy-file changes/Use.scala Use.scala
 > compile
@@ -8,9 +11,14 @@ $ copy-file changes/Define2.scala Define.scala
 > compile
 
 $ delete Define.scala
-# TODO this compilation should fail. it used to fail thanks to the default
-# `withRecompileAllFraction`, but with that set to `1.0` compilation no longer fails.
-> compile
+
+# This compilation should fail, but it doesn't. The `Test` classfiles are deleted, but Use.scala is not re-compiled.
+# initialChanges = InitialChanges(Changes(added = Set(), removed = Set(${BASE}/src/main/scala/Define.scala), changed = Set(), unmodified = ...),Set(),Set(),API Changes: Set())
+# ...
+# About to delete class files:
+# 	Test$.class
+# 	Test.class
+-> compile
 
 $ copy-file changes/Define1.scala Define.scala
 > compile
