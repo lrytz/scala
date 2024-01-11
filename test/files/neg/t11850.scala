@@ -115,7 +115,7 @@ class Tupling {
     case _        => -1
   }
   def err(x: Int, y: Int, z: Int): Int = (x, y, z) match {
-    case Y(x, y)  => x+y // only allow 1-1
+    case Y(x, y)  => x+y // OK
     case _        => -1
   }
 }
@@ -167,7 +167,7 @@ class `multi extraction of singular scrutinee` {
 class `weird but true` {
   val _1 = "yup"
   def test = (42, 27) match {
-    case (_1, 27) => 3 // briefly did not warn as param name
+    case (_1, 27) => 3 // ok, param name
     case _ => 5
   }
 }
@@ -180,6 +180,9 @@ class `derived thing is refinement` {
   }
   t.copy(i = 5) match {
     case t => // ok because deriving from t is another Thing maybe related
+  }
+  identity(t) match {
+    case t =>
   }
 }
 class `kosher selector` {

@@ -217,7 +217,7 @@ trait Warnings {
     val ArgDiscard             = LintWarning("arg-discard",               "-Wvalue-discard for adapted arguments.")
     val IntDivToFloat          = LintWarning("int-div-to-float",          "Warn when an integer division is converted (widened) to floating point: `(someInt / 2): Double`.")
     val NamedBooleans          = LintWarning("named-booleans",            "Boolean literals should be named args unless param is @deprecatedName.")
-    val PatternShadow          = LintWarning("pattern-shadow",            "Pattern variable id is also a term in scope.")
+    val PatternShadow          = LintWarning("pattern-shadow",            "Pattern-bound name shadows symbol in scope. Exceptions: constructor names `case Point(x, y)`, shadowed symbol is part of scrutinee `s.trim match { case s => }`.")
 
     def allLintWarnings = values.toSeq.asInstanceOf[Seq[LintWarning]]
   }
