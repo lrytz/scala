@@ -1005,7 +1005,8 @@ class TreeUnpickler[Tasty <: TastyUniverse](
             nextUnsharedTag match {
               case APPLY | TYPEAPPLY | BLOCK => readTerm()(parentWithOuter).tpe
               case _ => readTpt()(parentCtx).tpe
-            }
+            },
+            isJava
           )
         }
       }
