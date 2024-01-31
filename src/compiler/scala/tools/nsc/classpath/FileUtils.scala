@@ -26,6 +26,8 @@ object FileUtils {
 
     def isClass: Boolean = !file.isDirectory && (file.hasExtension("class") || file.hasExtension("sig") || file.hasExtension("tasty"))
 
+    def hasTastyExtension: Boolean = file.hasExtension("tasty")
+
     def isScalaOrJavaSource: Boolean = !file.isDirectory && (file.hasExtension("scala") || file.hasExtension("java"))
 
     def isJarOrZip: Boolean = file.isInstanceOf[ZipArchive] || !file.isDirectory && (file.hasExtension("jar") || file.hasExtension("zip"))

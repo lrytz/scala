@@ -57,6 +57,9 @@ private[nsc] case class ClassFileEntryImpl(file: AbstractFile) extends ClassFile
 
   override def binary: Option[AbstractFile] = Some(file)
   override def source: Option[AbstractFile] = None
+
+  override def withBinary(bin: AbstractFile): ClassRepresentation = ClassFileEntryImpl(bin)
+  override def withSource(srcFile: AbstractFile): ClassRepresentation = ClassAndSourceFilesEntry(file, srcFile)
 }
 
 private[nsc] case class SourceFileEntryImpl(file: AbstractFile) extends SourceFileEntry {
@@ -65,6 +68,9 @@ private[nsc] case class SourceFileEntryImpl(file: AbstractFile) extends SourceFi
 
   override def binary: Option[AbstractFile] = None
   override def source: Option[AbstractFile] = Some(file)
+
+  override def withBinary(bin: AbstractFile): ClassRepresentation = ClassAndSourceFilesEntry(bin, file)
+  override def withSource(srcFile: AbstractFile): ClassRepresentation = SourceFileEntryImpl(srcFile)
 }
 
 private[nsc] case class ClassAndSourceFilesEntry(classFile: AbstractFile, srcFile: AbstractFile) extends ClassRepresentation {
@@ -72,6 +78,9 @@ private[nsc] case class ClassAndSourceFilesEntry(classFile: AbstractFile, srcFil
   override lazy val name = FileUtils.stripClassExtension(fileName)
   override def binary: Option[AbstractFile] = Some(classFile)
   override def source: Option[AbstractFile] = Some(srcFile)
+
+  override def withBinary(bin: AbstractFile): ClassRepresentation = ClassAndSourceFilesEntry(bin, srcFile)
+  override def withSource(srcFile: AbstractFile): ClassRepresentation = ClassAndSourceFilesEntry(classFile, srcFile)
 }
 
 private[nsc] case class PackageEntryImpl(name: String) extends PackageEntry

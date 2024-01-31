@@ -20,6 +20,8 @@ import scala.reflect.internal.FatalError
 import scala.reflect.io.AbstractFile
 import scala.tools.nsc.util.{ClassPath, ClassRepresentation, EfficientClassPath}
 
+import FileUtils._
+
 /**
  * A classpath unifying multiple class- and sourcepath entries.
  * The Classpath can obtain entries for classes and sources independently
@@ -137,12 +139,14 @@ case class AggregateClassPath(aggregates: Seq[ClassPath]) extends ClassPath {
       val name = entry.name
       if (indices.containsKey(name)) {
         val index = indices.get(name)
-        val existing = mergedEntries(index)
+        var merges = mergedEntries(index)
 
-        if (existing.binary.isEmpty && entry.binary.isDefined)
-          mergedEntries(index) = ClassAndSourceFilesEntry(entry.binary.get, existing.source.get)
-        if (existing.source.isEmpty && entry.source.isDefined)
-          mergedEntries(index) = ClassAndSourceFilesEntry(existing.binary.get, entry.source.get)
+        if (entry.binary.isDefined && (merges.binary.isEmpty || entry.binary.get.hasTastyExtension))
+          merges = merges.withBinary(entry.binary.get)
+        if (entry.source.isDefined && merges.source.isEmpty)
+          merges = merges.withSource(entry.source.get)
+
+        mergedEntries(index) = merges
       }
       else {
         indices.put(name, count)
