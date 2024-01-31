@@ -870,7 +870,7 @@ class TreeUnpickler[Tasty <: TastyUniverse](
             defn.NamedType(sym.owner.thisPrefix, sym.objectImplementation)
           }
           else if (isJava && repr.tflags.is(FlagSets.JavaEnumCase)) defn.ConstantType(tpd.Constant(sym))
-          else if (sym.isFinal && isConstantType(tpe)) defn.InlineExprType(tpe)
+          else if (!isJava && sym.isFinal && isConstantType(tpe)) defn.InlineExprType(tpe)
           else if (sym.isMethod) defn.ExprType(tpe)
           else tpe
         )
