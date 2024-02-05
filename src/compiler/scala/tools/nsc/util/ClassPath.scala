@@ -204,8 +204,6 @@ trait ClassRepresentation {
   def name: String
   def binary: Option[AbstractFile]
   def source: Option[AbstractFile]
-  def withBinary(b: AbstractFile): ClassRepresentation
-  def withSource(b: AbstractFile): ClassRepresentation
 }
 
 @deprecated("shim for sbt's compiler interface", since = "2.12.0")
