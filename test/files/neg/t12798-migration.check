@@ -37,7 +37,7 @@ t12798-migration.scala:18: warning: Unicode escapes in raw interpolations are ig
 t12798-migration.scala:50: warning: access modifiers for `copy` method are copied from the case class constructor
 case class `case mods propagate` private (s: String)
            ^
-t12798-migration.scala:60: warning: under -Xsource:3-cross, the inferred type changes to Option[Int] instead of Some[Int] [quickfixable]
+t12798-migration.scala:60: warning: in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to Option[Int] instead of Some[Int] [quickfixable]
   override def f = Some(27)
                ^
 t12798-migration.scala:50: warning: access modifiers for `apply` method are copied from the case class constructor

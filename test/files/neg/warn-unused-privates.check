@@ -67,7 +67,7 @@ warn-unused-privates.scala:121: warning: private class Bar1 in object Types is n
 warn-unused-privates.scala:123: warning: private type Alias1 in object Types is never used
   private type Alias1 = String // warn
                ^
-warn-unused-privates.scala:233: warning: private class for your eyes only in object not even using companion privates is never used
+warn-unused-privates.scala:233: warning: private class for your eyes only in object `not even using companion privates` is never used
   private implicit class `for your eyes only`(i: Int) {  // warn
                          ^
 warn-unused-privates.scala:249: warning: private class D in class nonprivate alias is enclosing is never used

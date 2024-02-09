@@ -148,4 +148,29 @@ class QuickfixTest extends BytecodeTesting {
         |""".stripMargin
     testQuickfixs(a2s, b2, "-Xsource:3 -quickfix:any")
   }
+
+  @Test def t12942(): Unit = {
+    val a =
+      """trait Trait {
+        |  def foo: Any
+        |}
+        |class Test extends Trait{
+        |  case object `val`
+        |
+        |  override def foo = `val`
+        |}
+        |""".stripMargin
+
+    val b =
+      """trait Trait {
+        |  def foo: Any
+        |}
+        |class Test extends Trait{
+        |  case object `val`
+        |
+        |  override def foo: Test.this.`val`.type = `val`
+        |}
+        |""".stripMargin
+    testQuickfix(a, b, "-Xsource:3 -quickfix:any")
+  }
 }

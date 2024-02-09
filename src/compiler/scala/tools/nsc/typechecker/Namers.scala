@@ -455,6 +455,10 @@ trait Namers extends MethodSynthesis {
       val sym = enterModuleSymbol(tree)
       sym.moduleClass setInfo namerOf(sym).moduleClassTypeCompleter(tree)
       sym setInfo completerOf(tree)
+      if (tree.hasAttachment[BackquotedIdentifierAttachment.type]) {
+        sym.updateAttachment(BackquotedIdentifierAttachment)
+        sym.moduleClass.updateAttachment(BackquotedIdentifierAttachment)
+      }
       validateCompanionDefs(tree)
     }
 
@@ -1121,7 +1125,7 @@ trait Namers extends MethodSynthesis {
           val pts = pt.toString
           val leg = legacy.toString
           val help = if (pts != leg) s" instead of $leg" else ""
-          val msg = s"under -Xsource:3-cross, the inferred type changes to $pts$help"
+          val msg = s"in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to $pts$help"
           val src = tree.pos.source
           val pos = {
             val eql = src.indexWhere(_ == '=', start = tree.rhs.pos.start, step = -1)

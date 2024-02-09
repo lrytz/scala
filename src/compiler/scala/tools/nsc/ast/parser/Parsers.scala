@@ -23,6 +23,7 @@ import scala.reflect.internal.util.{CodeAction, FreshNameCreator, ListOfNil, Pos
 import scala.reflect.internal.{Precedence, ModifierFlags => Flags}
 import scala.tools.nsc.Reporting.WarningCategory
 import scala.tools.nsc.ast.parser.Tokens._
+import scala.util.chaining._
 
 /** Historical note: JavaParsers started life as a direct copy of Parsers
  *  but at a time when that Parsers had been replaced by a different one.
@@ -3257,13 +3258,15 @@ self =>
       in.nextToken()
       val nameOffset = in.offset
       checkKeywordDefinition()
+      val bq = in.token == BACKQUOTED_IDENT
       val name = ident()
       val tstart = in.offset
       def orStart(p: Offset) = if (name == tpnme.ERROR) start else p
       val namePos = NamePos(r2p(orStart(nameOffset), orStart(nameOffset)))
       atPos(start, orStart(nameOffset)) {
         val template = templateOpt(mods, if (isPackageObject) nme.PACKAGEkw else name, NoMods, Nil, tstart)
-        ModuleDef(mods, name.toTermName, template).updateAttachment(namePos)
+        ModuleDef(mods, name.toTermName, template).updateAttachment(namePos).tap(m =>
+          if (bq) m.updateAttachment(BackquotedIdentifierAttachment))
       }
     }
 

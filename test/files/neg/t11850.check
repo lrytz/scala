@@ -13,7 +13,7 @@ t11850.scala:202: warning: Name x is already introduced in an enclosing scope as
 t11850.scala:224: warning: Name c is already introduced in an enclosing scope as value c in class pattern matches occasionally appear in pattern-matching anonymous functions. Did you intend to match it using backquoted `c`?
   def f = c.collect { case c if c.flag => c.toString }
                            ^
-t11850.scala:233: warning: Name x is already introduced in an enclosing scope as object x in object is it worth qualifying what kind of term. Did you intend to match it using backquoted `x`?
+t11850.scala:233: warning: Name x is already introduced in an enclosing scope as object x in object `is it worth qualifying what kind of term`. Did you intend to match it using backquoted `x`?
       case x   => 1
            ^
 error: No warnings can be incurred under -Werror.

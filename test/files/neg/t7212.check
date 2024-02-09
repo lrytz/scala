@@ -1,10 +1,10 @@
-t7212.scala:5: warning: under -Xsource:3-cross, the inferred type changes to Object instead of String [quickfixable]
+t7212.scala:5: warning: in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to Object instead of String [quickfixable]
 class K extends T { def f = "" }
                         ^
-t7212.scala:11: warning: under -Xsource:3-cross, the inferred type changes to Object instead of String [quickfixable]
+t7212.scala:11: warning: in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to Object instead of String [quickfixable]
 class F extends T { val f = "" }
                         ^
-t7212.scala:17: warning: under -Xsource:3-cross, the inferred type changes to Object instead of String [quickfixable]
+t7212.scala:17: warning: in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to Object instead of String [quickfixable]
 trait V extends T { var f = "" }
                         ^
 error: No warnings can be incurred under -Werror.

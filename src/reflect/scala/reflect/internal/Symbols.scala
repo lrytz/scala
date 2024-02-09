@@ -2763,7 +2763,9 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      *  If settings.Yshowsymkinds, adds abbreviated symbol kind.
      */
     def nameString: String = {
-      val name_s = if (settings.isDebug) "" + unexpandedName else unexpandedName.dropLocal.decode
+      val name_s =
+        if (this.hasAttachment[BackquotedIdentifierAttachment.type]) s"`${unexpandedName.decode}`"
+        else if (settings.isDebug) "" + unexpandedName else unexpandedName.dropLocal.decode
       val kind_s = if (settings.Yshowsymkinds.value) "#" + abbreviatedKindString else ""
 
       name_s + idString + kind_s

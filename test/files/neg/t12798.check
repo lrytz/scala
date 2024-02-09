@@ -59,7 +59,7 @@ Scala 3 migration messages are errors under -Xsource:3. Use -Wconf / @nowarn to 
 Applicable -Wconf / @nowarn filters for this fatal warning: msg=<part of the message>, cat=scala3-migration, site=case mods propagate
 case class `case mods propagate` private (s: String)
            ^
-t12798.scala:60: error: under -Xsource:3-cross, the inferred type changes to Option[Int] instead of Some[Int] [quickfixable]
+t12798.scala:60: error: in Scala 3 (and in Scala 2 with -Xsource:3-cross), the inferred type changes to Option[Int] instead of Some[Int] [quickfixable]
 Scala 3 migration messages are errors under -Xsource:3. Use -Wconf / @nowarn to filter them or add -Xmigration to demote them to warnings.
 Applicable -Wconf / @nowarn filters for this fatal warning: msg=<part of the message>, cat=scala3-migration, site=Child.f
   override def f = Some(27)
