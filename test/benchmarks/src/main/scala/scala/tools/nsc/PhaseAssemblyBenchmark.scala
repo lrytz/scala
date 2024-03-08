@@ -42,6 +42,7 @@ class PhaseAssemblyBenchmark {
     data = new Data[global.type](global, components )
   }
 
+
   @Benchmark def assemble(): Object = {
     val s = data.asInstanceOf[Data[Global with Singleton]]
     val g = s.global
