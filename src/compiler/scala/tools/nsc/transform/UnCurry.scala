@@ -496,16 +496,13 @@ abstract class UnCurry extends InfoTransform
             withNeedLift(needLift = true) { super.transform(tree) }
 
           case Apply(fn, args) =>
-            // Read the param symbols before `transform(fn)`, because UnCurry replaces T* by Seq[T] (see DesugaredParameterType).
-            // The call to `transformArgs` below needs `formals` that still have varargs.
-            val fnParams = fn.tpe.params
             val transformedFn = transform(fn)
             // scala/bug#6479: no need to lift in args to label jumps
             // scala/bug#11127: boolean && / || are emitted using jumps, the lhs stack value is consumed by the conditional jump
             val noReceiverOnStack = fn.symbol.isLabel || fn.symbol == currentRun.runDefinitions.Boolean_and || fn.symbol == currentRun.runDefinitions.Boolean_or
             val needLift = needTryLift || !noReceiverOnStack
             withNeedLift(needLift) {
-              treeCopy.Apply(tree, transformedFn, transformTrees(transformArgs(tree.pos, fn.symbol, args, fnParams)))
+              treeCopy.Apply(tree, transformedFn, transformTrees(transformArgs(tree.pos, fn.symbol, args, fn.symbol.info.params)))
             }
 
           case Assign(_: RefTree, _) =>
