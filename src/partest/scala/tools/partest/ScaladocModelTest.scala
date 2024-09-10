@@ -88,7 +88,7 @@ abstract class ScaladocModelTest extends DirectTest {
   private[this] var docSettings: doc.Settings = null
 
   // custom settings, silencing "model contains X documentable templates"
-  override def newBaseSettings(): doc.Settings = new doc.Settings(_ => ()).tap(_.scaladocQuietRun = true)
+  override def newSettings(): doc.Settings = new doc.Settings(_ => ()).tap(_.scaladocQuietRun = true)
   override def newSettings(args: List[String]): doc.Settings = super.newSettings(args).asInstanceOf[doc.Settings]
   override def settings: doc.Settings = newSettings(tokenize(s"$extraSettings $scaladocSettings"))
 

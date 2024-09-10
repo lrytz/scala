@@ -10,7 +10,7 @@ object Test extends ScaladocModelTest {
     class C
   """
 
-  override def scaladocSettings = s"-Vdebug -Xplugin:$testOutput -Xplugin-require:ploogin"
+  override def scaladocSettings = s"-Xplugin:$testOutput -Xplugin-require:ploogin"
 
   override def testModel(rootPackage: Package) = ()
 
