@@ -77,7 +77,12 @@ trait ImportTracking { self: Analyzer =>
           val pos = info.posOf(selector)
           val origin = info.fullSelectorString(selector)
           val addendum = checkDeprecatedElementInPath(selector, info)
-          runReporting.warning(pos, s"Unused import$addendum", WarningCategory.UnusedImports, owner, origin, actions)
+          val which = {
+            val imp = info.tree.toString.stripPrefix("import ")
+            if (info.tree.selectors.sizeIs == 1) imp
+            else s"${selector.name} in $imp"
+          }
+          runReporting.warning(pos, s"Unused import $which$addendum", WarningCategory.UnusedImports, owner, origin, actions)
       }
       // If the rest of the line is blank, include it in the final edit position. (Delete trailing whitespace.)
       // If replacement is empty, and the prefix of the line is also blank, then include that, too. (Del blank line.)
