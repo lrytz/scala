@@ -16,7 +16,6 @@ package util
 import scala.annotation.{migration, tailrec}
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.BuildFrom
-import scala.collection.immutable.LazyList
 import scala.language.implicitConversions
 
 class Random(val self: java.util.Random) extends AnyRef with Serializable {
@@ -216,6 +215,9 @@ class Random(val self: java.util.Random) extends AnyRef with Serializable {
     (self.nextInt(high - low) + low).toChar
   }
 
+  def nextAlphanumericChar(): Char =
+    Random.alphanumChars.charAt(self.nextInt(Random.alphanumChars.length))
+
   def setSeed(seed: Long): Unit = { self.setSeed(seed) }
 
   /** Returns a new collection of the same type in a randomly chosen order.
@@ -243,22 +245,19 @@ class Random(val self: java.util.Random) extends AnyRef with Serializable {
    *  equally chosen from A-Z, a-z, and 0-9.
    */
   @migration("`alphanumeric` returns a LazyList instead of a Stream", "2.13.0")
-  def alphanumeric: LazyList[Char] = {
-    def nextAlphaNum: Char = {
-      val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-      chars charAt (self nextInt chars.length)
-    }
+  @deprecated("use `nextAlphanumericChar` instead", "2.13.7")
+  def alphanumeric: LazyList[Char] =
+    LazyList.continually(nextAlphanumericChar())
 
-    LazyList continually nextAlphaNum
-  }
-
+  def alphanumericIterator: Iterator[Char] =
+    Iterator.continually(nextAlphanumericChar())
 }
 
 /** The object `Random` offers a default implementation
  *  of scala.util.Random and random-related convenience methods.
  */
 object Random extends Random {
+  private val alphanumChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
   implicit def javaRandomToRandom(r: java.util.Random): Random = new Random(r)
-
 }
