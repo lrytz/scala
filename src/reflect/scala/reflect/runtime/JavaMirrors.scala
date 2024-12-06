@@ -230,6 +230,8 @@ private[scala] trait JavaMirrors extends internal.SymbolTable with api.JavaUnive
         )
       )
 
+      def overload: Option[Symbol] = None
+
       override def transformArgs(f: List[Tree] => List[Tree]) = this
     }
 

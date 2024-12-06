@@ -450,8 +450,9 @@ trait Importers { to: SymbolTable =>
       val atp1 = importType(ann.atp)
       val args1 = ann.args map importTree
       val assocs1 = ann.assocs map { case (name, arg) => (importName(name), importAnnotArg(arg)) }
+      val overload1 = ann.overload.map(importSymbol)
       val original1 = importTree(ann.original)
-      AnnotationInfo(atp1, args1, assocs1) setOriginal original1
+      AnnotationInfo(atp1, args1, assocs1, overload1) setOriginal original1
     }
 
     def importAnnotArg(arg: from.ClassfileAnnotArg): ClassfileAnnotArg = arg match {

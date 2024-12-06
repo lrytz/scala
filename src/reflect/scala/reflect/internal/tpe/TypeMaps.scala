@@ -153,7 +153,7 @@ private[internal] trait TypeMaps {
 
       if ((args eq args1) && (atp eq atp1)) annot
       else if (args1.isEmpty && args.nonEmpty) UnmappableAnnotation  // some annotation arg was unmappable
-      else AnnotationInfo(atp1, args1, assocs) setPos annot.pos
+      else AnnotationInfo(atp1, args1, assocs, annot.overload) setPos annot.pos
     }
 
     def mapOverAnnotations(annots: List[AnnotationInfo]): List[AnnotationInfo] = {

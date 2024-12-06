@@ -113,8 +113,8 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
     def lazily(lazySymbol: => Symbol, lazyInfo: => AnnotationInfo) =
       new ExtraLazyAnnotationInfo(lazySymbol, lazyInfo)
 
-    def apply(atp: Type, args: List[Tree], assocs: List[(Name, ClassfileAnnotArg)]): AnnotationInfo =
-      new CompleteAnnotationInfo(atp, args, assocs)
+    def apply(atp: Type, args: List[Tree], assocs: List[(Name, ClassfileAnnotArg)], overload: Option[Symbol] = None): AnnotationInfo =
+      new CompleteAnnotationInfo(atp, args, assocs, overload)
 
     def unapply(info: AnnotationInfo): Some[(Type, List[Tree], List[(Name, ClassfileAnnotArg)])] =
       Some((info.atp, info.args, info.assocs))
@@ -130,7 +130,8 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
   class CompleteAnnotationInfo(
     val atp: Type,
     val args: List[Tree],
-    val assocs: List[(Name, ClassfileAnnotArg)]
+    val assocs: List[(Name, ClassfileAnnotArg)],
+    val overload: Option[Symbol]
   ) extends AnnotationInfo {
     // Classfile annot: args empty. Scala annot: assocs empty.
     assert(args.isEmpty || assocs.isEmpty, atp)
@@ -164,6 +165,7 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
     def atp: Type                               = forcedInfo.atp
     def args: List[Tree]                        = forcedInfo.args
     def assocs: List[(Name, ClassfileAnnotArg)] = forcedInfo.assocs
+    def overload: Option[Symbol]                = forcedInfo.overload
     def original: Tree                          = forcedInfo.original
     def setOriginal(t: Tree): this.type         = { forcedInfo.setOriginal(t); this }
 
@@ -201,6 +203,9 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
     def atp: Type
     def args: List[Tree]
     def assocs: List[(Name, ClassfileAnnotArg)]
+    def overload: Option[Symbol]
+
+    def constructor: Symbol = overload.getOrElse(atp.typeSymbol.primaryConstructor)
 
     def tpe = atp
     def scalaArgs = args
@@ -304,7 +309,7 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
       if (index < l.size) Some(l(index)) else None
 
     def transformArgs(f: List[Tree] => List[Tree]): AnnotationInfo =
-      new CompleteAnnotationInfo(atp, f(args), assocs)
+      new CompleteAnnotationInfo(atp, f(args), assocs, overload)
 
     override def hashCode = atp.## + args.## + assocs.##
     override def equals(other: Any) = other match {
@@ -359,7 +364,7 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
   }
 
   protected[scala] def treeToAnnotation(tree: Tree): Annotation = tree match {
-    case Apply(Select(New(tpt), nme.CONSTRUCTOR), args) =>
+    case Apply(cons @ Select(New(tpt), nme.CONSTRUCTOR), args) =>
       def encodeJavaArg(arg: Tree): ClassfileAnnotArg = arg match {
         case Literal(const) => LiteralAnnotArg(const)
         case Apply(ArrayModule, args) => ArrayAnnotArg(args.map(encodeJavaArg).toArray)
@@ -373,16 +378,16 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
         case Nil => Nil
       }
       val atp = tpt.tpe
-      if (atp != null && (atp.typeSymbol isNonBottomSubClass StaticAnnotationClass)) AnnotationInfo(atp, args, Nil)
+      if (atp != null && (atp.typeSymbol isNonBottomSubClass StaticAnnotationClass)) AnnotationInfo(atp, args, Nil, Some(cons.symbol))
       else if (atp != null && (atp.typeSymbol.isJavaDefined || atp.typeSymbol.isNonBottomSubClass(ConstantAnnotationClass))) AnnotationInfo(atp, Nil, encodeJavaArgs(args))
       else throw new Exception(s"unexpected annotation type $atp: only subclasses of StaticAnnotation and ClassfileAnnotation are supported")
     case _ =>
       throw new Exception("""unexpected tree shape: only q"new $annType(..$args)" is supported""")
   }
 
-  object UnmappableAnnotation extends CompleteAnnotationInfo(NoType, Nil, Nil)
+  object UnmappableAnnotation extends CompleteAnnotationInfo(NoType, Nil, Nil, None)
 
-  class ErroneousAnnotation() extends CompleteAnnotationInfo(ErrorType, Nil, Nil)
+  class ErroneousAnnotation() extends CompleteAnnotationInfo(ErrorType, Nil, Nil, None)
 
   /** Extracts the type of the thrown exception from an AnnotationInfo.
     *

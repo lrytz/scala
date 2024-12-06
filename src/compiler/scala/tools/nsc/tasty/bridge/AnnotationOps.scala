@@ -43,7 +43,7 @@ trait AnnotationOps { self: TastyUniverse =>
             "currently not supported; ignoring arguments " + args(1) + " on\n"+
            s"${implicitly[ShowKind[T]].showKind(soFar, annotee)}")
         }
-        u.AnnotationInfo(atp, args.headOption.getOrElse(Nil), Nil)
+        u.AnnotationInfo(atp, args.headOption.getOrElse(Nil), Nil, Some(tree.symbol))
       case u.TypeApply(pre, newTpArgs) if tpargs.isEmpty =>
         go(newTpArgs.map(_.tpe), args, pre)
       case u.Apply(pre, Nil) => // skip the empty term param list

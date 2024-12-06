@@ -4246,9 +4246,9 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
         }
         @tailrec
         def annInfo(t: Tree): AnnotationInfo = t match {
-          case Apply(Select(New(tpt), nme.CONSTRUCTOR), args) =>
+          case Apply(cons @ Select(New(tpt), nme.CONSTRUCTOR), args) =>
             // `tpt.tpe` is more precise than `annType`, since it incorporates the types of `args`
-            AnnotationInfo(tpt.tpe, args, Nil).setOriginal(typedAnn).setPos(t.pos)
+            AnnotationInfo(tpt.tpe, args, Nil, Some(cons.symbol)).setOriginal(typedAnn).setPos(t.pos)
 
           case Block(_, expr) =>
             if (!annTypeSym.isNonBottomSubClass(ConstantAnnotationClass))
