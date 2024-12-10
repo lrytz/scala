@@ -205,6 +205,13 @@ trait AnnotationInfos extends api.Annotations { self: SymbolTable =>
     def assocs: List[(Name, ClassfileAnnotArg)]
     def overload: Option[Symbol]
 
+    def constructorSymbol(typer: Tree => Tree): Symbol = {
+      typer(New(atp, args: _*)) match {
+        case Apply(constr @ Select(New(_), nme.CONSTRUCTOR), _) => constr.symbol
+        case _ => atp.typeSymbol.primaryConstructor
+      }
+    }
+
     def constructor: Symbol = overload.getOrElse(atp.typeSymbol.primaryConstructor)
 
     def tpe = atp
