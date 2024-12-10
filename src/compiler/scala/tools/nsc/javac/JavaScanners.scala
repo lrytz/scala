@@ -343,7 +343,10 @@ trait JavaScanners extends ast.parser.ScannersCommon {
                     setName()
                   } else {
                     in.next()
-                    getTextBlock()
+                    if (settings.YnoRcentJeps)
+                      syntaxError(s"text blocks not supported under ${settings.YnoRcentJeps.name}")
+                    else
+                      getTextBlock()
                   }
                 }
                 return

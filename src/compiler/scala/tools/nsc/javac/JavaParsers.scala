@@ -512,7 +512,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
               }
               i == n && Character.isWhitespace(lookahead.ch)
             }
-            val done = (in.token != IDENTIFIER) || (
+            val done = (in.token != IDENTIFIER) || settings.YnoRcentJeps || (
               in.name match {
                 case nme.javaRestrictedIdentifiers.SEALED => consume(Flags.SEALED)
                 case nme.javaRestrictedIdentifiers.UNSEALED => consume(unsealed)
@@ -605,7 +605,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
       * "record" class, it is much more convenient to promote it to a token.
       */
     def adaptRecordIdentifier(): Unit = {
-      if (in.token == IDENTIFIER && in.name == nme.javaRestrictedIdentifiers.RECORD)
+      if (in.token == IDENTIFIER && in.name == nme.javaRestrictedIdentifiers.RECORD && !settings.YnoRcentJeps.value)
         in.token = RECORD
     }
 
@@ -646,7 +646,7 @@ trait JavaParsers extends ast.parser.ParsersCommon with JavaScanners {
           val vparams = formalParams()
           if (!isVoid) rtpt = optArrayBrackets(rtpt)
           optThrows()
-          val isConcreteInterfaceMethod = !inInterface || (mods hasFlag Flags.JAVA_DEFAULTMETHOD) || (mods hasFlag Flags.STATIC) || (mods hasFlag Flags.PRIVATE)
+          val isConcreteInterfaceMethod = !inInterface || (mods hasFlag Flags.JAVA_DEFAULTMETHOD) || (mods hasFlag Flags.STATIC) || (mods hasFlag Flags.PRIVATE) && !settings.YnoRcentJeps.value
           val bodyOk = !(mods1 hasFlag Flags.DEFERRED) && isConcreteInterfaceMethod
           val body =
             if (bodyOk && in.token == LBRACE) {

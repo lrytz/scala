@@ -356,6 +356,8 @@ trait ScalaSettings extends StandardScalaSettings with Warnings { _: MutableSett
   val exposeEmptyPackage = BooleanSetting ("-Yexpose-empty-package", "Internal only: expose the empty package.").internalOnly()
   val Ydelambdafy        = ChoiceSetting  ("-Ydelambdafy", "strategy", "Strategy used for translating lambdas into JVM code.", List("inline", "method"), "method")
 
+  val YnoRcentJeps = BooleanSetting("-Yno-recent-jeps", "Disable Java source code features not present in Scala 2.12 (records, text blocks, sealed classes, private interface methods).")
+
   // Allows a specialised jar to be written. For instance one that provides stable hashing of content, or customisation of the file storage
   val YjarFactory = StringSetting   ("-YjarFactory", "classname", "factory for jar files", classOf[DefaultJarFactory].getName)
   val YaddBackendThreads = IntSetting   ("-Ybackend-parallelism", "maximum worker threads for backend", 1, Some((1,16)), (_: String) => None )
