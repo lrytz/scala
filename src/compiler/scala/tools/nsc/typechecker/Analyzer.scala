@@ -80,7 +80,7 @@ trait Analyzer extends AnyRef
 
       def apply(unit: CompilationUnit): Unit = {
         openPackageObjectsTraverser(unit.body)
-        deferredOpen.foreach(openPackageModule(_))
+        deferredOpen.foreach(openPackageModule(_, force = true))
         deferredOpen.clear()
       }
     }
