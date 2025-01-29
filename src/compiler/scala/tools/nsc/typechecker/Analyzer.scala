@@ -80,6 +80,10 @@ trait Analyzer extends AnyRef
 
       def apply(unit: CompilationUnit): Unit = {
         openPackageObjectsTraverser(unit.body)
+        /* Force parameter needed to force loading package object symbols
+         * since globalPhase may not be past namer when compileLate 
+         * Related to https://github.com/scala/scala/pull/10988
+         * */
         deferredOpen.foreach(openPackageModule(_, force = true))
         deferredOpen.clear()
       }
