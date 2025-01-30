@@ -82,10 +82,12 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   def findMemberFromRoot(fullName: Name): Symbol = rootMirror.findMemberFromRoot(fullName)
 
   override def openPackageModule(pkgClass: Symbol, force: Boolean): Unit = {
-    if (force || isPast(currentRun.namerPhase)) super.openPackageModule(pkgClass, force = true)
+    // presentation compiler uses `compileLate` whioch doesn't advance `globalPhase`, so `isPast` is false.
+    // therefore checking `isAtPhaseAfter` as well.
+    val forceNow = force || isPast(currentRun.namerPhase) || isRunGlobalInitialized && isAtPhaseAfter(currentRun.namerPhase)
+    if (forceNow) super.openPackageModule(pkgClass, force = true)
     else analyzer.packageObjects.deferredOpen.addOne(pkgClass)
   }
-
   // alternate constructors ------------------------------------------
 
   override def settings = currentSettings
@@ -1037,25 +1039,16 @@ class Global(var currentSettings: Settings, reporter0: Reporter)
   private[this] var curFreshNameCreator: FreshNameCreator = null
   private[scala] def currentFreshNameCreator_=(fresh: FreshNameCreator): Unit = curFreshNameCreator = fresh
 
-  def isGlobalInitialized = (
-       definitions.isDefinitionsInitialized
-    && rootMirror.isMirrorInitialized
-  )
+  def isGlobalInitialized = definitions.isDefinitionsInitialized && rootMirror.isMirrorInitialized
+  private def isRunGlobalInitialized = (curRun ne null) && isGlobalInitialized
+
   override def isPastTyper = isPast(currentRun.typerPhase)
   def isBeforeErasure      = isBefore(currentRun.erasurePhase)
-  def isPast(phase: Phase) = (
-       (curRun ne null)
-    && isGlobalInitialized // defense against init order issues
-    && (globalPhase.id > phase.id)
-  )
-  def isBefore(phase: Phase) = (
-       (curRun ne null)
-    && isGlobalInitialized // defense against init order issues
-    && (phase match {
-      case NoPhase => true // if phase is NoPhase then that phase ain't comin', so we're "before it"
-      case _       => globalPhase.id < phase.id
-    })
-  )
+  def isPast(phase: Phase) = isRunGlobalInitialized && (globalPhase.id > phase.id)
+  def isBefore(phase: Phase) = isRunGlobalInitialized && (phase match {
+    case NoPhase => true // if phase is NoPhase then that phase ain't comin', so we're "before it"
+    case _       => globalPhase.id < phase.id
+  })
 
   // TODO - trim these to the absolute minimum.
   @inline final def exitingErasure[T](op: => T): T        = exitingPhase(currentRun.erasurePhase)(op)
