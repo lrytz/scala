@@ -823,7 +823,7 @@ lazy val testkit = configureAsSubproject(project)
   .settings(
     name := "scala-testkit",
     description := "Scala Compiler Testkit",
-    libraryDependencies ++= Seq(junitDep, asmDep),
+    libraryDependencies ++= Seq(junitDep, asmDep, "net.bytebuddy" % "byte-buddy-agent" % "1.14.9", "net.bytebuddy" % "byte-buddy" % "1.14.9"),
     Compile / unmanagedSourceDirectories := List(baseDirectory.value),
     fixPom(
       "/project/name" -> <name>Scala Testkit</name>,
@@ -837,6 +837,7 @@ lazy val testkit = configureAsSubproject(project)
 // from the unnamed package (the classpath) to JDK modules in testing utilities like `assertNotReachable`.
 // `add-exports=jdk.jdeps/com.sun.tools.javap` is tests that use `:javap` in the REPL, see scala/bug#12378
 val addOpensForTesting = "-XX:+IgnoreUnrecognizedVMOptions" +: "--add-exports=jdk.jdeps/com.sun.tools.javap=ALL-UNNAMED" +:
+  "--add-reads=java.base=jdk.unsupported" +:
   Seq("java.util.concurrent.atomic", "java.lang", "java.lang.reflect", "java.net").map(p => s"--add-opens=java.base/$p=ALL-UNNAMED")
 
 lazy val junit = project.in(file("test") / "junit")
