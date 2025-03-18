@@ -682,6 +682,7 @@ trait Definitions extends api.StandardDefinitions {
     lazy val AbstractFunctionClass = new VarArityClass("runtime.AbstractFunction", MaxFunctionArity)
 
     lazy val NamedTupleClass = getClassIfDefined("scala.NamedTuple.NamedTuple")
+    lazy val NamedTupleClasses = enteringPhaseNotLaterThan(picklerPhase)(new VarArityClass("NamedTuple.NamedTuple", maxArity = 2, countFrom = 2))
 
     /** Creators for TupleN, ProductN, FunctionN. */
     def tupleType(elems: List[Type])                            = TupleClass.specificType(elems)
@@ -704,6 +705,7 @@ trait Definitions extends api.StandardDefinitions {
     }
 
     def isTupleSymbol(sym: Symbol) = TupleClass contains unspecializedSymbol(sym)
+    def isNamedTupleSymbol(sym: Symbol) = NamedTupleClasses contains unspecializedSymbol(sym)
     def isFunctionSymbol(sym: Symbol) = FunctionClass contains unspecializedSymbol(sym)
     def isAbstractFunctionSymbol(sym: Symbol) = AbstractFunctionClass contains unspecializedSymbol(sym)
     def isProductNSymbol(sym: Symbol) = ProductClass contains unspecializedSymbol(sym)
@@ -786,6 +788,7 @@ trait Definitions extends api.StandardDefinitions {
     // printing types when one wants to preserve the true nature of the type.
     def isFunctionTypeDirect(tp: Type) = !tp.isHigherKinded && isFunctionSymbol(tp.typeSymbolDirect)
     def isTupleTypeDirect(tp: Type)    = !tp.isHigherKinded && isTupleSymbol(tp.typeSymbolDirect)
+    def isNamedTupleTypeDirect(tp: Type) = !tp.isHigherKinded && isNamedTupleSymbol(tp.typeSymbolDirect)
 
     // Note that these call .dealiasWiden and not .normalize, the latter of which
     // tends to change the course of events by forcing types.

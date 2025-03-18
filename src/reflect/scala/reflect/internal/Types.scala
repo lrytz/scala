@@ -2651,6 +2651,18 @@ trait Types
       case arg :: Nil => s"($arg,)"
       case _          => args.mkString("(", ", ", ")")
     }
+    private def namedTupleTypeString: String = {
+      def names(nameTps: Type): List[String] = nameTps.typeArgs.map {
+        case LiteralType(Constant(s: String)) => s
+        case _ => "?"
+      }
+      args match {
+        case _:: Nil | Nil         => noArgsString
+        case nameTps :: arg :: Nil => s"(${names(nameTps).headOption.getOrElse("<?>")}: $arg,)"
+        case nameTps :: args       =>
+          names(nameTps).zipAll(args, "<?>", null).map(x => s"${x._1}: ${x._2}").mkString("(", ", ", ")")
+      }
+    }
     private def infixTypeString: String = {
       /* SLS 3.2.8: all infix types have the same precedence.
        * In A op B op' C, op and op' need the same associativity.
@@ -2690,6 +2702,7 @@ trait Types
           }
         case _ if isShowAsInfixType                    => infixTypeString
         case _ if isTupleTypeDirect(this)              => tupleTypeString
+        case _ if isNamedTupleTypeDirect(this)         => namedTupleTypeString
         case _ if sym.isAliasType && (this ne dealias) && prefixChain.exists(_.termSymbol.isSynthetic)
                                                        => "" + dealias
         case _                                         => ""
