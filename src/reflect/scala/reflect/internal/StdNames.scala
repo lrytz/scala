@@ -735,6 +735,7 @@ trait StdNames {
     val This: NameType                 = nameType("This")
     val ThisType: NameType             = nameType("ThisType")
     val Tuple2: NameType               = nameType("Tuple2")
+    val NamedTuple: NameType           = nameType("NamedTuple")
     val TYPE_ : NameType               = nameType("TYPE")
     val TypeBounds: NameType           = nameType("TypeBounds")
     val TypeRef: NameType              = nameType("TypeRef")

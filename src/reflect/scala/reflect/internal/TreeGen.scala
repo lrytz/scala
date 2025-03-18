@@ -333,7 +333,23 @@ abstract class TreeGen {
     case tree :: Nil if flattenUnary =>
       tree
     case _ =>
-      Apply(scalaDot(TupleClass(elems.length).name.toTermName), elems)
+      var names = ListBuffer.empty[String]
+      val es = ListBuffer.empty[Tree]
+      val it = elems.iterator
+      while (it.hasNext && names != null) it.next() match {
+        case Assign(Ident(n), e) =>
+          names += n.decode
+          es += e
+        case _ =>
+          names = null
+      }
+      if (names != null)
+        Apply(
+          TypeApply(
+            Select(scalaDot(nme.NamedTuple), TermName(s"${nme.NamedTuple}${elems.length}")),
+            List(mkTupleType(names.toList.map(n => SingletonTypeTree(Literal(Constant(n))))))),
+          es.toList)
+      else Apply(scalaDot(TupleClass(elems.length).name.toTermName), elems)
   }
 
   def mkLiteralUnit: Literal = Literal(Constant(()))
