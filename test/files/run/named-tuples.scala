@@ -9,4 +9,6 @@ object Test extends App {
   assert(show(w1) == "gandalf: 55000")
   assert(show(w2) == "dumbledore: 115")
   assert(show(w3) == "harry: 11")
+
+  assert(w3.toString == "(harry, 11)")
 }
