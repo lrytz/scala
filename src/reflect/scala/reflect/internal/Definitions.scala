@@ -681,6 +681,8 @@ trait Definitions extends api.StandardDefinitions {
     lazy val FunctionClass         = new VarArityClass("Function", MaxFunctionArity)
     lazy val AbstractFunctionClass = new VarArityClass("runtime.AbstractFunction", MaxFunctionArity)
 
+    lazy val NamedTupleClass = getClassIfDefined("scala.NamedTuple.NamedTuple")
+
     /** Creators for TupleN, ProductN, FunctionN. */
     def tupleType(elems: List[Type])                            = TupleClass.specificType(elems)
     def functionType(formals: List[Type], restpe: Type)         = FunctionClass.specificType(formals, restpe :: Nil)

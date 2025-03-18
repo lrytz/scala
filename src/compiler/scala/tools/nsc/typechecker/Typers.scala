@@ -5469,6 +5469,19 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
           def asDynamicCall = mkInvoke(context, tree, qual, name) map { t =>
             wrapErrors(t, _.typed1(t, mode, pt))
           }
+          def asNamedTupleSelection: Option[Tree] = qual.tpe.baseType(NamedTupleClass) match {
+            case TypeRef(_, _, List(nameTps)) =>
+              val nameStr = name.decode
+              val index = nameTps.typeArgs.indexWhere {
+                case LiteralType(Constant(s: String)) => s == nameStr
+                case _ => false
+              }
+              Option.when(index >= 0) {
+                val elem = Select(qual, nme.productAccessorName(index + 1))
+                typed1(elem, mode, pt)
+              }
+            case _ => None
+          }
           def checkDubiousUnitSelection(result: Tree): Unit =
             if (!isPastTyper && isUniversalMember(result.symbol))
               context.warning(tree.pos, s"dubious usage of ${result.symbol} with unit value", WarningCategory.LintUniversalMethods)
@@ -5540,7 +5553,7 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
               // 1) Try converting a term selection on a java class into a type selection.
               // 2) Try expanding according to Dynamic rules.
               // 3) Try looking up the name in the qualifier.
-              asTypeSelection orElse asDynamicCall getOrElse (lookupInQualifier(qual, name) match {
+              asTypeSelection orElse asNamedTupleSelection orElse asDynamicCall getOrElse (lookupInQualifier(qual, name) match {
                 case NoSymbol => setError(errorTree)
                 case found    => typed1(tree setSymbol found, mode, pt)
               })

@@ -398,6 +398,7 @@ trait JavaUniverseForce { self: runtime.JavaUniverse  =>
     definitions.TupleClass
     definitions.FunctionClass
     definitions.AbstractFunctionClass
+    definitions.NamedTupleClass
     definitions.TryClass
     definitions.FailureClass
     definitions.SuccessClass
