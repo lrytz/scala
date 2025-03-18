@@ -364,6 +364,14 @@ abstract class TreeGen {
       AppliedTypeTree(scalaDot(TupleClass(elems.length).name), elems)
   }
 
+  def mkNamedTupleType(names: List[String], elems: List[Tree]): Tree = elems match {
+    case Nil =>
+      scalaDot(tpnme.Unit)
+    case _ =>
+      AppliedTypeTree(Select(scalaDot(nme.NamedTuple), TypeName(s"${nme.NamedTuple}${elems.length}")),
+        mkTupleType(names.map(n => SingletonTypeTree(Literal(Constant(n))))) :: elems)
+  }
+
   // tree1 AND tree2
   def mkAnd(tree1: Tree, tree2: Tree): Tree =
     Apply(Select(tree1, Boolean_and), List(tree2))

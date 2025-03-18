@@ -1087,8 +1087,28 @@ self =>
       // () must be () => R; (types) could be tuple or (types) => R
       private def tupleInfixType(start: Offset) = {
         require(in.token == LPAREN, "first token must be a left parenthesis")
-        val ts = inParens { if (in.token == RPAREN) Nil else functionTypes() }
-        if (in.token == ARROW)
+        val ns = ListBuffer.empty[String]
+        val ts = inParens {
+          if (in.token == RPAREN) Nil
+          else if (isIdent && lookingAhead(in.token == COLON)) commaSeparated {
+            ns += in.name.decode
+            in.nextToken()
+            accept(COLON)
+            paramType(repeatedParameterOK = false, useStartAsPosition = true)
+          }
+          else functionTypes()
+        }
+        if (ns.nonEmpty) {
+          val tuple = atPos(start)(gen.mkNamedTupleType(ns.toList, ts))
+          infixTypeRest(
+            compoundTypeRest(
+              annotTypeRest(
+                simpleTypeRest(
+                  tuple))),
+            InfixMode.FirstOp
+          )
+        }
+        else if (in.token == ARROW)
           atPos(start, in.skipToken()) { makeSafeFunctionType(ts, typ()) }
         else if (ts.isEmpty) {
           val msg = "Illegal literal type (), use Unit instead"

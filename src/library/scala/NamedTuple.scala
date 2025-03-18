@@ -1,6 +1,5 @@
 package scala
 
-
 object NamedTuple {
   sealed trait NamedTuple[N]
 
