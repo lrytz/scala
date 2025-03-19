@@ -2,6 +2,15 @@ package scala
 
 import scala.language.implicitConversions
 
+// laundry list
+//  - pattern matching: `(name = "bob", age = 21) match { case (name, age) => ... }` needs to work
+//    - what about patterns / type tests in existing compiled code?
+//    - ok without named patterns?
+//  - are named tuples useful without the tuple operations that we cannot express at the type level in Scala 2?
+//    - I think yes, there are good use cases, and the situation is similar with unnamed tuples
+//    - ... but are named tuples without those operations enough for a query API design?
+//  - Scala 3 interop, migration, cross-compilation - does it make things better or worse?
+
 object NamedTuple {
   sealed trait NamedTuple[N]
 
