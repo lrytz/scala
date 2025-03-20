@@ -20,4 +20,22 @@ object Test extends App {
   assert(show(w5) == "snape: 31")
 
   assert(w3.toString == "(harry,11)")
+
+  def p1(x: Any) = x match {
+    case (name: String, age: Int) => (name = name, age = age + 7)
+  }
+
+  val o1: (name: String, age: Int) = p1(w1)
+  assert(show(o1) == "gandalf: 55007")
+
+  def p2(w: (name: String, age: Int)): (name: String, age: Int) = w.toTuple match {
+    case (name, age) => (name, age + 7)
+  }
+
+  assert(p2(w1) == o1)
+
+//  todo: name / age bindings have type Any
+//  def p3(w: (name: String, age: Int)) = w match {
+//    case (name, age) => (name, age + 7)
+//  }
 }
