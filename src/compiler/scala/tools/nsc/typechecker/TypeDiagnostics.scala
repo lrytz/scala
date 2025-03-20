@@ -95,7 +95,7 @@ trait TypeDiagnostics extends splain.SplainDiagnostics {
     def apply(tp: Type): Type = tp match {
       // Avoid "explaining" that String is really java.lang.String,
       // while still dealiasing types from non-default namespaces.
-      case TypeRef(pre, sym, args) if sym.isAliasType && !sym.isInDefaultNamespace =>
+      case TypeRef(pre, sym, args) if sym.isAliasType && !sym.isInDefaultNamespace && sym.owner != NamedTupleModule.moduleClass =>
         mapOver(tp.dealias)
       case _ =>
         mapOver(tp)

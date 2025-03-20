@@ -5,7 +5,7 @@ object Test extends App {
 
   type P = (name: String, age: Int)
 
-  val w1: NamedTuple2[("name", "age"), String, Int] = NamedTuple2("gandalf", 55000)
+  val w1: NamedTuple2[("name", "age"), String, Int] = NamedTuple2[("name", "age")]("gandalf", 55000)
   val w2 = NamedTuple2[("name", "age")]("dumbledore", 115)
   val w3 = (name = "harry", age = 11)
   val w4: (name: String, age: Int) = w1
@@ -19,5 +19,5 @@ object Test extends App {
   assert(show(w4) == wohs(w1))
   assert(show(w5) == "snape: 31")
 
-  assert(w3.toString == "(harry, 11)")
+  assert(w3.toString == "(harry,11)")
 }

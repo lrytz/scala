@@ -681,8 +681,11 @@ trait Definitions extends api.StandardDefinitions {
     lazy val FunctionClass         = new VarArityClass("Function", MaxFunctionArity)
     lazy val AbstractFunctionClass = new VarArityClass("runtime.AbstractFunction", MaxFunctionArity)
 
-    lazy val NamedTupleClass = getClassIfDefined("scala.NamedTuple.NamedTuple")
-    lazy val NamedTupleClasses = enteringPhaseNotLaterThan(picklerPhase)(new VarArityClass("NamedTuple.NamedTuple", maxArity = 2, countFrom = 2))
+    lazy val NamedTupleModule = getModuleIfDefined("scala.NamedTuple")
+    lazy val NamedTupleClass = getTypeMember(NamedTupleModule, TypeName("NamedTuple"))
+    lazy val NamedTupleClasses = enteringPhaseNotLaterThan(picklerPhase) {
+      (2 to 2).toVector.map(i => getTypeMember(NamedTupleModule, TypeName(s"NamedTuple$i")))
+    }
 
     /** Creators for TupleN, ProductN, FunctionN. */
     def tupleType(elems: List[Type])                            = TupleClass.specificType(elems)

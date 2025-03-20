@@ -1,0 +1,11 @@
+named-tuples.scala:5: error: type mismatch;
+ found   : (name: String, age: Int)
+ required: (age: Int, name: String)
+  val w2: (age: Int, name: String) = w1 // error
+                                     ^
+named-tuples.scala:7: error: type mismatch;
+ found   : (x: Int, y: Int)
+ required: (y: Int, x: Int)
+  val p1: (y: Int, x: Int) = (x = 1, y = 2) // error
+                             ^
+2 errors
