@@ -5,4 +5,9 @@ object Test {
   val w2: (age: Int, name: String) = w1 // error
 
   val p1: (y: Int, x: Int) = (x = 1, y = 2) // error
+
+  type Person = (n: String, a: Int)
+  def mm(x: Any) = x match {
+    case p: Person => p // unchecked warning
+  }
 }

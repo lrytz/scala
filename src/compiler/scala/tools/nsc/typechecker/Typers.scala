@@ -2692,6 +2692,8 @@ trait Typers extends Adaptations with Tags with TypersTracking with PatternTyper
     def typedMatch(selector: Tree, cases: List[CaseDef], mode: Mode, pt: Type, tree: Tree = EmptyTree): Match = {
       val selector1  = checkDead(context, typedByValueExpr(selector))
       val selectorTp = packCaptured(selector1.tpe.widen).skolemizeExistential(context.owner, selector)
+      if (selectorTp.typeSymbol.isNonBottomSubClass(definitions.NamedTupleClass))
+        return typedMatch(Select(selector, TermName("toTuple")), cases, mode, pt, tree)
       val casesTyped = typedCases(cases, selectorTp, pt)
 
       def initChildren(sym: Symbol): Unit =

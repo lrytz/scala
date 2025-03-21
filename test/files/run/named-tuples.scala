@@ -34,8 +34,32 @@ object Test extends App {
 
   assert(p2(w1) == o1)
 
-//  todo: name / age bindings have type Any
-//  def p3(w: (name: String, age: Int)) = w match {
-//    case (name, age) => (name, age + 7)
-//  }
+  def p3(w: (name: String, age: Int)) = w match {
+    case (name, age) => (name, age + 7)
+  }
+
+  locally {
+    def t = (n = "bo", a = 33)
+    def u: Int = t match {
+      case (_, a) => a
+    }
+
+    assert(u == 33)
+
+    type Person = (n: String, a: Int)
+    val p: Person = t
+    def v: Int = p match {
+      case (_, a) => a
+    }
+
+    assert(v == 33)
+
+    val (_, ag) = p
+    val ag1: Int = ag
+    assert(ag1 == 33)
+
+    def id: Person = p match {
+      case x => x
+    }
+  }
 }

@@ -8,4 +8,8 @@ named-tuples.scala:7: error: type mismatch;
  required: (y: Int, x: Int)
   val p1: (y: Int, x: Int) = (x = 1, y = 2) // error
                              ^
+named-tuples.scala:11: warning: abstract type pattern NamedTuple.NamedTuple2.NT2[("n", "a"),String,Int] (the underlying of Test.Person) is unchecked since it is eliminated by erasure
+    case p: Person => p // unchecked warning
+            ^
+1 warning
 2 errors
