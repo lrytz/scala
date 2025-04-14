@@ -270,13 +270,8 @@ class Runner(val testInfo: TestInfo, val suiteRunner: AbstractRunner) { runner =
       }
 
       pushTranscript(s"<in process execution of $testIdent> > ${logFile.getName}")
-
-      TrapExit(() => run()) match {
-        case Left((status, throwable)) if status != 0 =>
-          genFail("non-zero exit code")
-        case _ =>
-          genPass
-      }
+      run()
+      genPass
     }
   }
 
