@@ -183,6 +183,4 @@ trait TryStandard {
 
 object Test
 extends App
-with TryStandard {
-  System.exit(0)
-}
+with TryStandard

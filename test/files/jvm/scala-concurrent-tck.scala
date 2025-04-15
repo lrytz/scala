@@ -1018,7 +1018,3 @@ with Exceptions
 with GlobalExecutionContext
 with CustomExecutionContext
 with ExecutionContextPrepare
-{
-  System.exit(0)
-}
-
