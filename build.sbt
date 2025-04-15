@@ -714,7 +714,8 @@ lazy val bench = project.in(file("test") / "benchmarks")
 // This is enforced by error (not just by warning) since JDK 16. In our tests we use reflective access
 // from the unnamed package (the classpath) to JDK modules in testing utilities like `assertNotReachable`.
 // `add-exports=jdk.jdeps/com.sun.tools.javap` is tests that use `:javap` in the REPL, see scala/bug#12378
-val addOpensForTesting = "-XX:+IgnoreUnrecognizedVMOptions" +: "--add-exports=jdk.jdeps/com.sun.tools.javap=ALL-UNNAMED" +:
+// Also --enable-native-access is needed for jvm/natives.scala
+val addOpensForTesting = "-XX:+IgnoreUnrecognizedVMOptions" +: "--add-exports=jdk.jdeps/com.sun.tools.javap=ALL-UNNAMED" +: "--enable-native-access=ALL-UNNAMED" +:
   Seq("java.util.concurrent.atomic", "java.lang", "java.lang.reflect", "java.net").map(p => s"--add-opens=java.base/$p=ALL-UNNAMED")
 
 lazy val junit = project.in(file("test") / "junit")
