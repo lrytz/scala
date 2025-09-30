@@ -685,8 +685,9 @@ lazy val test = project
   .settings(Defaults.itSettings: _*)
   .settings(
     libraryDependencies ++= Seq(asmDep, partestDep, scalaXmlDep, scalacheckDep),
+    /*
     libraryDependencies ++= {
-      // Resolve the JARs for all test/files/lib/*.jar.desired.sha1 files through Ivy
+      // Resolve the JARs for all test/files/lib/ *.jar.desired.sha1 files through Ivy
       val baseDir = (baseDirectory in ThisBuild).value
       (baseDir / "test/files/lib").list.toSeq.filter(_.endsWith(".jar.desired.sha1"))
         .map(f => bootstrapDep(baseDir, "test/files/lib", f.dropRight(17)))
@@ -694,6 +695,7 @@ lazy val test = project
     // Two hardcoded depenencies in partest, resolved in the otherwise unused scope "test":
     libraryDependencies += bootstrapDep((baseDirectory in ThisBuild).value, "test/files/codelib", "code") % "test",
     libraryDependencies += bootstrapDep((baseDirectory in ThisBuild).value, "test/files/speclib", "instrumented") % "test",
+    */
     // no main sources
     sources in Compile := Seq.empty,
     // test sources are compiled in partest run, not here
