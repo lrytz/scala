@@ -67,7 +67,10 @@ trait Typers {
     universe.analyzer.inferImplicit(tree, viewTpe, isView = true, callsiteTyper.context, silent, withMacrosDisabled, pos, (pos, msg) => throw TypecheckException(pos, msg))
   }
 
+  // deprecated in parent
   def resetLocalAttrs(tree: Tree): Tree = universe.resetAttrs(universe.duplicateAndKeepPositions(tree))
 
   def untypecheck(tree: Tree): Tree = resetLocalAttrs(tree)
+
+  def untypecheckCustom(tree: Tree, custom: Tree => Option[Tree]): Tree = universe.resetAttrs(universe.duplicateAndKeepPositions(tree), custom)
 }

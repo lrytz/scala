@@ -233,10 +233,10 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
   // until we have time to better understand what's going on. In order to dissuade people from using it,
   // it now comes with a new, ridiculous name.
   /** @see ResetAttrs */
-  def brutallyResetAttrs(x: Tree, leaveAlone: Tree => Boolean = null): Tree = new ResetAttrs(brutally = true, leaveAlone).transform(x)
+  def brutallyResetAttrs(x: Tree, custom: Tree => Option[Tree] = null): Tree = new ResetAttrs(brutally = true, custom).transform(x)
 
   /** @see ResetAttrs */
-  def resetAttrs(x: Tree): Tree = new ResetAttrs(brutally = false, leaveAlone = null).transform(x)
+  def resetAttrs(x: Tree, custom: Tree => Option[Tree] = null): Tree = new ResetAttrs(brutally = false, custom).transform(x)
 
   /** A transformer which resets symbol and tpe fields of all nodes in a given tree,
    *  with special treatment of:
@@ -247,7 +247,7 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
    *
    *  (bq:) This transformer has mutable state and should be discarded after use
    */
-  private class ResetAttrs(brutally: Boolean, leaveAlone: Tree => Boolean) {
+  private class ResetAttrs(brutally: Boolean, custom: Tree => Option[Tree]) {
     // this used to be based on -Ydebug, but the need for logging in this code is so situational
     // that I've reverted to a hard-coded constant here.
     val debug = false
@@ -290,9 +290,8 @@ trait Trees extends scala.reflect.internal.Trees { self: Global =>
 
     class ResetTransformer extends AstTransformer {
       override def transform(tree: Tree): Tree = {
-        if (leaveAlone != null && leaveAlone(tree))
-          tree
-        else {
+        val c = if (custom == null) None else custom(tree)
+        c.getOrElse {
           val tree1 = {
             tree match {
               case tree if !tree.canHaveAttrs =>

@@ -137,6 +137,8 @@ trait Typers {
    *  @see [[https://stackoverflow.com/questions/20936509/scala-macros-what-is-the-difference-between-typed-aka-typechecked-an-untyped]]
    */
   def untypecheck(tree: Tree): Tree
+
+  def untypecheckCustom(tree: Tree, custom: Tree => Option[Tree]): Tree
 }
 
 /** Indicates an error during one of the methods in [[scala.reflect.macros.Typers]].
