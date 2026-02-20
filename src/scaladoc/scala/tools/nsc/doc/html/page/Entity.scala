@@ -760,8 +760,8 @@ trait EntityPage extends HtmlPage {
     }
 
     def diagramDiv(description: String, diagId: String)(diagramSvg: Elems): Elems =
-      Div(`class`= "toggleContainer block diagram-container", id=diagId+"-container", elems= List(
-        Span(`class`= "toggle diagram-link", elems= Txt(description)),
+      Div(`class`= "toggleContainer diagram-container", id=diagId+"-container", elems= List(
+        Div(`class`= "toggle block diagram-link", elems= Span(elems= Txt(description))),
         Div(`class`= "diagram hiddenContent", id= diagId, elems= diagramSvg))) :: NoElems
 
     def ifDiags(genDiag: DocTemplateEntity => Option[Diagram])(embedDiagSvg: Elems => Elems): Elems =
