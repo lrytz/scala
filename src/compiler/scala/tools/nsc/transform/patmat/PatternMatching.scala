@@ -182,19 +182,22 @@ trait Interface extends ast.TreeDSL {
     // Substitutions are composed with `>>` for each tree maker, and the composition mostly shares the `to` trees
     // of its parts. Remember their types (for the match being translated), rather than typing them again for each
     // composition, which made the analysis of a match quadratic in its number of cases.
+    // A typed tree is not remembered: the typer returns it as is, and its type may be set again later.
     // Only used for lookups, keyed by identity; allocated on first use.
     private[this] var stableTypes: java.util.IdentityHashMap[Tree, Type] = null
     private def typedStable(t: Tree) = typer.typed(t.shallowDuplicate, Mode.MonoQualifierModes | Mode.TYPEPATmode)
-    private def typedStableType(t: Tree): Type = {
-      if (stableTypes eq null) stableTypes = new java.util.IdentityHashMap[Tree, Type]()
-      val cached = stableTypes.get(t)
-      if (cached ne null) cached
+    private def typedStableType(t: Tree): Type =
+      if (t.tpe ne null) t.tpe
       else {
-        val tp = typedStable(t).tpe
-        stableTypes.put(t, tp)
-        tp
+        if (stableTypes eq null) stableTypes = new java.util.IdentityHashMap[Tree, Type]()
+        val cached = stableTypes.get(t)
+        if (cached ne null) cached
+        else {
+          val tp = typedStable(t).tpe
+          stableTypes.put(t, tp)
+          tp
+        }
       }
-    }
 
     /** Substitutes the trees `to` for the symbols `from` (the first binding of a symbol wins). */
     sealed abstract class Substitution {
