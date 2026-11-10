@@ -1595,7 +1595,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
         def abortNoProgress() = abort(s"no progress in completing $this: ${infos.info}")
         if (cnt == 3) abortNoProgress()
       }
-      rawInfo
+      unsynchronizedRawInfo // already under the lock, if any
     }
 
     private def completeInfo(): Unit = try {
