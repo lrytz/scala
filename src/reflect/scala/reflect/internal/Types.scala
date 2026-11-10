@@ -1460,6 +1460,8 @@ trait Types
       else super.safeToString
     override def narrow: Type = this
     override def kind = "ThisType"
+    // `TypeMap.mapOverType` skips the call, relying on this being the identity
+    final override def mapOver(map: TypeMap): Type = this
   }
 
   final class UniqueThisType(sym: Symbol) extends ThisType(sym) { }
