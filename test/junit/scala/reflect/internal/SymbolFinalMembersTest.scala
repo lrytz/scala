@@ -18,6 +18,15 @@ class SymbolFinalMembersTest {
     assertSame(findMemberInstance.using(x => x), findMemberInstance.using(x => x))
   }
 
+  // ReflectGlobal is a compiler universe, but its symbols must keep runtime reflection's locks.
+  @Test def runtimeReflectionSymbolsLockAlsoInReflectGlobal(): Unit = {
+    assertFalse(hasSynchronizedSymbols)
+    assertTrue(scala.reflect.runtime.universe.asInstanceOf[scala.reflect.runtime.JavaUniverse].hasSynchronizedSymbols)
+    val rg = new scala.tools.reflect.ReflectGlobal(settings, new StoreReporter(settings), getClass.getClassLoader)
+    assertTrue(rg.isCompilerUniverse)
+    assertTrue(rg.hasSynchronizedSymbols)
+  }
+
   @Test def kindPredicates(): Unit = {
     definitions.init()
     import definitions._

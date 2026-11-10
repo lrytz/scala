@@ -1579,7 +1579,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     // OPT: `info` and `rawInfo` are final so that call sites bind statically. The variants that used to override them
     //      are handled here: runtime reflection takes the GIL in `synchronizedInfo` (a constant per universe selects it),
     //      a stub fails on the incomplete path (a stub's info is never complete), and NoSymbol's info is valid forever.
-    final def info: Type = if (isCompilerUniverse) unsynchronizedInfo else synchronizedInfo
+    final def info: Type = if (hasSynchronizedSymbols) synchronizedInfo else unsynchronizedInfo
 
     /** Overridden in runtime reflection to call `unsynchronizedInfo` under the GIL. */
     protected def synchronizedInfo: Type = unsynchronizedInfo
@@ -1701,7 +1701,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     }
 
     /** Return info without checking for initialization or completing */
-    final def rawInfo: Type = if (isCompilerUniverse) unsynchronizedRawInfo else synchronizedRawInfo
+    final def rawInfo: Type = if (hasSynchronizedSymbols) synchronizedRawInfo else unsynchronizedRawInfo
 
     /** Overridden in runtime reflection to call `unsynchronizedRawInfo` under the GIL. */
     protected def synchronizedRawInfo: Type = unsynchronizedRawInfo
@@ -3291,7 +3291,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
      * undergo substitution in which the dummies are replaced by actual
      * type arguments.
      */
-    private[Symbols] final def typeSymbolTpe: Type = if (isCompilerUniverse) unsynchronizedTpe else synchronizedTpe
+    private[Symbols] final def typeSymbolTpe: Type = if (hasSynchronizedSymbols) synchronizedTpe else unsynchronizedTpe
 
     /** Overridden in runtime reflection to call `unsynchronizedTpe` under its locks. */
     protected def synchronizedTpe: Type = unsynchronizedTpe

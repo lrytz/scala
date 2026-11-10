@@ -25,20 +25,25 @@ import scala.reflect.internal.settings.MutableSettings
 import scala.reflect.internal.{TreeGen => InternalTreeGen}
 import scala.reflect.io.AbstractFile
 
-/** Is this symbol table a part of a compiler universe?
+/** Flags that are constant per universe.
  *
- *  This is `SymbolTable`'s first mixin so that its field is set before the initializers of the others, some of which read it.
+ *  This is `SymbolTable`'s first mixin so that its fields are set before the initializers of the others, some of which read them.
  */
-private[reflect] trait CompilerUniverseFlag {
+private[reflect] trait UniverseFlags {
   /** Is this symbol table a part of a compiler universe? */
   final val isCompilerUniverse: Boolean = computeIsCompilerUniverse
 
   /** The value of `isCompilerUniverse`. An override can't refer to the state of its universe, which doesn't exist yet. */
   protected def computeIsCompilerUniverse: Boolean = false
+
+  /** Do symbols lock in `info`, `rawInfo` and `tpe_*`? Runtime reflection's do, including in `ReflectGlobal`. */
+  final val hasSynchronizedSymbols: Boolean = computeHasSynchronizedSymbols
+
+  protected def computeHasSynchronizedSymbols: Boolean = false
 }
 
 abstract class SymbolTable extends macros.Universe
-                              with CompilerUniverseFlag
+                              with UniverseFlags
                               with Collections
                               with Names
                               with Symbols
