@@ -52,6 +52,16 @@ class SymbolFinalMembersTest {
     assertTrue(reporter.hasErrors)
   }
 
+  @Test def stubReportsMissingSymbolEvenAfterUpdateInfo(): Unit = {
+    val stub = rootMirror.EmptyPackageClass.newStubSymbol(TypeName("Missing"), "missing")
+    stub.setInfo(NoType)
+    stub.updateInfo(NoType)
+    assertFalse(stub.isInitialized)
+    assertFalse(reporter.hasErrors)
+    assertSame(NoType, stub.info)
+    assertTrue(reporter.hasErrors)
+  }
+
   @Test def ownerAfterFlatten(): Unit = {
     val pkg = rootMirror.RootClass.newPackage(TermName("p")).moduleClass
     val outer = pkg.newClassSymbol(TypeName("Outer"))

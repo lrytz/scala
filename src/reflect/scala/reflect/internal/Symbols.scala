@@ -3730,6 +3730,7 @@ trait Symbols extends api.Symbols { self: SymbolTable =>
     private[Symbols] final def failInfo(): Type = fail(NoType)
     // Keep the info incomplete so that `info` and `rawInfo` fail, whatever info is set.
     override def info_=(info: Type): Unit = { super.info_=(info); validTo = NoPeriod }
+    override def updateInfo(info: Type): this.type = { super.updateInfo(info); validTo = NoPeriod; this }
     override def companionSymbol = fail(NoSymbol)
     // a missing class has no children, asking for them is not an error
     override private[reflect] def loadChildren(): Unit = ()
